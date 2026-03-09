@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "src/crypto",
+    "src/proto",
+    "src/clerk",
+    "src/mint",
+    "src/receiver",
+    "src/registrar",
+    "src/tokenmap",
+    "src/validate",
+    "src/wallet",
+    "src/simulation/absim",
+    "src/simulation/briolettesim",
+    "src/simulation/levy_distr",
+    "src/simulation/rand_flight",
+]

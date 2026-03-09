@@ -14,82 +14,65 @@
 # limitations under the License.
 
 # To use:
-#  source utils.sh
+#  cd src && source utils.sh
 
-build_external() {
-                pushd crypto
-                bash build-deps.sh
-                popd
-}
+# Workspace root is one directory up from src/
+WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 build() {
-
-        if [ ! -d crypto/deps ]; then
-                echo "Run build_external first!"
-                return 1
-        fi
-
-        for dir in $(ls -F | grep /); do
-                pushd $dir &> /dev/null
-                echo "Building $dir . . ."
-                (rm data/* || true) &>/dev/null
-                cargo build
-                popd &> /dev/null
-        done
+	echo "Building workspace . . ."
+	cargo build --manifest-path "${WORKSPACE_ROOT}/Cargo.toml"
 }
 
 clean() {
-for dir in $(ls -F | grep /); do
-        pushd $dir &> /dev/null
-        (rm data/* || true) &>/dev/null
-        cargo clean
-        popd &> /dev/null
-done
+	cargo clean --manifest-path "${WORKSPACE_ROOT}/Cargo.toml"
+	clear_data
 }
 
 clear_data() {
 for dir in $(ls -F | grep /); do
-        pushd $dir &> /dev/null
-        (rm data/* || true) &>/dev/null
-        popd &> /dev/null
+	pushd $dir &> /dev/null
+	(rm data/* || true) &>/dev/null
+	popd &> /dev/null
 done
 }
 
 run_cmd_at() {
-        name="$1"
-        t="$2"
-        pushd "$name"
-        echo "Starting $t in $name..."
-        target/debug/briolette-${name}-${t} &
-        popd
-        sleep 1
+	name="$1"
+	t="$2"
+	pushd "$name"
+	echo "Starting $t in $name..."
+	"${WORKSPACE_ROOT}/target/debug/briolette-${name}-${t}" &
+	popd
+	sleep 1
 
 }
 
 run_server() {
-        run_cmd_at "$1" server
+	run_cmd_at "$1" server
 }
 
 run_client() {
-        run_cmd_at "$1" client
+	run_cmd_at "$1" client
 }
 
 
 start_servers() {
-        run_server registrar
-        run_client registrar
-        run_server clerk
-        run_server tokenmap
-        run_server mint
+	run_server registrar
+	run_client registrar
+	run_server clerk
+	run_server tokenmap
+	run_server mint
 
-        run_cmd_at clerk generate-epoch
-        sleep 5 
+	run_cmd_at clerk generate-epoch
+	sleep 5
 
-        run_server validate
-        run_server receiver
+	run_server validate
+	run_server receiver
 
-        run_client receiver
+	run_client receiver
 }
 
 kill_bg() {
-        kill $(jobs -p)
+	kill $(jobs -p)
 }
