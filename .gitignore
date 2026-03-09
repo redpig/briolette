@@ -1,0 +1,8 @@
+target/
+*.db
+*.db-journal
+Cargo.lock
+src/*/data/
+src/crypto/deps/
+src/crypto/*.cred
+src/crypto/*.cred.sig
