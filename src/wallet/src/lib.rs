@@ -730,8 +730,8 @@ mod tests {
     use briolette_proto::briolette::ErrorCode as BrioletteErrorCode;
     use briolette_tokenmap::server::BrioletteTokenMap;
     use briolette_validate::server::BrioletteValidate;
-    use ette_clerk::server::BrioletteClerk;
-    use ette_registrar::server::BrioletteRegistrar;
+    use briolette_clerk::server::BrioletteClerk;
+    use briolette_registrar::server::BrioletteRegistrar;
     use glob::glob;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::net::TcpListener;
