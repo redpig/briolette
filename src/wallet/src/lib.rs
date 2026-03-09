@@ -791,7 +791,7 @@ mod tests {
 
         tokio::spawn(async move {
             println!("Launching test tokenmap...");
-            let listener = TcpListener::bind("[::1]:0").await.unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             tx.send(addr.port()).unwrap();
 
@@ -813,7 +813,7 @@ mod tests {
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://[::1]:{}", v),
+            Ok(v) => return format!("http://127.0.0.1:{}", v),
             Err(_) => println!("didn't receive the port"),
         }
         assert!(false);
@@ -831,7 +831,7 @@ mod tests {
             let tsk = Path::new("../registrar/data/ttc_issuer.sk");
             let tgpk = Path::new("../registrar/data/ttc_issuer.gpk");
             let registrar = BrioletteRegistrar::new(nsk, ngpk, tsk, tgpk);
-            let listener = TcpListener::bind("[::1]:0").await.unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             tx.send(addr.port()).unwrap();
 
@@ -849,7 +849,7 @@ mod tests {
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://[::1]:{}", v),
+            Ok(v) => return format!("http://127.0.0.1:{}", v),
             Err(_) => println!("didn't receive the port"),
         }
         assert!(false);
@@ -865,7 +865,7 @@ mod tests {
             // The ette-clerk-server must be called with registrar data above.
             let mut clerk = BrioletteClerk::load(Path::new("../clerk/data/clerk.state")).unwrap();
             clerk.tokenmap_uri = tokenmap_uri;
-            let listener = TcpListener::bind("[::1]:0").await.unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             tx.send(addr.port()).unwrap();
 
@@ -883,7 +883,7 @@ mod tests {
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://[::1]:{}", v),
+            Ok(v) => return format!("http://127.0.0.1:{}", v),
             Err(_) => println!("didn't receive the port"),
         }
         assert!(false);
@@ -904,7 +904,7 @@ mod tests {
                 std::fs::read("../clerk/data/ticket.pk").expect("clerk/data not populated yet");
             let mint = BrioletteMint::new(msk, ttc_gpk, vec![ticket_pk], tokenmap_uri.to_string())
                 .unwrap();
-            let listener = TcpListener::bind("[::1]:0").await.unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             tx.send(addr.port()).unwrap();
 
@@ -925,7 +925,7 @@ mod tests {
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://[::1]:{}", v),
+            Ok(v) => return format!("http://127.0.0.1:{}", v),
             Err(_) => println!("didn't receive the port"),
         }
         assert!(false);
@@ -943,7 +943,7 @@ mod tests {
             let validate = BrioletteValidate::new(clerk_uri, tokenmap_uri, epoch_pk)
                 .await
                 .unwrap();
-            let listener = TcpListener::bind("[::1]:0").await.unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             tx.send(addr.port()).unwrap();
 
@@ -964,7 +964,7 @@ mod tests {
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://[::1]:{}", v),
+            Ok(v) => return format!("http://127.0.0.1:{}", v),
             Err(_) => println!("didn't receive the port"),
         }
         assert!(false);
