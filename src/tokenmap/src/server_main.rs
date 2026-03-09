@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timestamp(stderrlog::Timestamp::Millisecond)
         .init()
         .unwrap();
-    let addr = "[::1]:50054".parse().unwrap();
+    let addr = "127.0.0.1:50054".parse().unwrap();
     // TODO: load in the necessary public keys!
     //let ttc_gpk = std::fs::read("../registrar/data/wallet.ttc.gpk")
     //    .expect("registrar/data/wallet.ttc.gpk not populated yet");

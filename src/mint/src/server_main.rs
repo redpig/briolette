@@ -71,8 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timestamp(stderrlog::Timestamp::Millisecond)
         .init()
         .unwrap();
-    let addr = "[::1]:50053".parse().unwrap();
-    let tokenmap_addr = "http://[::1]:50054".to_string();
+    let addr = "127.0.0.1:50053".parse().unwrap();
+    let tokenmap_addr = "http://127.0.0.1:50054".to_string();
     let mut sk = vec![];
     assert!(read_or_generate_key(
         &Path::new("data/mint.sk"),

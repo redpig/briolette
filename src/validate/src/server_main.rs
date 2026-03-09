@@ -26,9 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timestamp(stderrlog::Timestamp::Millisecond)
         .init()
         .unwrap();
-    let addr = "[::1]:50055".parse().unwrap();
-    let tokenmap_uri = "http://[::1]:50054".to_string();
-    let clerk_uri = "http://[::1]:50052".to_string();
+    let addr = "127.0.0.1:50055".parse().unwrap();
+    let tokenmap_uri = "http://127.0.0.1:50054".to_string();
+    let clerk_uri = "http://127.0.0.1:50052".to_string();
     let epoch_pk = std::fs::read("../clerk/data/epoch.pk").expect("clerk/data not populated yet");
     info!("Setting up server...");
     let validate = BrioletteValidate::new(clerk_uri, tokenmap_uri, epoch_pk)

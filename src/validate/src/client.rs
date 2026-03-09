@@ -24,7 +24,7 @@ use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = ValidateClient::connect("http://[::1]:50055").await?;
+    let mut client = ValidateClient::connect("http://127.0.0.1:50055").await?;
 
     let token_0 = std::fs::read(&Path::new("../mint/data/token.0.pb"))
         .expect("mint client generated token is missing");

@@ -26,11 +26,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timestamp(stderrlog::Timestamp::Millisecond)
         .init()
         .unwrap();
-    let addr = "[::1]:50056".parse().unwrap();
-    let registrar_uri = "http://[::1]:50051".to_string();
-    let clerk_uri = "http://[::1]:50052".to_string();
-    let mint_uri = "http://[::1]:50053".to_string();
-    let validate_uri = "http://[::1]:50054".to_string();
+    let addr = "127.0.0.1:50056".parse().unwrap();
+    let registrar_uri = "http://127.0.0.1:50051".to_string();
+    let clerk_uri = "http://127.0.0.1:50052".to_string();
+    let mint_uri = "http://127.0.0.1:50053".to_string();
+    let validate_uri = "http://127.0.0.1:50054".to_string();
     info!("Setting up server...");
     let mut receiver = BrioletteReceiver::new(registrar_uri, clerk_uri, mint_uri, validate_uri)
         .await

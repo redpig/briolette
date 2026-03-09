@@ -21,7 +21,7 @@ use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = TokenMapClient::connect("http://[::1]:50054").await?;
+    let mut client = TokenMapClient::connect("http://127.0.0.1:50054").await?;
 
     let request = RevocationDataRequest {
         select: Some(Select::Group(SelectGroup::All.into())),

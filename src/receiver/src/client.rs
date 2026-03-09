@@ -22,11 +22,11 @@ use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = ReceiverClient::connect("http://[::1]:50056").await?;
-    let registrar_uri = "http://[::1]:50051".to_string();
-    let clerk_uri = "http://[::1]:50052".to_string();
-    let mint_uri = "http://[::1]:50053".to_string();
-    let validate_uri = "http://[::1]:50054".to_string();
+    let mut client = ReceiverClient::connect("http://127.0.0.1:50056").await?;
+    let registrar_uri = "http://127.0.0.1:50051".to_string();
+    let clerk_uri = "http://127.0.0.1:50052".to_string();
+    let mint_uri = "http://127.0.0.1:50053".to_string();
+    let validate_uri = "http://127.0.0.1:50054".to_string();
     let mut wallet = WalletData::new(registrar_uri, clerk_uri, mint_uri, validate_uri);
     assert!(wallet.initialize_keys(b"client-wallet-001"));
     assert!(wallet.initialize_credential().await);

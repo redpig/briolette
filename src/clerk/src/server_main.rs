@@ -74,8 +74,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init()
         .unwrap();
 
-    let addr = "[::1]:50052".parse().unwrap();
-    let tokenmap_uri = "http://[::1]:50054".to_string();
+    let addr = "127.0.0.1:50052".parse().unwrap();
+    let tokenmap_uri = "http://127.0.0.1:50054".to_string();
     // If there is a key in data, use it. Otherwise generate it.
 
     let mut pk: Vec<u8> = vec![];

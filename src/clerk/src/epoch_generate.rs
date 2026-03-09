@@ -106,7 +106,7 @@ pub async fn make_epoch_update() -> EpochUpdate {
 
     let group_bytes: usize = (GROUP_MAX / 8) as usize;
     let group_bitfield: Vec<u8>;
-    let tokenmap_addr = "http://[::1]:50054".to_string();
+    let tokenmap_addr = "http://127.0.0.1:50054".to_string();
     let window = now - (now % eed.epoch_seconds);
     if let Ok(groups) = get_revoked_groups(GROUP_MAX, window, &tokenmap_addr).await {
         group_bitfield = groups;
@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timestamp(stderrlog::Timestamp::Millisecond)
         .init()
         .unwrap();
-    let mut client = ClerkClient::connect("http://[::1]:50052").await?;
+    let mut client = ClerkClient::connect("http://127.0.0.1:50052").await?;
 
     // 0. Fetch EpochUpdate
     let mut eu = None;

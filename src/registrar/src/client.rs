@@ -30,7 +30,7 @@ struct KeyRequest {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = RegistrarClient::connect("http://[::1]:50051").await?;
+    let mut client = RegistrarClient::connect("http://127.0.0.1:50051").await?;
 
     let mut network_req = KeyRequest::default();
     let mut transfer_req = KeyRequest::default();

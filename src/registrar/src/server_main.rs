@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ngpk = Path::new("data/net_issuer.gpk");
     let tsk = Path::new("data/ttc_issuer.sk");
     let tgpk = Path::new("data/ttc_issuer.gpk");
-    let addr = "[::1]:50051".parse().unwrap();
+    let addr = "127.0.0.1:50051".parse().unwrap();
     let registrar = BrioletteRegistrar::new(nsk, ngpk, tsk, tgpk);
     tonic::transport::Server::builder()
         .add_service(RegistrarServer::new(registrar))

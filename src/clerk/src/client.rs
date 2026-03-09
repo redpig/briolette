@@ -27,7 +27,7 @@ use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = ClerkClient::connect("http://[::1]:50052").await?;
+    let mut client = ClerkClient::connect("http://127.0.0.1:50052").await?;
     let mut rng = rand::thread_rng();
 
     let eu;
