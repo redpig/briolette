@@ -417,32 +417,36 @@ sending side has no issue either — `Token::transfer()` does not check
 ticket expiration; it signs using the committed credential and
 `previous_signature` as basename regardless of ticket state.
 
-### The v0 Code Gap
+### Implementation (v0)
 
-The current `SignedTicket::verify()` (`token.rs:503`) checks
-`expires_on() < now` for every ticket in the token's history chain,
-including historical entries. After a self-transfer from expired
-ticket A to valid ticket B, a future verifier would:
+The verification rules enforce ticket expiration only on the current
+holder's ticket. Historical tickets in a token's provenance chain are
+verified for signature validity and group membership only — expiration
+is not checked.
 
-1. Walk the history chain
-2. Encounter ticket A in a historical entry
-3. Reject the entire token because A is expired at verification time
+**Why**: Token lifetime is already controlled by `Tag.valid_until`.
+Checking historical ticket expiration creates a redundant implicit
+lifetime cap (`max_circulation = min(ticket_expiry in history)`) that
+the operator cannot control independently. Removing this implicit cap
+means tokens remain verifiable regardless of which wallets held them
+and what ticket lifetimes those wallets had.
 
-This is overly strict. The ticket was valid when the transfer occurred.
-The `TicketData.created_on` and `lifetime` fields contain enough
-information to verify that a ticket was valid *at the time of its
-transfer* rather than at the current verification time.
+The implementation:
+- `VerifyTicket::verify()` — checks signature, key, created_on, and
+  expiration. Used for the current holder's ticket.
+- `VerifyTicket::verify_historical()` — checks signature and key only.
+  Used for historical tickets in `verify_history()` and `verify_base()`.
+- `TokenVerify::verify()` — after walking the history chain with
+  `verify_historical()`, explicitly calls `verify()` on the last
+  recipient ticket (current holder) to enforce expiration.
 
-### Proposed Rule
+### Wallet Self-Transfer
 
-**Ticket expiration should only be enforced on the most recent
-(current holder's) ticket.** Historical tickets should be verified
-for signature validity and group membership, but not for expiration.
-
-Alternatively, historical ticket verification could check that the
-ticket was valid relative to the *next* transfer's epoch context
-(i.e., the ticket hadn't expired by the time the holder transferred
-the token onward).
+`Wallet::self_transfer_expired()` migrates tokens bound to expired
+tickets to the wallet's shortest-lived valid ticket. This:
+- Preserves elastic lifetime spending order
+- Creates a normal ECDAA-signed history entry (detectable if double-spent)
+- Requires at least one valid ticket (narrowing a double-spender's options)
 
 ### Security Analysis
 

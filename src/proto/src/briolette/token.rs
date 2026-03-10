@@ -94,7 +94,36 @@ impl TokenVerify for Token {
                 .unwrap()
                 .credential;
         }
-        // 3. Verify that no split amount exceeds the descriptor value.
+        // 3. Verify the current holder's ticket is not expired.
+        // Historical tickets are verified for signature/key only (done above).
+        // Only the current holder must have a valid, non-expired ticket.
+        // This preserves velocity control (wallets must visit the clerk to
+        // get fresh tickets) while allowing tokens with expired historical
+        // tickets to remain verifiable.
+        if !trusted_clerks.is_empty() {
+            let current_ticket = if let Some(last_history) = self.history.last() {
+                last_history
+                    .transfer
+                    .as_ref()
+                    .unwrap()
+                    .recipient
+                    .as_ref()
+                    .unwrap()
+            } else {
+                self.base
+                    .as_ref()
+                    .unwrap()
+                    .transfer
+                    .as_ref()
+                    .unwrap()
+                    .recipient
+                    .as_ref()
+                    .unwrap()
+            };
+            current_ticket.verify(trusted_clerks, None)?;
+        }
+
+        // 4. Verify that no split amount exceeds the descriptor value.
         let descriptor = self.descriptor.as_ref().unwrap();
         if let Some(ref original_value) = descriptor.value {
             for history in self.history.iter() {
@@ -115,7 +144,7 @@ impl TokenVerify for Token {
                 }
             }
         }
-        // 4. Enjoy a valid token.
+        // 5. Enjoy a valid token.
         return Ok(true);
     }
 }
@@ -146,13 +175,16 @@ impl HistoryVerify for History {
         if self.transfer.is_none() || self.transfer.as_ref().unwrap().recipient.is_none() {
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
+        // Historical tickets: verify signature + key only, skip expiration.
+        // Token lifetime is controlled by Tag.valid_until, not by historical
+        // ticket expiration.
         self.transfer
             .as_ref()
             .unwrap()
             .recipient
             .as_ref()
             .unwrap()
-            .verify(&allowed_ticket_keys, None)?;
+            .verify_historical(&allowed_ticket_keys, None)?;
 
         let mut transfer = self.transfer.clone().unwrap();
         transfer.previous_signature = previous_signature.clone();
@@ -183,14 +215,14 @@ impl HistoryVerify for History {
         if self.transfer.is_none() || self.transfer.as_ref().unwrap().recipient.is_none() {
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
-        // Start with the ticket
+        // Base ticket is also historical — verify signature + key only.
         self.transfer
             .as_ref()
             .unwrap()
             .recipient
             .as_ref()
             .unwrap()
-            .verify(&allowed_ticket_keys, None)?;
+            .verify_historical(&allowed_ticket_keys, None)?;
         let mut sig: Vec<u8> = self.signature.clone();
         if sig.len() == 0 {
             debug!("base missing signature");
@@ -434,10 +466,65 @@ pub trait VerifyTicket {
         allowed_signing_keys: &Vec<Vec<u8>>,
         credential: Option<Vec<u8>>,
     ) -> Result<bool, BrioletteErrorCode>;
+    /// Verify the ticket's clerk signature and group membership without
+    /// checking expiration. Used for historical tickets in a token's
+    /// provenance chain — token lifetime is controlled by Tag.valid_until,
+    /// not by the shortest-lived ticket in the history.
+    fn verify_historical(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode>;
 }
 
 impl VerifyTicket for SignedTicket {
     fn verify(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode> {
+        // First verify signature and signing key (shared with verify_historical)
+        self.verify_signature_and_key(allowed_signing_keys, credential)?;
+
+        // Now check expiration — only enforced on the current holder's ticket
+        let now = Utc::now().timestamp() as u64;
+        let tags = self.ticket.clone().unwrap().tags.clone().unwrap();
+        if tags.created_on >= now {
+            trace!("ticket created in the future: {}", tags.created_on);
+            return Err(BrioletteErrorCode::InvalidTicketCreatedOn);
+        }
+        if self.expires_on() < now {
+            trace!("ticket expired");
+            return Err(BrioletteErrorCode::TicketExpired);
+        }
+
+        Ok(true)
+    }
+
+    fn verify_historical(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode> {
+        // For historical tickets in a token's provenance chain, we only verify
+        // the clerk signature and that the signing key is known. Token lifetime
+        // is controlled by Tag.valid_until, not by historical ticket expiration.
+        self.verify_signature_and_key(allowed_signing_keys, credential)
+    }
+}
+
+/// Internal helper for signature/key verification shared between
+/// verify() and verify_historical().
+trait VerifyTicketSignature {
+    fn verify_signature_and_key(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode>;
+}
+
+impl VerifyTicketSignature for SignedTicket {
+    fn verify_signature_and_key(
         &self,
         allowed_signing_keys: &Vec<Vec<u8>>,
         credential: Option<Vec<u8>>,
@@ -452,7 +539,6 @@ impl VerifyTicket for SignedTicket {
             debug!("ticket missing");
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
-        // Verify the signature -- fallthrough is valid.
         let mut sig: Vec<u8> = self.signature.clone();
         if sig.len() == 0 {
             debug!("ticket missing signature");
@@ -464,7 +550,6 @@ impl VerifyTicket for SignedTicket {
             return Err(BrioletteErrorCode::UnrecoverablePublicKey);
         }
         if let Ok(signature) = Signature::try_from(sig.as_slice()) {
-            // Recovery the public key
             let found_vk: VerifyingKey;
             let found_vk_bytes: Vec<u8>;
             if let Ok(vk) =
@@ -476,7 +561,6 @@ impl VerifyTicket for SignedTicket {
                 debug!("could not recover public key");
                 return Err(BrioletteErrorCode::UnrecoverablePublicKey);
             }
-            // See if it is known
             let ticket_vk: VerifyingKey;
             if let Some(_tsk) = allowed_signing_keys
                 .iter()
@@ -491,20 +575,6 @@ impl VerifyTicket for SignedTicket {
                 trace!("ticket signature did not verify: {:?}", e);
                 return Err(BrioletteErrorCode::InvalidTicketSignature);
             }
-
-            // Now we need to check any relevant tags
-            let now = Utc::now().timestamp() as u64;
-            let tags = self.ticket.clone().unwrap().tags.clone().unwrap();
-            // TODO: Ensure valid group_number range.
-            if tags.created_on >= now {
-                trace!("ticket created in the future: {}", tags.created_on);
-                return Err(BrioletteErrorCode::InvalidTicketCreatedOn);
-            }
-            if self.expires_on() < now {
-                trace!("ticket expired");
-                return Err(BrioletteErrorCode::TicketExpired);
-            }
-
             return Ok(true);
         }
         Err(BrioletteErrorCode::UnparseableTicketSignature)
