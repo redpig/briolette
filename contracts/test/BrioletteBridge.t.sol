@@ -183,6 +183,112 @@ contract BrioletteBridgeTest {
         require(bridge.bridgeBalance() == 3 ether, "wrong bridge balance");
     }
 
+    // ========================================================================
+    // Key Registry tests
+    // ========================================================================
+
+    function _dummyKey() internal pure returns (bytes memory) {
+        // 33-byte compressed P256 key (0x02 prefix + 32 bytes)
+        bytes memory key = new bytes(33);
+        key[0] = 0x02;
+        for (uint256 i = 1; i < 33; i++) {
+            key[i] = bytes1(uint8(i));
+        }
+        return key;
+    }
+
+    function testAddMintKey() public {
+        bytes memory key = _dummyKey();
+        bridge.addMintKey(key);
+
+        require(bridge.mintKeyCount() == 1, "wrong mint key count");
+        require(bridge.keyRegistryVersion() == 1, "wrong version");
+
+        bytes[] memory keys = bridge.getMintKeys();
+        require(keys.length == 1, "wrong keys length");
+        require(keccak256(keys[0]) == keccak256(key), "wrong key data");
+    }
+
+    function testRemoveMintKey() public {
+        bridge.addMintKey(_dummyKey());
+
+        bytes memory key2 = new bytes(33);
+        key2[0] = 0x03;
+        for (uint256 i = 1; i < 33; i++) {
+            key2[i] = bytes1(uint8(i + 100));
+        }
+        bridge.addMintKey(key2);
+
+        require(bridge.mintKeyCount() == 2, "should have 2 keys");
+
+        bridge.removeMintKey(0);
+        require(bridge.mintKeyCount() == 1, "should have 1 key after remove");
+
+        // The remaining key should be key2 (swapped from end)
+        bytes[] memory keys = bridge.getMintKeys();
+        require(keccak256(keys[0]) == keccak256(key2), "wrong key after swap");
+    }
+
+    function testAddMintKeyBadLengthReverts() public {
+        bytes memory shortKey = new bytes(20);
+        (bool success, ) = address(bridge).call(
+            abi.encodeWithSelector(bridge.addMintKey.selector, shortKey)
+        );
+        require(!success, "should revert on bad key length");
+    }
+
+    function testAddTicketKey() public {
+        bytes memory key = _dummyKey();
+        bridge.addTicketKey(key);
+
+        require(bridge.ticketKeyCount() == 1, "wrong ticket key count");
+
+        bytes[] memory keys = bridge.getTicketKeys();
+        require(keys.length == 1, "wrong keys length");
+        require(keccak256(keys[0]) == keccak256(key), "wrong key data");
+    }
+
+    function testRemoveTicketKey() public {
+        bridge.addTicketKey(_dummyKey());
+        bridge.removeTicketKey(0);
+        require(bridge.ticketKeyCount() == 0, "should have 0 keys");
+    }
+
+    function testSetTtcGroupKey() public {
+        bytes memory gpk = new bytes(128);
+        gpk[0] = 0xAB;
+        bridge.setTtcGroupKey(gpk);
+
+        bytes memory stored = bridge.ttcGroupPublicKey();
+        require(keccak256(stored) == keccak256(gpk), "wrong gpk");
+    }
+
+    function testSetTtcGroupKeyEmptyReverts() public {
+        bytes memory empty = new bytes(0);
+        (bool success, ) = address(bridge).call(
+            abi.encodeWithSelector(bridge.setTtcGroupKey.selector, empty)
+        );
+        require(!success, "should revert on empty key");
+    }
+
+    function testKeyRegistryVersionIncrements() public {
+        require(bridge.keyRegistryVersion() == 0, "should start at 0");
+
+        bridge.addMintKey(_dummyKey());
+        require(bridge.keyRegistryVersion() == 1, "v1");
+
+        bridge.addTicketKey(_dummyKey());
+        require(bridge.keyRegistryVersion() == 2, "v2");
+
+        bytes memory gpk = new bytes(128);
+        gpk[0] = 0x01;
+        bridge.setTtcGroupKey(gpk);
+        require(bridge.keyRegistryVersion() == 3, "v3");
+
+        bridge.removeMintKey(0);
+        require(bridge.keyRegistryVersion() == 4, "v4");
+    }
+
     // Allow this contract to receive ETH (for test callbacks)
     receive() external payable {}
 }

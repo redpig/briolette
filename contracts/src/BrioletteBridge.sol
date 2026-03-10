@@ -70,6 +70,22 @@ contract BrioletteBridge {
     uint256 public nextDepositId;
 
     // ============================================================================
+    // Key Registry — on-chain authority for Briolette system keys
+    // ============================================================================
+
+    /// @notice Mint signing public keys (P256 SEC1 compressed, 33 bytes each)
+    bytes[] public mintSigningKeys;
+
+    /// @notice Ticket signing public keys (clerk keys)
+    bytes[] public ticketSigningKeys;
+
+    /// @notice TTC group public key (ECDAA group key)
+    bytes public ttcGroupPublicKey;
+
+    /// @notice Key registry version (incremented on any key change)
+    uint256 public keyRegistryVersion;
+
+    // ============================================================================
     // Events
     // ============================================================================
 
@@ -97,6 +113,13 @@ contract BrioletteBridge {
     event EpochChallenged(uint64 indexed epochNum, address challenger);
 
     event OperatorTransferred(address indexed oldOperator, address indexed newOperator);
+
+    event MintKeyAdded(uint256 indexed keyIndex, bytes key);
+    event MintKeyRemoved(uint256 indexed keyIndex);
+    event TicketKeyAdded(uint256 indexed keyIndex, bytes key);
+    event TicketKeyRemoved(uint256 indexed keyIndex);
+    event TtcGroupKeyUpdated(bytes key);
+    event KeyRegistryUpdated(uint256 indexed version);
 
     // ============================================================================
     // Modifiers
@@ -303,6 +326,82 @@ contract BrioletteBridge {
         epoch.challenged = true;
 
         emit EpochChallenged(epochNum, msg.sender);
+    }
+
+    // ============================================================================
+    // Key Registry functions
+    // ============================================================================
+
+    /// @notice Add a mint signing public key.
+    /// @param key The P256 SEC1 compressed public key (33 bytes).
+    function addMintKey(bytes calldata key) external onlyOperator {
+        require(key.length == 33, "BrioletteBridge: invalid key length");
+        mintSigningKeys.push(key);
+        keyRegistryVersion++;
+        emit MintKeyAdded(mintSigningKeys.length - 1, key);
+        emit KeyRegistryUpdated(keyRegistryVersion);
+    }
+
+    /// @notice Remove a mint signing key by index (swap-and-pop).
+    /// @param index The index of the key to remove.
+    function removeMintKey(uint256 index) external onlyOperator {
+        require(index < mintSigningKeys.length, "BrioletteBridge: index out of bounds");
+        mintSigningKeys[index] = mintSigningKeys[mintSigningKeys.length - 1];
+        mintSigningKeys.pop();
+        keyRegistryVersion++;
+        emit MintKeyRemoved(index);
+        emit KeyRegistryUpdated(keyRegistryVersion);
+    }
+
+    /// @notice Add a ticket signing public key.
+    /// @param key The clerk's signing public key.
+    function addTicketKey(bytes calldata key) external onlyOperator {
+        require(key.length == 33, "BrioletteBridge: invalid key length");
+        ticketSigningKeys.push(key);
+        keyRegistryVersion++;
+        emit TicketKeyAdded(ticketSigningKeys.length - 1, key);
+        emit KeyRegistryUpdated(keyRegistryVersion);
+    }
+
+    /// @notice Remove a ticket signing key by index (swap-and-pop).
+    /// @param index The index of the key to remove.
+    function removeTicketKey(uint256 index) external onlyOperator {
+        require(index < ticketSigningKeys.length, "BrioletteBridge: index out of bounds");
+        ticketSigningKeys[index] = ticketSigningKeys[ticketSigningKeys.length - 1];
+        ticketSigningKeys.pop();
+        keyRegistryVersion++;
+        emit TicketKeyRemoved(index);
+        emit KeyRegistryUpdated(keyRegistryVersion);
+    }
+
+    /// @notice Set the TTC group public key.
+    /// @param key The ECDAA group public key bytes.
+    function setTtcGroupKey(bytes calldata key) external onlyOperator {
+        require(key.length > 0, "BrioletteBridge: empty key");
+        ttcGroupPublicKey = key;
+        keyRegistryVersion++;
+        emit TtcGroupKeyUpdated(key);
+        emit KeyRegistryUpdated(keyRegistryVersion);
+    }
+
+    /// @notice Get all mint signing keys.
+    function getMintKeys() external view returns (bytes[] memory) {
+        return mintSigningKeys;
+    }
+
+    /// @notice Get all ticket signing keys.
+    function getTicketKeys() external view returns (bytes[] memory) {
+        return ticketSigningKeys;
+    }
+
+    /// @notice Get the number of mint keys.
+    function mintKeyCount() external view returns (uint256) {
+        return mintSigningKeys.length;
+    }
+
+    /// @notice Get the number of ticket keys.
+    function ticketKeyCount() external view returns (uint256) {
+        return ticketSigningKeys.length;
     }
 
     // ============================================================================
