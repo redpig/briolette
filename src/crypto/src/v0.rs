@@ -809,6 +809,376 @@ pub fn credential_in_group(credential: &Vec<u8>, group_public_key: &Vec<u8>) -> 
     true
 }
 
+// ============================================================================
+// Split-key signing (Brickell & Li style)
+//
+// The member secret key is additively split: sk = card_sk + host_sk
+// The smart card performs only G1 scalar multiplications and Fr arithmetic.
+// No pairings are ever needed on the card side.
+// The host completes the signature by combining its share with the card's.
+// Verification is unchanged — the verifier never knows about the split.
+// ============================================================================
+
+pub mod split {
+    use super::*;
+
+    // Card-side partial outputs from signing
+    pub struct CardSignCommitment {
+        /// U_card = S * r_card  (G1 point)
+        pub u_card: Vec<u8>,
+        /// K_card = bsn_base * card_sk  (G1 point, only if basename used)
+        pub k_card: Option<Vec<u8>>,
+        /// K_u_card = bsn_base * r_card  (G1 point, only if basename used)
+        pub k_u_card: Option<Vec<u8>>,
+    }
+
+    pub struct CardSignResponse {
+        /// s_card = r_card + c * card_sk  (scalar)
+        pub s_card: Vec<u8>,
+    }
+
+    /// Trait representing the operations a smart card must support.
+    /// All operations are G1 scalar multiplications and Fr arithmetic only.
+    /// No pairings, no G2 operations, no GT operations.
+    pub trait SmartCard {
+        /// Returns the card's share of the public key: Q_card = base * card_sk
+        fn public_key_share(&self, base: &[u8]) -> Vec<u8>;
+
+        /// Phase 1 of signing: card generates randomness and commits.
+        /// Returns U_card = S * r_card (and K_card, K_u_card if basename provided).
+        /// The card internally stores r_card for phase 2.
+        fn sign_commit(
+            &mut self,
+            s_point: &[u8],
+            basename_base: Option<&[u8]>,
+        ) -> Option<CardSignCommitment>;
+
+        /// Phase 2 of signing: card produces its share of the Schnorr response.
+        /// Given the challenge c, returns s_card = r_card + c * card_sk.
+        fn sign_respond(&mut self, challenge: &[u8]) -> Option<CardSignResponse>;
+
+        /// Returns the card's secret key share serialized (for testing/debugging only).
+        /// A real smart card would NEVER expose this.
+        fn secret_key_share(&self) -> Vec<u8>;
+    }
+
+    /// Mock smart card for testing. Simulates a Javacard/SIM performing
+    /// only G1 scalar multiplications and Fr scalar arithmetic.
+    pub struct MockCard {
+        card_sk: Fr,
+        /// Ephemeral randomness for the current signing session
+        r_card: Option<Fr>,
+    }
+
+    impl MockCard {
+        /// Create a new mock card with a random secret key share.
+        pub fn new() -> Self {
+            MockCard {
+                card_sk: random_fr(),
+                r_card: None,
+            }
+        }
+
+        /// Create a mock card with a specific secret key share (for testing).
+        pub fn from_secret(sk: Fr) -> Self {
+            MockCard {
+                card_sk: sk,
+                r_card: None,
+            }
+        }
+    }
+
+    impl SmartCard for MockCard {
+        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
+            let b = deserialize_g1(base).expect("invalid base point");
+            let q_card = b * self.card_sk;
+            serialize_g1(&q_card).to_vec()
+        }
+
+        fn sign_commit(
+            &mut self,
+            s_point: &[u8],
+            basename_base: Option<&[u8]>,
+        ) -> Option<CardSignCommitment> {
+            let s = deserialize_g1(s_point)?;
+
+            // Generate ephemeral randomness
+            let r = random_fr();
+            self.r_card = Some(r);
+
+            // U_card = S * r_card
+            let u_card = s * r;
+
+            let (k_card, k_u_card) = if let Some(bsn_base_bytes) = basename_base {
+                let bsn_base = deserialize_g1(bsn_base_bytes)?;
+                // K_card = bsn_base * card_sk
+                let k = bsn_base * self.card_sk;
+                // K_u_card = bsn_base * r_card
+                let k_u = bsn_base * r;
+                (
+                    Some(serialize_g1(&k).to_vec()),
+                    Some(serialize_g1(&k_u).to_vec()),
+                )
+            } else {
+                (None, None)
+            };
+
+            Some(CardSignCommitment {
+                u_card: serialize_g1(&u_card).to_vec(),
+                k_card,
+                k_u_card,
+            })
+        }
+
+        fn sign_respond(&mut self, challenge: &[u8]) -> Option<CardSignResponse> {
+            let c = deserialize_fr(challenge)?;
+            let r = self.r_card.take()?;
+
+            // s_card = r_card + c * card_sk
+            let s_card = r + c * self.card_sk;
+
+            Some(CardSignResponse {
+                s_card: serialize_fr(&s_card).to_vec(),
+            })
+        }
+
+        fn secret_key_share(&self) -> Vec<u8> {
+            serialize_fr(&self.card_sk).to_vec()
+        }
+    }
+
+    /// Generate a split wallet keypair.
+    /// The card generates its share, the host generates its share,
+    /// and the combined public key is produced.
+    ///
+    /// Returns (host_sk, combined_pk, combined_sk_for_credential_issuance).
+    /// The combined_sk is needed only during credential issuance with the
+    /// current issuer protocol — in a production system, the Join protocol
+    /// would be modified so the issuer never sees the combined sk.
+    pub fn generate_split_wallet_keypair(
+        card: &dyn SmartCard,
+        nonce: &Vec<u8>,
+    ) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+        if nonce.is_empty() {
+            return None;
+        }
+
+        // Compute base point B = hash_to_g1(nonce)
+        let b = hash_to_g1(nonce);
+        let b_bytes = serialize_g1(&b);
+
+        // Card computes Q_card = B * card_sk
+        let q_card_bytes = card.public_key_share(&b_bytes);
+        let q_card = deserialize_g1(&q_card_bytes)?;
+
+        // Host generates its share
+        let host_sk = random_fr();
+        let q_host = b * host_sk;
+
+        // Combined public key point: Q = Q_card + Q_host
+        let q = q_card + q_host;
+
+        // For the Schnorr proof in the public key, we need the combined sk.
+        // In the current protocol, the host assembles the proof.
+        // We reconstruct the combined sk from both shares for the proof.
+        let card_sk = deserialize_fr(&card.secret_key_share())?;
+        let combined_sk = card_sk + host_sk;
+
+        // Create Schnorr proof of knowledge of combined sk
+        let r = random_fr();
+        let u = b * r;
+        let c = schnorr_hash_member(&u, &b, &q, nonce);
+        let s = r + c * combined_sk;
+        let n = random_fr();
+
+        // Serialize host secret key share
+        let host_sk_bytes = serialize_fr(&host_sk).to_vec();
+
+        // Serialize combined public key (Q, c, s, n)
+        let mut pk = Vec::with_capacity(native::WALLET_PUBLIC_KEY_LENGTH);
+        pk.extend_from_slice(&serialize_g1(&q));
+        pk.extend_from_slice(&serialize_fr(&c));
+        pk.extend_from_slice(&serialize_fr(&s));
+        pk.extend_from_slice(&serialize_fr(&n));
+
+        // Serialize combined secret key (for credential issuance only)
+        let combined_sk_bytes = serialize_fr(&combined_sk).to_vec();
+
+        Some((host_sk_bytes, pk, combined_sk_bytes))
+    }
+
+    /// Sign a message using the split-key protocol.
+    /// The card performs G1 scalar multiplications; the host combines shares.
+    /// The resulting signature is identical in format to `sign()` and
+    /// verifiable with the standard `verify()`.
+    pub fn sign_split(
+        card: &mut dyn SmartCard,
+        host_sk: &Vec<u8>,
+        message: &Vec<u8>,
+        credential: &Vec<u8>,
+        basename: &Option<Vec<u8>>,
+        randomize_cred: bool,
+        signature: &mut Vec<u8>,
+    ) -> bool {
+        if message.is_empty() || credential.is_empty() || host_sk.is_empty() {
+            return false;
+        }
+        if let Some(bsn) = basename {
+            if bsn.is_empty() {
+                return false;
+            }
+        }
+
+        // Deserialize credential (A, B, C, D)
+        let mut a = match credential_get_a(credential) {
+            Some(v) => v,
+            None => return false,
+        };
+        let mut b = match credential_get_b(credential) {
+            Some(v) => v,
+            None => return false,
+        };
+        let mut c_point = match credential_get_c(credential) {
+            Some(v) => v,
+            None => return false,
+        };
+        let mut d = match credential_get_d(credential) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        // Deserialize host secret key share
+        let h_sk = match deserialize_fr(host_sk) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        // Randomize credential if requested (host can do this — no sk needed)
+        if randomize_cred {
+            let l = random_fr();
+            a = a * l;
+            b = b * l;
+            c_point = c_point * l;
+            d = d * l;
+        }
+
+        // S point (randomized B) is what both card and host use for commitments
+        let s_bytes = serialize_g1(&b);
+
+        // Compute basename base point if needed
+        let bsn_base = basename.as_ref().map(|bsn| hash_to_g1(bsn));
+        let bsn_base_bytes = bsn_base.as_ref().map(|p| serialize_g1(p).to_vec());
+
+        // === Phase 1: Card commits ===
+        let card_commit = match card.sign_commit(
+            &s_bytes,
+            bsn_base_bytes.as_deref(),
+        ) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        let u_card = match deserialize_g1(&card_commit.u_card) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        // === Host commits ===
+        let r_host = random_fr();
+        let u_host = b * r_host;
+
+        // Combined commitment: U = U_card + U_host
+        let u = u_card + u_host;
+
+        // Build hash for c2 (same as standard sign)
+        let mut hash_data = Vec::new();
+        hash_data.extend_from_slice(&serialize_g1(&u));
+        hash_data.extend_from_slice(&serialize_g1(&b)); // S point
+        hash_data.extend_from_slice(&serialize_g1(&d)); // W point
+        hash_data.extend_from_slice(message);
+
+        // Handle basename/pseudonym
+        let mut k_combined = G1::zero();
+        if let Some(bsn_base_pt) = &bsn_base {
+            // Combine K shares
+            let k_card = match &card_commit.k_card {
+                Some(bytes) => match deserialize_g1(bytes) {
+                    Some(v) => v,
+                    None => return false,
+                },
+                None => return false,
+            };
+            let k_host = *bsn_base_pt * h_sk;
+            k_combined = k_card + k_host;
+
+            // Combine K_u shares
+            let k_u_card = match &card_commit.k_u_card {
+                Some(bytes) => match deserialize_g1(bytes) {
+                    Some(v) => v,
+                    None => return false,
+                },
+                None => return false,
+            };
+            let k_u_host = *bsn_base_pt * r_host;
+            let k_u = k_u_card + k_u_host;
+
+            hash_data.extend_from_slice(&serialize_g1(&k_u));
+            hash_data.extend_from_slice(&serialize_g1(&k_combined));
+            hash_data.extend_from_slice(&serialize_g1(bsn_base_pt));
+        }
+
+        let c2 = hash_to_fr(&hash_data);
+
+        // n = random nonce
+        let n = random_fr();
+
+        // c = H(n || c2)
+        let mut final_hash_data = Vec::new();
+        final_hash_data.extend_from_slice(&serialize_fr(&n));
+        final_hash_data.extend_from_slice(&serialize_fr(&c2));
+        let sig_c = hash_to_fr(&final_hash_data);
+
+        // === Phase 2: Card responds to challenge ===
+        let card_response = match card.sign_respond(&serialize_fr(&sig_c)) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        let s_card = match deserialize_fr(&card_response.s_card) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        // Host response: s_host = r_host + c * host_sk
+        let s_host = r_host + sig_c * h_sk;
+
+        // Combined response: s = s_card + s_host
+        let sig_s = s_card + s_host;
+
+        // Serialize signature (identical format to standard sign)
+        signature.clear();
+        if basename.is_some() {
+            signature.reserve(native::SIGNATURE_WITH_NYM_LENGTH);
+        } else {
+            signature.reserve(native::SIGNATURE_LENGTH);
+        }
+
+        signature.extend_from_slice(&serialize_fr(&sig_c));
+        signature.extend_from_slice(&serialize_fr(&sig_s));
+        signature.extend_from_slice(&serialize_g1(&a)); // R
+        signature.extend_from_slice(&serialize_g1(&b)); // S
+        signature.extend_from_slice(&serialize_g1(&c_point)); // T
+        signature.extend_from_slice(&serialize_g1(&d)); // W
+        signature.extend_from_slice(&serialize_fr(&n));
+
+        if basename.is_some() {
+            signature.extend_from_slice(&serialize_g1(&k_combined));
+        }
+
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1882,5 +2252,480 @@ mod tests {
             native::SIGNATURE_WITH_NYM_LENGTH,
             native::SIGNATURE_LENGTH + 65
         );
+    }
+
+    // ========================================================================
+    // Split-key signing tests (Brickell & Li style)
+    // ========================================================================
+
+    mod split_tests {
+        use super::*;
+        use crate::v0::split::{MockCard, SmartCard};
+
+        struct SplitTestContext {
+            issuer_sk: Vec<u8>,
+            group_pk: Vec<u8>,
+            host_sk: Vec<u8>,
+            combined_sk: Vec<u8>,
+            member_pk: Vec<u8>,
+            nonce: Vec<u8>,
+            credential: Vec<u8>,
+            #[allow(dead_code)]
+            credential_sig: Vec<u8>,
+            card: MockCard,
+        }
+
+        fn split_setup() -> SplitTestContext {
+            split_setup_with_nonce(b"test-split-wallet-1")
+        }
+
+        fn split_setup_with_nonce(nonce: &[u8]) -> SplitTestContext {
+            let mut issuer_sk = Vec::new();
+            let mut group_pk = Vec::new();
+            assert!(generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+
+            let nonce_vec = nonce.to_vec();
+            let card = MockCard::new();
+
+            let (host_sk, member_pk, combined_sk) =
+                split::generate_split_wallet_keypair(&card, &nonce_vec)
+                    .expect("split keygen failed");
+
+            let mut credential = Vec::new();
+            let mut credential_sig = Vec::new();
+            assert!(issue_credential(
+                &member_pk,
+                &issuer_sk,
+                &nonce_vec,
+                &mut credential,
+                &mut credential_sig,
+            ));
+
+            SplitTestContext {
+                issuer_sk,
+                group_pk,
+                host_sk,
+                combined_sk,
+                member_pk,
+                nonce: nonce_vec,
+                credential,
+                credential_sig,
+                card,
+            }
+        }
+
+        #[test]
+        fn split_keygen_produces_valid_public_key() {
+            let ctx = split_setup();
+            assert_eq!(ctx.member_pk.len(), native::WALLET_PUBLIC_KEY_LENGTH);
+            assert_eq!(ctx.host_sk.len(), native::WALLET_SECRET_KEY_LENGTH);
+            assert_eq!(ctx.combined_sk.len(), native::WALLET_SECRET_KEY_LENGTH);
+        }
+
+        #[test]
+        fn split_keygen_credential_issuance_succeeds() {
+            let ctx = split_setup();
+            assert_eq!(ctx.credential.len(), native::CREDENTIAL_LENGTH);
+            assert_eq!(
+                ctx.credential_sig.len(),
+                native::CREDENTIAL_SIGNATURE_LENGTH
+            );
+        }
+
+        #[test]
+        fn split_keygen_credential_in_group() {
+            let ctx = split_setup();
+            assert!(credential_in_group(&ctx.credential, &ctx.group_pk));
+        }
+
+        #[test]
+        fn split_sign_verify_no_basename() {
+            let mut ctx = split_setup();
+            let message = b"test transaction".to_vec();
+            let mut sig = Vec::new();
+
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &message,
+                &ctx.credential,
+                &None,
+                true,
+                &mut sig,
+            ));
+
+            assert_eq!(sig.len(), native::SIGNATURE_LENGTH);
+            assert!(verify(&ctx.group_pk, &None, &None, &sig, &message));
+        }
+
+        #[test]
+        fn split_sign_verify_with_basename() {
+            let mut ctx = split_setup();
+            let message = b"test transaction".to_vec();
+            let basename = Some(b"test-basename".to_vec());
+            let mut sig = Vec::new();
+
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &message,
+                &ctx.credential,
+                &basename,
+                true,
+                &mut sig,
+            ));
+
+            assert_eq!(sig.len(), native::SIGNATURE_WITH_NYM_LENGTH);
+            assert!(verify(&ctx.group_pk, &basename, &None, &sig, &message));
+        }
+
+        #[test]
+        fn split_sign_matches_standard_verify() {
+            let mut ctx = split_setup();
+            let message = b"payment of 5 tokens".to_vec();
+            let mut sig = Vec::new();
+
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &message,
+                &ctx.credential,
+                &None,
+                true,
+                &mut sig,
+            ));
+
+            // Standard verify accepts it
+            assert!(verify(&ctx.group_pk, &None, &None, &sig, &message));
+
+            // Wrong message fails
+            let wrong = b"payment of 50 tokens".to_vec();
+            assert!(!verify(&ctx.group_pk, &None, &None, &sig, &wrong));
+        }
+
+        #[test]
+        fn split_sign_equivalent_to_combined_sign() {
+            let mut ctx = split_setup();
+            let message = b"equivalence test".to_vec();
+
+            // Standard sign with combined sk
+            let mut std_sig = Vec::new();
+            assert!(sign(
+                &message,
+                &ctx.credential,
+                &ctx.combined_sk,
+                &None,
+                true,
+                &mut std_sig,
+            ));
+            assert!(verify(&ctx.group_pk, &None, &None, &std_sig, &message));
+
+            // Split sign
+            let mut split_sig = Vec::new();
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &message,
+                &ctx.credential,
+                &None,
+                true,
+                &mut split_sig,
+            ));
+            assert!(verify(&ctx.group_pk, &None, &None, &split_sig, &message));
+        }
+
+        #[test]
+        fn split_sign_without_randomization() {
+            let mut ctx = split_setup();
+            let message = b"no randomize".to_vec();
+            let mut sig = Vec::new();
+
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &message,
+                &ctx.credential,
+                &None,
+                false,
+                &mut sig,
+            ));
+
+            assert!(verify(&ctx.group_pk, &None, &None, &sig, &message));
+        }
+
+        #[test]
+        fn split_sign_multiple_messages() {
+            let mut ctx = split_setup();
+
+            for i in 0..5 {
+                let message = format!("transaction {}", i).into_bytes();
+                let mut sig = Vec::new();
+
+                assert!(split::sign_split(
+                    &mut ctx.card,
+                    &ctx.host_sk,
+                    &message,
+                    &ctx.credential,
+                    &None,
+                    true,
+                    &mut sig,
+                ));
+
+                assert!(verify(&ctx.group_pk, &None, &None, &sig, &message));
+            }
+        }
+
+        #[test]
+        fn split_sign_host_alone_cannot_sign() {
+            let ctx = split_setup();
+            let message = b"host only attempt".to_vec();
+
+            let mut sig = Vec::new();
+            assert!(sign(
+                &message,
+                &ctx.credential,
+                &ctx.host_sk,
+                &None,
+                true,
+                &mut sig,
+            ));
+
+            // host_sk alone != combined_sk, so verify must fail
+            assert!(!verify(&ctx.group_pk, &None, &None, &sig, &message));
+        }
+
+        #[test]
+        fn split_sign_card_alone_cannot_sign() {
+            let ctx = split_setup();
+            let message = b"card only attempt".to_vec();
+            let card_sk = ctx.card.secret_key_share();
+
+            let mut sig = Vec::new();
+            assert!(sign(
+                &message,
+                &ctx.credential,
+                &card_sk,
+                &None,
+                true,
+                &mut sig,
+            ));
+
+            // card_sk alone != combined_sk, so verify must fail
+            assert!(!verify(&ctx.group_pk, &None, &None, &sig, &message));
+        }
+
+        #[test]
+        fn split_sign_basename_linkability() {
+            let mut ctx = split_setup();
+            let basename = Some(b"station-A".to_vec());
+
+            let msg1 = b"tap in".to_vec();
+            let mut sig1 = Vec::new();
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &msg1,
+                &ctx.credential,
+                &basename,
+                true,
+                &mut sig1,
+            ));
+
+            let msg2 = b"tap out".to_vec();
+            let mut sig2 = Vec::new();
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &msg2,
+                &ctx.credential,
+                &basename,
+                true,
+                &mut sig2,
+            ));
+
+            assert!(verify(&ctx.group_pk, &basename, &None, &sig1, &msg1));
+            assert!(verify(&ctx.group_pk, &basename, &None, &sig2, &msg2));
+
+            // K points should be the same (same key, same basename)
+            let k1 = sig_get_k(&sig1).unwrap();
+            let k2 = sig_get_k(&sig2).unwrap();
+            assert_eq!(serialize_g1(&k1), serialize_g1(&k2));
+        }
+
+        #[test]
+        fn split_sign_different_basenames_unlinkable() {
+            let mut ctx = split_setup();
+
+            let bsn1 = Some(b"station-A".to_vec());
+            let msg1 = b"tap".to_vec();
+            let mut sig1 = Vec::new();
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &msg1,
+                &ctx.credential,
+                &bsn1,
+                true,
+                &mut sig1,
+            ));
+
+            let bsn2 = Some(b"station-B".to_vec());
+            let msg2 = b"tap".to_vec();
+            let mut sig2 = Vec::new();
+            assert!(split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &msg2,
+                &ctx.credential,
+                &bsn2,
+                true,
+                &mut sig2,
+            ));
+
+            // K points should differ (different basenames)
+            let k1 = sig_get_k(&sig1).unwrap();
+            let k2 = sig_get_k(&sig2).unwrap();
+            assert_ne!(serialize_g1(&k1), serialize_g1(&k2));
+        }
+
+        #[test]
+        fn split_sign_cross_group_rejection() {
+            let mut ctx1 = split_setup_with_nonce(b"wallet-group-1");
+            let ctx2 = split_setup_with_nonce(b"wallet-group-2");
+
+            let message = b"cross group test".to_vec();
+            let mut sig = Vec::new();
+            assert!(split::sign_split(
+                &mut ctx1.card,
+                &ctx1.host_sk,
+                &message,
+                &ctx1.credential,
+                &None,
+                true,
+                &mut sig,
+            ));
+
+            assert!(verify(&ctx1.group_pk, &None, &None, &sig, &message));
+            assert!(!verify(&ctx2.group_pk, &None, &None, &sig, &message));
+        }
+
+        #[test]
+        fn split_sign_empty_message_rejected() {
+            let mut ctx = split_setup();
+            let mut sig = Vec::new();
+            assert!(!split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &Vec::new(),
+                &ctx.credential,
+                &None,
+                true,
+                &mut sig,
+            ));
+        }
+
+        #[test]
+        fn split_sign_empty_credential_rejected() {
+            let mut ctx = split_setup();
+            let message = b"test".to_vec();
+            let mut sig = Vec::new();
+            assert!(!split::sign_split(
+                &mut ctx.card,
+                &ctx.host_sk,
+                &message,
+                &Vec::new(),
+                &None,
+                true,
+                &mut sig,
+            ));
+        }
+
+        #[test]
+        fn mock_card_public_key_share_deterministic() {
+            let card = MockCard::from_secret(
+                deserialize_fr(&[
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 42,
+                ])
+                .unwrap(),
+            );
+            let base = serialize_g1(&G1::one());
+
+            let pk1 = card.public_key_share(&base);
+            let pk2 = card.public_key_share(&base);
+            assert_eq!(pk1, pk2);
+        }
+
+        #[test]
+        fn mock_card_sign_commit_consumes_randomness() {
+            let mut card = MockCard::new();
+            let s = serialize_g1(&(G1::one() * random_fr()));
+
+            // First commit succeeds
+            let commit = card.sign_commit(&s, None);
+            assert!(commit.is_some());
+
+            // Respond consumes the randomness
+            let challenge = serialize_fr(&random_fr());
+            let response = card.sign_respond(&challenge);
+            assert!(response.is_some());
+
+            // Second respond without new commit fails
+            let response2 = card.sign_respond(&challenge);
+            assert!(response2.is_none());
+        }
+
+        #[test]
+        fn split_two_members_same_group() {
+            let mut ctx1 = split_setup_with_nonce(b"member-A");
+
+            // Create second member under same issuer
+            let nonce2 = b"member-B".to_vec();
+            let card2 = MockCard::new();
+            let (host_sk2, member_pk2, _combined_sk2) =
+                split::generate_split_wallet_keypair(&card2, &nonce2).unwrap();
+
+            let mut cred2 = Vec::new();
+            let mut cred_sig2 = Vec::new();
+            assert!(issue_credential(
+                &member_pk2,
+                &ctx1.issuer_sk,
+                &nonce2,
+                &mut cred2,
+                &mut cred_sig2,
+            ));
+
+            let message = b"same message".to_vec();
+
+            let mut sig1 = Vec::new();
+            assert!(split::sign_split(
+                &mut ctx1.card,
+                &ctx1.host_sk,
+                &message,
+                &ctx1.credential,
+                &None,
+                true,
+                &mut sig1,
+            ));
+
+            let mut card2 = card2;
+            let mut sig2 = Vec::new();
+            assert!(split::sign_split(
+                &mut card2,
+                &host_sk2,
+                &message,
+                &cred2,
+                &None,
+                true,
+                &mut sig2,
+            ));
+
+            // Both verify under same group
+            assert!(verify(&ctx1.group_pk, &None, &None, &sig1, &message));
+            assert!(verify(&ctx1.group_pk, &None, &None, &sig2, &message));
+
+            // Signatures differ (different keys, different randomization)
+            assert_ne!(sig1, sig2);
+        }
     }
 }
