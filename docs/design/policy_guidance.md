@@ -17,6 +17,16 @@ a complete configuration.
 | `T_valid` | Token valid-until (timestamp) | Per-token | `proto/token.proto:58` (Tag.valid_until) |
 | `G_max` | Maximum ticket groups | 64 | `clerk/epoch_generate.rs:36` |
 
+**Note on the epoch clock**: Epochs are a system-wide logical clock
+controlled by the operator, not a wall clock. The epoch only advances
+when the operator publishes a new epoch and peers receive it via gossip.
+This means ticket lifetimes are measured in *published epochs*, not real
+time. During system-wide outages, epochs do not advance and tickets do
+not expire. During network partitions, the connected majority continues
+advancing epochs while partitioned wallets' tickets burn down (see
+Constraint 3). This is a deliberate design choice that decouples system
+liveness from real-time clocks.
+
 ### Derived Timing
 
 | Symbol | Formula | Meaning |
@@ -48,14 +58,7 @@ Where `T_detect = 1` for mandatory validation (banks, merchants) or
 `E[T_detect] = 1/v` for probabilistic validation.
 
 **Operator choice**: Lower `T_life` shrinks the eviction window but
-forces wallets online more frequently. The key constraint:
-
-```
-T_life >= T_outage_tolerance
-```
-
-where `T_outage_tolerance` is the longest acceptable connectivity
-outage (in epochs) before wallets lose the ability to transact.
+forces wallets to visit the clerk more frequently for re-issuance.
 
 ### Constraint 2: Epoch Velocity vs. Gossip Convergence
 
@@ -74,21 +77,32 @@ transact at least once per day on average. For sparse deployments
 (rural, limited connectivity), either increase `T_epoch` or ensure the
 `Synchronize` fallback covers the gap.
 
-### Constraint 3: Ticket Lifetime vs. Outage Resilience
+### Constraint 3: Disconnected Operation — Outages vs. Partitions
 
-During a connectivity outage:
-- Epoch gossip stalls (no new transactions propagating updates)
-- Ticket clocks keep ticking (expiration is wall-clock based)
-- Wallets cannot request new tickets
+Because epochs are an operator-controlled logical clock (not wall
+time), the impact of connectivity loss depends on its scope:
 
-If all tickets expire during an outage, the wallet is dead until
-connectivity returns. The constraint:
+**System-wide outage** (epoch service down): The epoch does not
+advance. No tickets expire. All wallets freeze symmetrically. When
+service resumes, the system picks up exactly where it left off. There
+is no time-based constraint to satisfy — the system is self-pausing.
+
+**Network partition** (minority disconnected, majority online): The
+epoch continues advancing for connected peers. Partitioned wallets'
+tickets burn down by one lifetime unit per epoch even though the
+wallet never used them and never received the new epochs. When the
+partition heals, the wallet discovers it has missed epochs and some
+tickets have expired.
+
+The constraint applies to partitions only:
 
 ```
-T_life_max * T_epoch > T_max_expected_outage
+T_life_max > T_max_expected_partition    (in epochs)
 ```
 
-where `T_life_max` is the longest-lived ticket in the wallet's set.
+Additionally, `T_epoch` should match the operator's desired cadence
+for state updates (revocation, key rotation, policy). Shorter epochs
+push revocations faster but require more frequent gossip convergence.
 
 ### Constraint 4: Group Count vs. Collateral Damage
 
@@ -173,23 +187,72 @@ T_evict_worst = T_detect + 1 + D + T_life_long
 The operator controls this tradeoff by limiting the number of long-lived
 tickets per request and per NAC pseudonym per epoch.
 
-### Interaction with Outages
+### Interaction with Disconnected Operation
 
-During an outage of duration `T_out`:
+Because the epoch is an operator-controlled logical clock (not wall
+time), the behavior during connectivity loss depends on *who* is
+disconnected. There are two distinct cases:
+
+#### System-wide outage
+
+When the epoch service is down or unreachable by all participants,
+the epoch does not advance. All tickets — short, medium, and long —
+remain valid indefinitely in real time. The system clock is frozen.
+
+When the operator restores service and publishes the next epoch(s),
+ticket lifetimes resume counting down. Wallets return with the same
+ticket inventory they had when the outage began.
+
+In a system-wide outage, the elastic lifetime distribution has no
+effect on survival — all tickets survive equally. The tiers are
+purely about policy control during normal operation.
+
+#### Network partition (disconnected minority)
+
+When a subset of wallets is partitioned from the network while the
+majority continues transacting, the epoch *does* advance for the
+connected majority. The partitioned wallets experience:
+
+1. **Epoch drift**: Their local epoch falls behind. They cannot
+   transact with connected peers who have advanced, because the
+   connected peers require the current epoch (via `max(source, target)`
+   gossip rule).
+
+2. **Ticket consumption**: Each epoch the operator publishes consumes
+   one lifetime unit from every ticket, including the partitioned
+   wallets' tickets. If `T_life_short = 2` and the partition lasts
+   3 epochs, all short tickets expire *even though the partitioned
+   wallet never used them*.
+
+3. **Asymmetric revocation**: If a double-spend is detected during the
+   partition, connected peers receive the revocation via gossip. The
+   partitioned wallet does not. When the partition heals, the wallet
+   must catch up on potentially multiple epoch updates.
+
+This is where the elastic lifetime distribution becomes critical for
+resilience. During a partition lasting `P` epochs:
 
 ```
-tickets_surviving(T_out) = count(tickets where remaining_life > T_out)
+tickets_surviving(P) = count(tickets where remaining_life > P)
 ```
 
-With the elastic distribution above, a 3-epoch outage loses ~80% of
-tickets (the short ones) but preserves ~20% (medium + long). A 14-epoch
-outage loses ~95% but preserves the long-lived tickets. The wallet
-remains functional throughout.
+With the default distribution, a 3-epoch partition loses ~80% of
+tickets (the short ones) but preserves ~20% (medium + long). A
+14-epoch partition loses ~95% but preserves long-lived tickets.
 
-**Critical invariant**: Epoch gossip also stalls during outages, so
-revocation enforcement also stalls. Honest wallets are not disadvantaged
-by holding older epochs during the outage — their peers are in the
-same state.
+**The constraint for partition resilience** (replaces the wall-clock
+outage constraint):
+
+```
+T_life_max > T_max_expected_partition    (in epochs)
+```
+
+where `T_max_expected_partition` is the longest partition duration
+the operator wants to survive without requiring a clerk visit.
+
+When the partition heals, the wallet receives the current epoch via
+gossip on its first transaction attempt. At that point it can also
+reach the clerk to request fresh tickets if needed.
 
 ### Long-Lived Tickets and Revocation
 
@@ -222,21 +285,28 @@ are in epochs unless noted.
 1. T_life_short >= 1
    (Tickets must survive at least one epoch)
 
-2. T_life_max * T_epoch >= T_max_expected_outage
-   (Longest tickets must outlive expected outages)
-
-3. T_epoch > D * T_avg_txn_interval
+2. T_epoch > D * T_avg_txn_interval
    (Epochs must not advance faster than gossip can propagate)
 
-4. G_max >= N_active / max_acceptable_collateral
+3. G_max >= N_active / max_acceptable_collateral
    (Group count limits blast radius of each revocation)
 
-5. T_life_short < T_life_medium < T_life_long
+4. T_life_short < T_life_medium < T_life_long
    (Lifetime tiers must be strictly ordered)
 
-6. count_long_per_request * T_life_long < abuse_tolerance
+5. count_long_per_request * T_life_long < abuse_tolerance
    (Long ticket count * lifetime bounds worst-case abuse window)
+
+6. T_life_max > T_max_expected_partition
+   (Longest tickets must outlive expected network partitions;
+    not needed for system-wide outages where epochs freeze)
 ```
+
+Note on outages vs. partitions: In a system-wide outage, the epoch
+does not advance and no tickets expire — there is no time constraint.
+In a network partition, the epoch continues advancing for connected
+peers, and partitioned wallets' tickets burn down even though unused.
+Constraint 6 applies only to partitions, not system-wide outages.
 
 ### Should-hold recommendations
 
@@ -279,7 +349,8 @@ v_peer          = 0.2
 
 Eviction (normal): `1 + 1 + D + 2` = `D + 4` epochs
 Eviction (worst): `1 + 1 + D + 30` = `D + 32` epochs
-Outage tolerance: 30 days
+System outage: epochs freeze, all tickets survive
+Partition tolerance: T_life_long epochs before clerk needed
 
 #### Rural / low-connectivity deployment
 
@@ -296,7 +367,8 @@ v_peer          = 0.05
 
 Eviction (normal): `1 + 1 + D + 5` = `D + 7` epochs
 Eviction (worst): `1 + 1 + D + 90` = `D + 92` epochs
-Outage tolerance: 90 days
+System outage: epochs freeze, all tickets survive
+Partition tolerance: T_life_long epochs before clerk needed
 
 #### High-security / low-latency deployment
 
@@ -313,15 +385,16 @@ v_peer          = 0.5
 
 Eviction (normal): `1 + 1 + D + 24` = `D + 26` epochs (~26 hours)
 Eviction (worst): `1 + 1 + D + 720` = `D + 722` epochs (~30 days)
-Outage tolerance: 30 days
+System outage: epochs freeze, all tickets survive
+Partition tolerance: T_life_long epochs before clerk needed
 
 ## Tradeoff Summary
 
 | Knob | Turn Up | Turn Down |
 |------|---------|-----------|
 | `T_epoch` | Slower state churn, better for sparse networks | Faster revocation enforcement, more overhead |
-| `T_life_short` | Better outage tolerance | Faster normal-case eviction |
-| `T_life_long` | Better outage tolerance, persistent addresses | Wider worst-case eviction window |
+| `T_life_short` | More epochs before clerk re-issuance needed | Faster normal-case eviction |
+| `T_life_long` | Persistent addresses, more epochs between clerk visits | Wider worst-case eviction window |
 | `G_max` | Less collateral damage per revocation | More state in epoch bitfield |
 | `v` (validation freq) | Faster detection | More online validation traffic |
 | `max_tickets_per_request` | More flexibility for wallets | More tickets a rogue wallet can stockpile |
