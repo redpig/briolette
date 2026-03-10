@@ -592,9 +592,36 @@ fn token_is_extension(candidate: &Token, tokens: &Vec<Token>) -> Option<usize> {
             continue;
         }
         // If there were no differences, but the candidate has a longer history.
-        // TODO: Look through transfers for a split and make sure it doesn't exceed the original
-        //       amount!
-        //       The callers _should_ do this while they can't check the total like tokenmap can.
+        // Check new history entries for split tags that exceed the original token value.
+        // Only the tokenmap can enforce the total across all splits, so we must validate
+        // that any split amount in the extension doesn't exceed the descriptor value.
+        let new_entries = &candidate.history[token.history.len()..];
+        for entry in new_entries {
+            if let Some(split_amount) = get_split_amount(&entry.transfer) {
+                let original_value = candidate.descriptor.as_ref().and_then(|d| d.value.as_ref());
+                match original_value {
+                    Some(orig) => {
+                        if split_amount.code != orig.code {
+                            trace!("split currency code mismatch in extension");
+                            return None;
+                        }
+                        if split_amount.whole > orig.whole
+                            || (split_amount.whole == orig.whole
+                                && split_amount.fractional > orig.fractional)
+                        {
+                            trace!("split amount exceeds original value in extension");
+                            return None;
+                        }
+                    }
+                    None => {
+                        // No descriptor value to check against — reject the split as
+                        // we can't verify it doesn't inflate value.
+                        trace!("split in extension but no descriptor value to validate against");
+                        return None;
+                    }
+                }
+            }
+        }
         return Some(index);
     }
     return None;
@@ -1004,5 +1031,168 @@ mod tests {
         assert_eq!(token_is_extension(&double_spend, &tokens), None);
         assert!(!token_is_second_split(&double_spend, &tokens));
         assert_eq!(token_get_fork(&double_spend, &tokens), Some((0, 1)));
+    }
+
+    // ========================================================================
+    // token_is_extension split validation tests
+    // ========================================================================
+
+    /// Helper: build a token where a specific history entry carries a split tag.
+    fn make_extension_with_split(
+        base_sig: &[u8],
+        pre_split_sigs: &[&[u8]],
+        split_sig: &[u8],
+        split_amount: Amount,
+        post_split_sigs: &[&[u8]],
+        descriptor_value: Option<Amount>,
+    ) -> Token {
+        let mut history: Vec<History> = pre_split_sigs
+            .iter()
+            .map(|s| make_history(s, None))
+            .collect();
+        history.push(make_history(split_sig, Some(split_amount)));
+        for s in post_split_sigs {
+            history.push(make_history(s, None));
+        }
+        Token {
+            descriptor: Some(Descriptor {
+                version: 0,
+                value: descriptor_value,
+            }),
+            base: Some(History {
+                transfer: Some(Transfer {
+                    recipient: None,
+                    tags: vec![],
+                    previous_signature: vec![],
+                }),
+                signature: base_sig.to_vec(),
+            }),
+            history,
+        }
+    }
+
+    #[test]
+    fn token_is_extension_rejects_inflated_split() {
+        // Existing token has history [h1]. Candidate extends with a split
+        // claiming 15 on a token worth 10 — must be rejected.
+        let value = Some(Amount {
+            whole: 10,
+            fractional: 0.0,
+            code: 0,
+        });
+        let existing = make_token(b"base", &[b"h1"], value.clone());
+        let inflated = make_extension_with_split(
+            b"base",
+            &[b"h1"],
+            b"split-inflated",
+            Amount {
+                whole: 15,
+                fractional: 0.0,
+                code: 0,
+            },
+            &[],
+            value.clone(),
+        );
+        assert_eq!(token_is_extension(&inflated, &vec![existing]), None);
+    }
+
+    #[test]
+    fn token_is_extension_accepts_valid_split() {
+        // Split claiming 6 on a token worth 10 — should be accepted.
+        let value = Some(Amount {
+            whole: 10,
+            fractional: 0.0,
+            code: 0,
+        });
+        let existing = make_token(b"base", &[b"h1"], value.clone());
+        let valid_split = make_extension_with_split(
+            b"base",
+            &[b"h1"],
+            b"split-valid",
+            Amount {
+                whole: 6,
+                fractional: 0.0,
+                code: 0,
+            },
+            &[],
+            value.clone(),
+        );
+        assert_eq!(token_is_extension(&valid_split, &vec![existing]), Some(0));
+    }
+
+    #[test]
+    fn token_is_extension_rejects_split_currency_mismatch() {
+        // Split uses a different currency code — must be rejected.
+        let value = Some(Amount {
+            whole: 10,
+            fractional: 0.0,
+            code: 0,
+        });
+        let existing = make_token(b"base", &[b"h1"], value.clone());
+        let wrong_currency = make_extension_with_split(
+            b"base",
+            &[b"h1"],
+            b"split-wrong-code",
+            Amount {
+                whole: 5,
+                fractional: 0.0,
+                code: 840,
+            },
+            &[],
+            value.clone(),
+        );
+        assert_eq!(token_is_extension(&wrong_currency, &vec![existing]), None);
+    }
+
+    #[test]
+    fn token_is_extension_rejects_exact_amount_with_fractional_overflow() {
+        // Split matches whole amount but exceeds via fractional.
+        let value = Some(Amount {
+            whole: 10,
+            fractional: 0.0,
+            code: 0,
+        });
+        let existing = make_token(b"base", &[b"h1"], value.clone());
+        let fractional_overflow = make_extension_with_split(
+            b"base",
+            &[b"h1"],
+            b"split-frac",
+            Amount {
+                whole: 10,
+                fractional: 0.01,
+                code: 0,
+            },
+            &[],
+            value.clone(),
+        );
+        assert_eq!(
+            token_is_extension(&fractional_overflow, &vec![existing]),
+            None
+        );
+    }
+
+    #[test]
+    fn token_is_extension_split_deep_in_extension() {
+        // Existing has [h1, h2]. Extension adds [h3, split(15), h5].
+        // The split is in the new entries, not in the shared prefix.
+        let value = Some(Amount {
+            whole: 10,
+            fractional: 0.0,
+            code: 0,
+        });
+        let existing = make_token(b"base", &[b"h1", b"h2"], value.clone());
+        let deep_split = make_extension_with_split(
+            b"base",
+            &[b"h1", b"h2", b"h3"],
+            b"split-deep",
+            Amount {
+                whole: 15,
+                fractional: 0.0,
+                code: 0,
+            },
+            &[b"h5"],
+            value.clone(),
+        );
+        assert_eq!(token_is_extension(&deep_split, &vec![existing]), None);
     }
 }

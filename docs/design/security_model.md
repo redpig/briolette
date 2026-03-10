@@ -161,6 +161,7 @@ plus all gossip convergence tests above.
 | 1. Split-key | Split signing produces same K | `crypto/src/v0.rs:split_tests` |
 | 2. Fork detection | All four decision tree cases | `tokenmap/src/server.rs:fork_detection_decision_tree` |
 | 2. Split validation | Valid/invalid splits | `tokenmap/src/server.rs:token_is_second_split_*` |
+| 2. Extension splits | Inflated split rejection | `tokenmap/src/server.rs:token_is_extension_*_split*` |
 | 2. Revocation creation | DS -> RevocationData | `wallet/src/lib.rs:double_spend_creates_revocation_data` |
 | 3. Convergence | D rounds on line | `briolettesim:gossip_convergence_bound_line_topology` |
 | 3. Tight bound | NOT D-1 rounds | `briolettesim:gossip_convergence_not_faster_than_diameter` |
