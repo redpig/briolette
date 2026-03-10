@@ -400,6 +400,90 @@ Partition tolerance: T_life_long epochs before clerk needed
 | `max_tickets_per_request` | More flexibility for wallets | More tickets a rogue wallet can stockpile |
 | `count_long / count_total` | Better disaster resilience | Wider worst-case abuse window |
 
+## Spending Off Expired Tickets During Partitions
+
+### The Problem
+
+During a network partition, the connected majority continues advancing
+epochs. A partitioned wallet's short-lived tickets expire even though
+unused. If tokens are bound to those expired tickets, the wallet cannot
+move them to its surviving long-lived tickets — the tokens are frozen.
+
+### What the Design Already Allows
+
+The design explicitly contemplates transfers to expired tickets
+(`clerk.proto:32`: "sending funds to expired tickets IS valid"). The
+sending side has no issue either — `Token::transfer()` does not check
+ticket expiration; it signs using the committed credential and
+`previous_signature` as basename regardless of ticket state.
+
+### The v0 Code Gap
+
+The current `SignedTicket::verify()` (`token.rs:503`) checks
+`expires_on() < now` for every ticket in the token's history chain,
+including historical entries. After a self-transfer from expired
+ticket A to valid ticket B, a future verifier would:
+
+1. Walk the history chain
+2. Encounter ticket A in a historical entry
+3. Reject the entire token because A is expired at verification time
+
+This is overly strict. The ticket was valid when the transfer occurred.
+The `TicketData.created_on` and `lifetime` fields contain enough
+information to verify that a ticket was valid *at the time of its
+transfer* rather than at the current verification time.
+
+### Proposed Rule
+
+**Ticket expiration should only be enforced on the most recent
+(current holder's) ticket.** Historical tickets should be verified
+for signature validity and group membership, but not for expiration.
+
+Alternatively, historical ticket verification could check that the
+ticket was valid relative to the *next* transfer's epoch context
+(i.e., the ticket hadn't expired by the time the holder transferred
+the token onward).
+
+### Security Analysis
+
+Allowing self-transfers off expired tickets during a partition:
+
+- **Does not help attackers evade revocation**: Revocation is enforced
+  via the `group_bitfield` in epoch data, not via ticket expiration.
+  A revoked group's tickets are rejected regardless of their lifetime.
+  The partitioned wallet doesn't have the revocation update anyway.
+
+- **Does not enable double-spending**: The ECDAA signature with
+  `previous_signature` as basename still creates linkable pseudonyms.
+  A self-transfer is just another transfer in the history — if the
+  wallet double-spends, it's detectable the same way.
+
+- **Does not extend abuse windows**: The attacker's tokens are still
+  subject to validation by future recipients. The self-transfer only
+  rebinds the token to a different ticket on the same wallet.
+
+- **Does enable token mobility during partitions**: Wallets can move
+  tokens from short-lived expired tickets to long-lived valid tickets,
+  keeping their funds liquid for transactions within the partitioned
+  subgraph.
+
+### Interaction with Elastic Lifetimes
+
+With the elastic ticket distribution, this rule change means:
+
+- During normal operation: wallets spend shortest-first, tickets expire
+  naturally, self-transfers are unnecessary.
+- During a partition: short tickets expire, wallet self-transfers tokens
+  to medium/long tickets, continues transacting within the partition.
+- Post-partition: wallet reconnects, receives current epoch, visits
+  clerk for fresh tickets. Historical expired tickets in token
+  provenance are accepted by verifiers.
+
+Without this rule, the elastic lifetime design only protects the ability
+to *receive* tokens (via surviving long-lived tickets) but not to
+*spend* tokens already held on expired tickets. Both directions are
+needed for partition resilience.
+
 ## Open Design Questions
 
 1. **Ticket lifetime in epoch data**: Should the clerk's ticket lifetime
