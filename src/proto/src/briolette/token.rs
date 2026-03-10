@@ -94,7 +94,28 @@ impl TokenVerify for Token {
                 .unwrap()
                 .credential;
         }
-        // 3. Enjoy a valid token.
+        // 3. Verify that no split amount exceeds the descriptor value.
+        let descriptor = self.descriptor.as_ref().unwrap();
+        if let Some(ref original_value) = descriptor.value {
+            for history in self.history.iter() {
+                if let Some(ref transfer) = history.transfer {
+                    for tag in transfer.tags.iter() {
+                        if let Some(tag::Value::SplitValue(ref split_amount)) = tag.value {
+                            if split_amount.code != original_value.code {
+                                return Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch);
+                            }
+                            if split_amount.whole > original_value.whole
+                                || (split_amount.whole == original_value.whole
+                                    && split_amount.fractional > original_value.fractional)
+                            {
+                                return Err(BrioletteErrorCode::InvalidSplitExceedsValue);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 4. Enjoy a valid token.
         return Ok(true);
     }
 }
