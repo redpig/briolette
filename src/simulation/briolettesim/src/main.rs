@@ -2043,3 +2043,339 @@ fn observe(step: usize, world: &WorldData, _pop: &SimulationPopulation<Simulator
     println!("[{}] consumers: {} merchants: {}", step, num_con, num_mer);
     */
 }
+
+// ============================================================================
+// Extracted gossip and revocation logic for testability
+// ============================================================================
+
+/// Apply a gossip event to an agent. Returns the new epoch.
+///
+/// Gossip convergence property: `new_epoch = max(gossip_epoch, agent_epoch)`.
+/// Double-spenders refuse to update (simulating refusal to accept new revocations).
+fn apply_gossip(agent_epoch: usize, gossip_epoch: usize, is_double_spender: bool) -> usize {
+    if is_double_spender {
+        agent_epoch
+    } else {
+        max(gossip_epoch, agent_epoch)
+    }
+}
+
+/// Apply a synchronize event. Returns the new epoch.
+///
+/// Synchronize brings the agent to the current world epoch in one step.
+fn apply_synchronize(agent_epoch: usize, world_epoch: usize) -> usize {
+    max(agent_epoch, world_epoch)
+}
+
+/// Check if an agent is revoked at a given epoch.
+///
+/// Returns true if the agent_id appears in the revocation list for the epoch.
+fn is_revoked(agent_id: usize, epoch: usize, epochs: &[SyncState]) -> bool {
+    if epoch < epochs.len() {
+        epochs[epoch].revocation.contains(&agent_id)
+    } else {
+        false
+    }
+}
+
+/// Compute the gossip epoch for a transaction between two agents.
+/// Both parties learn max(source.epoch, target.epoch).
+fn transaction_gossip_epoch(source_epoch: usize, target_epoch: usize) -> usize {
+    max(source_epoch, target_epoch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // Unit tests for gossip and revocation logic
+    // ========================================================================
+
+    #[test]
+    fn gossip_updates_epoch_to_max() {
+        // An honest agent receiving gossip with a higher epoch updates.
+        assert_eq!(apply_gossip(3, 5, false), 5);
+        // An honest agent receiving gossip with a lower epoch keeps theirs.
+        assert_eq!(apply_gossip(5, 3, false), 5);
+        // An honest agent receiving gossip with same epoch stays the same.
+        assert_eq!(apply_gossip(5, 5, false), 5);
+    }
+
+    #[test]
+    fn gossip_double_spender_ignores_update() {
+        // A double-spender never updates their epoch via gossip.
+        assert_eq!(apply_gossip(3, 5, true), 3);
+        assert_eq!(apply_gossip(0, 100, true), 0);
+    }
+
+    #[test]
+    fn synchronize_updates_to_world_epoch() {
+        assert_eq!(apply_synchronize(0, 5), 5);
+        assert_eq!(apply_synchronize(5, 3), 5); // Can't go backwards
+        assert_eq!(apply_synchronize(5, 5), 5);
+    }
+
+    #[test]
+    fn revocation_check_rejects_revoked_source() {
+        let epochs = vec![
+            SyncState {
+                id: 0,
+                revocation: vec![],
+                quarantine: vec![],
+                step: 0,
+            },
+            SyncState {
+                id: 1,
+                revocation: vec![42],
+                quarantine: vec![],
+                step: 1,
+            },
+        ];
+        // Agent 42 is not revoked at epoch 0
+        assert!(!is_revoked(42, 0, &epochs));
+        // Agent 42 is revoked at epoch 1
+        assert!(is_revoked(42, 1, &epochs));
+        // Agent 99 is not revoked at any epoch
+        assert!(!is_revoked(99, 0, &epochs));
+        assert!(!is_revoked(99, 1, &epochs));
+    }
+
+    #[test]
+    fn transaction_gossip_epoch_is_max() {
+        assert_eq!(transaction_gossip_epoch(3, 5), 5);
+        assert_eq!(transaction_gossip_epoch(5, 3), 5);
+        assert_eq!(transaction_gossip_epoch(5, 5), 5);
+    }
+
+    // ========================================================================
+    // Gossip convergence bound proof
+    // ========================================================================
+
+    /// Prove that gossip converges in exactly `diameter` rounds on a line topology.
+    ///
+    /// Model: N agents in a line (0 -- 1 -- 2 -- ... -- N-1).
+    /// Agent 0 starts at epoch E. All others start at epoch 0.
+    /// Each round, every adjacent pair gossips.
+    ///
+    /// Theorem: After k rounds, agents 0..=k all have epoch E.
+    /// Therefore convergence in N-1 rounds (the diameter of the line graph).
+    #[test]
+    fn gossip_convergence_bound_line_topology() {
+        let n = 10;
+        let target_epoch = 5;
+        let mut epochs = vec![0usize; n];
+        epochs[0] = target_epoch;
+
+        for round in 0..(n - 1) {
+            // Gossip along adjacent pairs (left to right, then right to left)
+            let mut new_epochs = epochs.clone();
+            for i in 0..(n - 1) {
+                let gossip_epoch = transaction_gossip_epoch(epochs[i], epochs[i + 1]);
+                new_epochs[i] = apply_gossip(new_epochs[i], gossip_epoch, false);
+                new_epochs[i + 1] = apply_gossip(new_epochs[i + 1], gossip_epoch, false);
+            }
+            epochs = new_epochs;
+
+            // After round k, agents 0..=k+1 should have the target epoch
+            // (information propagates one hop per round)
+            for j in 0..=min(round + 1, n - 1) {
+                assert_eq!(
+                    epochs[j], target_epoch,
+                    "Agent {} should have epoch {} after round {}",
+                    j, target_epoch, round
+                );
+            }
+        }
+
+        // After N-1 rounds, all agents must have converged
+        for (i, &e) in epochs.iter().enumerate() {
+            assert_eq!(
+                e, target_epoch,
+                "Agent {} should have converged to epoch {} after {} rounds (diameter)",
+                i, target_epoch, n - 1
+            );
+        }
+    }
+
+    /// Prove that convergence is NOT faster than diameter for a line topology.
+    /// After only N-2 rounds on a line of N, the last agent must NOT have converged.
+    #[test]
+    fn gossip_convergence_not_faster_than_diameter() {
+        let n = 10;
+        let target_epoch = 5;
+        let mut epochs = vec![0usize; n];
+        epochs[0] = target_epoch;
+
+        // Run exactly N-2 rounds (one less than required)
+        for _round in 0..(n - 2) {
+            let mut new_epochs = epochs.clone();
+            for i in 0..(n - 1) {
+                let gossip_epoch = transaction_gossip_epoch(epochs[i], epochs[i + 1]);
+                new_epochs[i] = apply_gossip(new_epochs[i], gossip_epoch, false);
+                new_epochs[i + 1] = apply_gossip(new_epochs[i + 1], gossip_epoch, false);
+            }
+            epochs = new_epochs;
+        }
+
+        // The last agent should NOT yet have the epoch
+        assert_eq!(
+            epochs[n - 1], 0,
+            "Last agent should NOT have converged after only N-2 rounds"
+        );
+    }
+
+    /// Prove that a double-spender on a line topology BLOCKS gossip propagation
+    /// to agents behind them. This is a critical property: the system cannot
+    /// rely on gossip alone through a double-spender; it requires either:
+    ///   (a) alternate paths (mesh/grid topology), or
+    ///   (b) periodic Synchronize calls (online check with operator).
+    ///
+    /// Line: 0 -- 1(DS) -- 2 -- 3 -- 4
+    /// Agent 0 has epoch 5. Agent 1 is a double-spender who refuses to update.
+    /// Since DS stays at epoch 0, gossip to agent 2 carries max(0, 0) = 0.
+    #[test]
+    fn gossip_double_spender_blocks_line_propagation() {
+        let n = 5;
+        let ds_index = 1;
+        let target_epoch = 5;
+        let mut epochs = vec![0usize; n];
+        let is_ds = |i: usize| i == ds_index;
+        epochs[0] = target_epoch;
+
+        for _round in 0..(n - 1) {
+            let mut new_epochs = epochs.clone();
+            for i in 0..(n - 1) {
+                let gossip_epoch = transaction_gossip_epoch(epochs[i], epochs[i + 1]);
+                new_epochs[i] = apply_gossip(new_epochs[i], gossip_epoch, is_ds(i));
+                new_epochs[i + 1] = apply_gossip(new_epochs[i + 1], gossip_epoch, is_ds(i + 1));
+            }
+            epochs = new_epochs;
+        }
+
+        // Double-spender remains at epoch 0
+        assert_eq!(epochs[ds_index], 0, "DS must remain at old epoch");
+        // Agent 0 (source) should still have the epoch
+        assert_eq!(epochs[0], target_epoch);
+        // Agents behind the DS should NOT have converged
+        for i in 2..n {
+            assert_eq!(
+                epochs[i], 0,
+                "Agent {} behind DS should NOT have converged on a line",
+                i
+            );
+        }
+    }
+
+    /// Prove that with an alternate path (ring topology), honest agents
+    /// converge even when a double-spender is present.
+    ///
+    /// Ring: 0 -- 1(DS) -- 2 -- 3 -- 4 -- 0
+    /// Agent 0 has epoch 5. The ring provides a path around the DS.
+    #[test]
+    fn gossip_convergence_around_double_spender_ring() {
+        let n = 5;
+        let ds_index = 1;
+        let target_epoch = 5;
+        let mut epochs = vec![0usize; n];
+        let is_ds = |i: usize| i == ds_index;
+        epochs[0] = target_epoch;
+
+        // Ring topology: pairs are (0,1), (1,2), (2,3), (3,4), (4,0)
+        for _round in 0..(n - 1) {
+            let mut new_epochs = epochs.clone();
+            for i in 0..n {
+                let j = (i + 1) % n;
+                let gossip_epoch = transaction_gossip_epoch(epochs[i], epochs[j]);
+                new_epochs[i] = apply_gossip(new_epochs[i], gossip_epoch, is_ds(i));
+                new_epochs[j] = apply_gossip(new_epochs[j], gossip_epoch, is_ds(j));
+            }
+            epochs = new_epochs;
+        }
+
+        // Double-spender remains at epoch 0
+        assert_eq!(epochs[ds_index], 0, "DS must remain at old epoch");
+
+        // All honest agents should have converged via the alternate path
+        for (i, &e) in epochs.iter().enumerate() {
+            if i == ds_index {
+                continue;
+            }
+            assert_eq!(
+                e, target_epoch,
+                "Honest agent {} should converge via alternate path around DS",
+                i
+            );
+        }
+    }
+
+    /// Prove that revocation enforcement works: once all honest peers have
+    /// converged to an epoch containing a revocation, the revoked agent's
+    /// transactions are rejected.
+    #[test]
+    fn revocation_enforcement_after_convergence() {
+        let revoked_agent = 42;
+        let epochs = vec![
+            SyncState {
+                id: 0,
+                revocation: vec![],
+                quarantine: vec![],
+                step: 0,
+            },
+            SyncState {
+                id: 1,
+                revocation: vec![revoked_agent],
+                quarantine: vec![],
+                step: 1,
+            },
+        ];
+
+        // Simulate N honest agents receiving gossip up to epoch 1
+        let n = 20;
+        let mut agent_epochs = vec![0usize; n];
+
+        // One round of gossip with epoch 1
+        for i in 0..n {
+            agent_epochs[i] = apply_gossip(agent_epochs[i], 1, false);
+        }
+
+        // Every honest agent should now reject the revoked agent
+        for i in 0..n {
+            assert!(
+                is_revoked(revoked_agent, agent_epochs[i], &epochs),
+                "Agent {} at epoch {} must reject revoked agent {}",
+                i,
+                agent_epochs[i],
+                revoked_agent
+            );
+        }
+    }
+
+    /// Star topology: one central agent knows the epoch, N-1 leaf agents
+    /// connect only through the center. Convergence in 1 round.
+    #[test]
+    fn gossip_convergence_star_topology() {
+        let n = 20;
+        let target_epoch = 3;
+        let mut epochs = vec![0usize; n];
+        epochs[0] = target_epoch; // center node
+
+        // One round: center gossips with every leaf
+        let mut new_epochs = epochs.clone();
+        for i in 1..n {
+            let gossip_epoch = transaction_gossip_epoch(epochs[0], epochs[i]);
+            new_epochs[0] = apply_gossip(new_epochs[0], gossip_epoch, false);
+            new_epochs[i] = apply_gossip(new_epochs[i], gossip_epoch, false);
+        }
+        epochs = new_epochs;
+
+        // All converged in 1 round (diameter = 2 for star, but center is the source)
+        for (i, &e) in epochs.iter().enumerate() {
+            assert_eq!(
+                e, target_epoch,
+                "Agent {} should converge in 1 round on star topology",
+                i
+            );
+        }
+    }
+}

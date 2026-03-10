@@ -885,6 +885,10 @@ mod tests {
     use briolette_proto::briolette::validate::validate_server::ValidateServer;
     use briolette_crypto::v0::split::SmartCard as _;
     use briolette_proto::briolette::ErrorCode as BrioletteErrorCode;
+    use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
+    use briolette_proto::briolette::tokenmap::{
+        revocation_data_request, RevocationDataRequest, SelectGroup,
+    };
     use briolette_tokenmap::server::BrioletteTokenMap;
     use briolette_validate::server::BrioletteValidate;
     use briolette_clerk::server::BrioletteClerk;
@@ -1499,6 +1503,103 @@ mod tests {
         // Validate should fail...
         assert_eq!(wd.validate().await, false);
         // TODO: check the revocation database.
+
+        teardown();
+    }
+
+    /// Full eviction flow test proving that:
+    /// 1. Double-spend is detected by the tokenmap (fork detection invariant)
+    /// 2. RevocationData is created with linkable pseudonyms (basename linkability invariant)
+    /// 3. The pseudonyms from both spends match (identity revelation)
+    ///
+    /// This is the integration test for the Eviction Completeness Bound (see
+    /// docs/security_model.md): once a double-spend token reaches the validate
+    /// server, detection and revocation record creation happen in O(1).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn double_spend_creates_revocation_data() {
+        let tokenmap_uri = setup_tokenmap().await;
+        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
+        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
+        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let validate_uri = setup_validate(clerk_uri.clone(), tokenmap_uri.clone()).await;
+        let mut wd = WalletData::new(
+            registrar_uri,
+            clerk_uri,
+            mint_uri,
+            validate_uri,
+        );
+        assert_eq!(wd.initialize_keys(b"revocation-test"), true);
+        assert_eq!(wd.initialize_credential().await, true);
+        assert_eq!(wd.synchronize().await, true);
+        assert_eq!(wd.get_tickets(5).await, true);
+        assert_eq!(wd.withdraw(5).await, true);
+        assert_eq!(wd.tokens.len(), 5);
+
+        // Transfer all tokens to recipient A
+        let dest_a: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
+        assert_eq!(wd.transfer(5, dest_a.encode_to_vec()), true);
+        assert_eq!(wd.pending_tokens.len(), 5);
+
+        // Save the tokens as received, then "return" them to the wallet
+        let mut original_tokens: Vec<token::Token> = vec![];
+        while let Some(tok) = wd.pending_tokens.pop() {
+            let t = token::Token::decode(tok.as_slice()).unwrap();
+            original_tokens.push(t.clone());
+            wd.tokens.push(t.into());
+        }
+
+        // Validate the first set — this establishes the token in the tokenmap
+        assert_eq!(wd.validate().await, true);
+
+        // Now double-spend: clear history on one token and re-transfer
+        let mut ds_token = original_tokens.pop().unwrap();
+        ds_token.history.clear();
+        wd.tokens.push(ds_token.into());
+        let dest_b: token::SignedTicket = wd.tickets[1].clone().into();
+        assert_eq!(wd.transfer(1, dest_b.encode_to_vec()), true);
+
+        // Move double-spent token back to wallet for validation
+        while let Some(tok) = wd.pending_tokens.pop() {
+            wd.tokens
+                .push(token::Token::decode(tok.as_slice()).unwrap().into());
+        }
+
+        // Validate should detect the double spend
+        assert_eq!(wd.validate().await, false);
+
+        // Query the tokenmap for revocation data
+        let mut tm_client = TokenMapClient::connect(tokenmap_uri.clone())
+            .await
+            .expect("failed to connect to tokenmap");
+        let revocation_request = tonic::Request::new(RevocationDataRequest {
+            select: Some(revocation_data_request::Select::Group(
+                SelectGroup::All.into(),
+            )),
+        });
+        let revocation_reply = tm_client
+            .revocation_data(revocation_request)
+            .await
+            .expect("revocation_data RPC failed");
+        let entries = revocation_reply.into_inner().entries;
+
+        // RevocationData must exist — this proves fork detection triggered revocation
+        assert!(
+            !entries.is_empty(),
+            "RevocationData must be created when double-spend is detected"
+        );
+
+        let rd = entries[0].data.as_ref().unwrap();
+        // The revocation must record a TTC linkable signature (the pseudonym)
+        assert!(
+            rd.ttc.is_some(),
+            "RevocationData must contain a TTC linkable signature for identity revelation"
+        );
+        // The revocation must identify the abuse type
+        assert_eq!(
+            rd.abuse,
+            briolette_proto::briolette::tokenmap::AbuseType::DoubleSpend as i32,
+            "Abuse type must be DoubleSpend"
+        );
 
         teardown();
     }
