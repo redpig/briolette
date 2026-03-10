@@ -55,5 +55,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/receiver.proto");
     tonic_build::compile_protos("proto/receiver.proto")?;
 
+    println!("cargo:rerun-if-changed=proto/service_auth.proto");
+    tonic_build::compile_protos("proto/service_auth.proto")?;
+
+    println!("cargo:rerun-if-changed=proto/bridge.proto");
+    tonic_build::compile_protos("proto/bridge.proto")?;
+
     Ok(())
 }

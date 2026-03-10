@@ -14,6 +14,7 @@
 
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
 use briolette_proto::briolette::clerk::{EpochRequest, EpochUpdate};
+use briolette_proto::briolette::service_auth::ServiceGroup;
 use briolette_proto::briolette::token;
 use briolette_proto::briolette::token::TokenVerify;
 use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
@@ -21,6 +22,7 @@ use briolette_proto::briolette::tokenmap::UpdateRequest;
 use briolette_proto::briolette::validate::{ValidateTokensReply, ValidateTokensRequest};
 use briolette_proto::briolette::Version;
 use briolette_proto::briolette::{Error as BrioletteError, ErrorCode as BrioletteErrorCode};
+use briolette_service_auth::ServiceIdentity;
 use log::*;
 
 #[derive(Debug, Clone)]
@@ -29,6 +31,9 @@ pub struct BrioletteValidate {
     clerk_uri: String,
     tokenmap_uri: String,
     epoch_pk: Vec<u8>,
+    /// NAC-based service identity for authenticating service-to-service calls.
+    /// None if service auth is not configured (e.g., registrar unavailable).
+    pub service_identity: Option<ServiceIdentity>,
 }
 impl BrioletteValidate {
     pub async fn new(
@@ -46,7 +51,20 @@ impl BrioletteValidate {
             clerk_uri,
             tokenmap_uri,
             epoch_pk,
+            service_identity: None,
         })
+    }
+
+    /// Register with the registrar to obtain NAC credentials for service auth.
+    pub async fn register_service_identity(
+        &mut self,
+        registrar_uri: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let identity =
+            ServiceIdentity::register(registrar_uri, ServiceGroup::ServiceValidate).await?;
+        self.service_identity = Some(identity);
+        info!("validate service registered for service-to-service auth");
+        Ok(())
     }
 
     pub async fn validate_tokens_impl(
@@ -80,7 +98,9 @@ impl BrioletteValidate {
         // TODO: make this more sensible
         let mut reply = ValidateTokensReply::default();
         for token in request.tokens.iter() {
-            if check_tokenmap(token.clone(), &self.tokenmap_uri).await == false {
+            if check_tokenmap(token.clone(), &self.tokenmap_uri, &self.service_identity).await
+                == false
+            {
                 // TODO: add some metrics
                 error!("bad token detected");
                 reply.ok.push(false);
@@ -105,13 +125,24 @@ async fn get_epoch_update(clerk_uri: &String) -> Result<EpochUpdate, BrioletteEr
     return Err(BrioletteErrorCode::ClerkFetchFailure);
 }
 
-async fn check_tokenmap(token: token::Token, uri: &String) -> bool {
+async fn check_tokenmap(
+    token: token::Token,
+    uri: &String,
+    service_identity: &Option<ServiceIdentity>,
+) -> bool {
     if let Ok(mut client) = TokenMapClient::connect(uri.clone()).await {
         trace!("Connected to tokenmap!");
-        let request = UpdateRequest {
+        let update_req = UpdateRequest {
             id: token.clone().base.unwrap().signature,
             token: Some(token.clone()),
         };
+        let mut request = tonic::Request::new(update_req);
+        // Sign outgoing request if service auth is configured.
+        if let Some(ref identity) = service_identity {
+            if let Err(e) = identity.sign_grpc_request(&mut request) {
+                error!("failed to sign tokenmap request: {}", e);
+            }
+        }
         if let Ok(response) = client.update(request).await {
             // This shouldn't happen, but this is a reminder that it could.
             let msg = response.into_inner();

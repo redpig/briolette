@@ -1,0 +1,43 @@
+// Copyright 2023 The Briolette Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package briolette.service_auth;
+
+// Service group assignments for NAC-based service-to-service authentication.
+// Services register with the registrar using these group numbers.
+// High group numbers (240-255) are reserved for service groups to
+// separate from wallet groups (0-63).
+enum ServiceGroup {
+  SERVICE_UNKNOWN = 0;
+  SERVICE_CLERK = 240;
+  SERVICE_MINT = 241;
+  SERVICE_TOKENMAP = 242;
+  SERVICE_VALIDATE = 243;
+  SERVICE_RECEIVER = 244;
+  SERVICE_BRIDGE = 245; // Ethereum L2 bridge service
+}
+
+// Attached as gRPC metadata for service-to-service authentication.
+// The caller signs (request_hash || timestamp) with their NAC credential.
+message ServiceAuthMetadata {
+  // ECDAA signature over (request_hash || timestamp_nanos)
+  bytes signature = 1;
+  // Unix timestamp in nanoseconds (for replay prevention)
+  uint64 timestamp_nanos = 2;
+  // The caller's service group (verified against the signature)
+  ServiceGroup caller_group = 3;
+  // The randomized NAC credential used for this request
+  bytes credential = 4;
+}

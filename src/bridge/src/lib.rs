@@ -12,5 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod v0;
-pub mod v1;
+pub mod server;
+pub mod ethereum;

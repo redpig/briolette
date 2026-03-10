@@ -760,7 +760,7 @@ mod tests {
                 version: 0,
                 value: Some(Amount {
                     whole: 10,
-                    fractional: 0.0,
+                    fractional: 0,
                     code: 0,
                 }),
             }),
@@ -898,17 +898,17 @@ mod tests {
         // Two tokens fork at the same point, both carry split tags summing to original.
         let original_value = Amount {
             whole: 10,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
         let split_a = Amount {
             whole: 6,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
         let split_b = Amount {
             whole: 4,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
 
@@ -923,12 +923,12 @@ mod tests {
         // Split tags don't sum to original — abuse.
         let split_a = Amount {
             whole: 6,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
         let split_b = Amount {
             whole: 6,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         }; // 6+6=12 != 10
 
@@ -943,7 +943,7 @@ mod tests {
         // One side has a split tag, the other doesn't — not a valid split.
         let split_a = Amount {
             whole: 6,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
 
@@ -958,12 +958,12 @@ mod tests {
         // Split amounts use different currency codes — invalid.
         let split_a = Amount {
             whole: 6,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
         let split_b = Amount {
             whole: 4,
-            fractional: 0.0,
+            fractional: 0,
             code: 840,
         }; // Different code
 
@@ -992,7 +992,7 @@ mod tests {
 
         let value = Some(Amount {
             whole: 10,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         });
         let existing = make_token(b"base", &[b"h1", b"h2"], value.clone());
@@ -1010,12 +1010,12 @@ mod tests {
         // Case 3: Valid second split — fork with matching split amounts
         let split_a = Amount {
             whole: 6,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
         let split_b = Amount {
             whole: 4,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         };
         let existing_with_split = make_split_token(b"base", &[b"h1"], b"split-A", split_a);
@@ -1077,7 +1077,7 @@ mod tests {
         // claiming 15 on a token worth 10 — must be rejected.
         let value = Some(Amount {
             whole: 10,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         });
         let existing = make_token(b"base", &[b"h1"], value.clone());
@@ -1087,7 +1087,7 @@ mod tests {
             b"split-inflated",
             Amount {
                 whole: 15,
-                fractional: 0.0,
+                fractional: 0,
                 code: 0,
             },
             &[],
@@ -1101,7 +1101,7 @@ mod tests {
         // Split claiming 6 on a token worth 10 — should be accepted.
         let value = Some(Amount {
             whole: 10,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         });
         let existing = make_token(b"base", &[b"h1"], value.clone());
@@ -1111,7 +1111,7 @@ mod tests {
             b"split-valid",
             Amount {
                 whole: 6,
-                fractional: 0.0,
+                fractional: 0,
                 code: 0,
             },
             &[],
@@ -1125,7 +1125,7 @@ mod tests {
         // Split uses a different currency code — must be rejected.
         let value = Some(Amount {
             whole: 10,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         });
         let existing = make_token(b"base", &[b"h1"], value.clone());
@@ -1135,7 +1135,7 @@ mod tests {
             b"split-wrong-code",
             Amount {
                 whole: 5,
-                fractional: 0.0,
+                fractional: 0,
                 code: 840,
             },
             &[],
@@ -1149,7 +1149,7 @@ mod tests {
         // Split matches whole amount but exceeds via fractional.
         let value = Some(Amount {
             whole: 10,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         });
         let existing = make_token(b"base", &[b"h1"], value.clone());
@@ -1159,7 +1159,7 @@ mod tests {
             b"split-frac",
             Amount {
                 whole: 10,
-                fractional: 0.01,
+                fractional: 10000,
                 code: 0,
             },
             &[],
@@ -1177,7 +1177,7 @@ mod tests {
         // The split is in the new entries, not in the shared prefix.
         let value = Some(Amount {
             whole: 10,
-            fractional: 0.0,
+            fractional: 0,
             code: 0,
         });
         let existing = make_token(b"base", &[b"h1", b"h2"], value.clone());
@@ -1187,7 +1187,7 @@ mod tests {
             b"split-deep",
             Amount {
                 whole: 15,
-                fractional: 0.0,
+                fractional: 0,
                 code: 0,
             },
             &[b"h5"],

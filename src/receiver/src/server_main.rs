@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut receiver = BrioletteReceiver::new(registrar_uri, clerk_uri, mint_uri, validate_uri)
         .await
         .unwrap();
-    receiver.next_amount(2, 0.0);
+    receiver.next_amount(2, 0);
     tonic::transport::Server::builder()
         .add_service(ReceiverServer::new(receiver))
         .serve(addr)

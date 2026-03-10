@@ -11,5 +11,8 @@ log = "0.4.17"
 
 # Native Rust pairing-based crypto (BN254 curve)
 substrate-bn = "0.6"
+# BLS12-381 pairing curve (128-bit security) for v1
+bls12_381_plus = "0.8"
+ff = "0.13"
 rand = "0.8"
 sha2 = "0.10"

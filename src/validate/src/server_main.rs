@@ -29,11 +29,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "127.0.0.1:50055".parse().unwrap();
     let tokenmap_uri = "http://127.0.0.1:50054".to_string();
     let clerk_uri = "http://127.0.0.1:50052".to_string();
+    let registrar_uri = "http://127.0.0.1:50051".to_string();
     let epoch_pk = std::fs::read("../clerk/data/epoch.pk").expect("clerk/data not populated yet");
     info!("Setting up server...");
-    let validate = BrioletteValidate::new(clerk_uri, tokenmap_uri, epoch_pk)
+    let mut validate = BrioletteValidate::new(clerk_uri, tokenmap_uri, epoch_pk)
         .await
         .unwrap();
+    // Register for service-to-service auth (optional, graceful degradation).
+    if let Err(e) = validate
+        .register_service_identity(&registrar_uri)
+        .await
+    {
+        warn!(
+            "service auth registration failed (will operate without service auth): {}",
+            e
+        );
+    }
     tonic::transport::Server::builder()
         .add_service(ValidateServer::new(validate))
         .serve(addr)

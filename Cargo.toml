@@ -10,6 +10,8 @@ members = [
     "src/tokenmap",
     "src/validate",
     "src/wallet",
+    "src/service_auth",
+    "src/bridge",
     "src/simulation/absim",
     "src/simulation/briolettesim",
     "src/simulation/levy_distr",

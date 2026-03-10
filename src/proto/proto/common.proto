@@ -58,6 +58,7 @@ enum ErrorCode {
   CLERK_FETCH_FAILURE = 105;
   INVALID_SPLIT_EXCEEDS_VALUE = 106;
   INVALID_SPLIT_CURRENCY_MISMATCH = 107;
+  TOKEN_EXPIRED = 108;
 }
 message Error {
     ErrorCode code = 1;

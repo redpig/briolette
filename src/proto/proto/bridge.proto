@@ -1,0 +1,87 @@
+// Copyright 2023 The Briolette Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package briolette.bridge;
+
+import "common.proto";
+import "token.proto";
+
+// The Bridge service connects Briolette to Ethereum L1.
+// It handles deposit processing (L1 -> Briolette) and
+// withdrawal submission (Briolette -> L1).
+service Bridge {
+    // Submit tokens for withdrawal to L1. The bridge verifies the token
+    // chain and initiates a withdrawal on the L1 bridge contract.
+    rpc WithdrawToL1 (WithdrawRequest) returns (WithdrawReply);
+
+    // Query the status of an L1 deposit being processed into Briolette.
+    rpc GetDepositStatus (DepositStatusRequest) returns (DepositStatusReply);
+
+    // Query pending withdrawals.
+    rpc GetWithdrawalStatus (WithdrawalStatusRequest) returns (WithdrawalStatusReply);
+}
+
+// An L1 deposit event detected by the bridge.
+message L1Deposit {
+    uint64 deposit_id = 1;
+    bytes depositor_address = 2;  // 20-byte Ethereum address
+    uint64 amount_wei = 3;
+    bytes ticket_hash = 4;        // Hash of the Briolette ticket to receive tokens
+    uint64 block_number = 5;
+    uint64 timestamp = 6;
+}
+
+message WithdrawRequest {
+    briolette.Version version = 1;
+    // Tokens to burn for L1 withdrawal.
+    repeated briolette.token.Token tokens = 2;
+    // The L1 Ethereum address to receive ETH.
+    bytes recipient_address = 3;  // 20-byte Ethereum address
+}
+
+message WithdrawReply {
+    bool accepted = 1;
+    // The L1 withdrawal ID (from the bridge contract).
+    uint64 withdrawal_id = 2;
+    // Error details if not accepted.
+    briolette.Error error = 3;
+}
+
+message DepositStatusRequest {
+    uint64 deposit_id = 1;
+}
+
+message DepositStatusReply {
+    L1Deposit deposit = 1;
+    bool processed = 2;  // True if Briolette tokens have been minted
+}
+
+message WithdrawalStatusRequest {
+    uint64 withdrawal_id = 1;
+}
+
+enum WithdrawalState {
+    WITHDRAWAL_PENDING = 0;
+    WITHDRAWAL_CHALLENGED = 1;
+    WITHDRAWAL_COMPLETED = 2;
+}
+
+message WithdrawalStatusReply {
+    uint64 withdrawal_id = 1;
+    WithdrawalState state = 2;
+    uint64 amount_wei = 3;
+    bytes recipient_address = 4;
+    uint64 initiated_at = 5;
+}

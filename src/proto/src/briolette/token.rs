@@ -123,7 +123,21 @@ impl TokenVerify for Token {
             current_ticket.verify(trusted_clerks, None)?;
         }
 
-        // 4. Verify that no split amount exceeds the descriptor value.
+        // 4. Verify the token has not expired (valid_until tag in base transfer).
+        if let Some(ref base) = self.base {
+            if let Some(ref transfer) = base.transfer {
+                for tag in transfer.tags.iter() {
+                    if let Some(tag::Value::ValidUntil(valid_until)) = tag.value {
+                        let now = Utc::now().timestamp() as u64;
+                        if now > valid_until {
+                            return Err(BrioletteErrorCode::TokenExpired);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Verify that no split amount exceeds the descriptor value.
         let descriptor = self.descriptor.as_ref().unwrap();
         if let Some(ref original_value) = descriptor.value {
             for history in self.history.iter() {
@@ -144,7 +158,7 @@ impl TokenVerify for Token {
                 }
             }
         }
-        // 5. Enjoy a valid token.
+        // 6. Enjoy a valid token.
         return Ok(true);
     }
 }
@@ -585,11 +599,11 @@ impl Add for Amount {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
-        // TODO clean up
         assert_eq!(self.code, other.code);
+        let total_frac = self.fractional + other.fractional;
         Self {
-            whole: self.whole + other.whole,
-            fractional: self.fractional + other.fractional,
+            whole: self.whole + other.whole + total_frac / 1_000_000,
+            fractional: total_frac % 1_000_000,
             code: self.code,
         }
     }

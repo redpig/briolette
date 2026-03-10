@@ -50,6 +50,7 @@ use prost::Message;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha256::digest;
+use std::collections::HashSet;
 use std::convert::From;
 use std::path::Path;
 
@@ -81,7 +82,7 @@ pub trait Wallet: Clone + Serialize + DeserializeOwned + Send {
     // This verifies unheld tokens, not in-wallet tokens which are always verified.
     // TODO: Add a validation helper.
     // TODO: Move the Receiver proto handling in here.
-    fn verify_tokens(&self, tokens: &Vec<token::Token>) -> bool;
+    fn verify_tokens(&mut self, tokens: &Vec<token::Token>) -> bool;
 
     // "Withdraws" money from the mint.
     async fn withdraw(&mut self, amount: u32) -> bool;
@@ -208,6 +209,11 @@ pub struct WalletData {
     pub tokens: Vec<TokenEntry>,
     // Tokens ready to be sent
     pub pending_tokens: Vec<Vec<u8>>,
+    // Replay protection: tracks tokens seen in the current epoch.
+    // Key = base signature bytes (unique per token) + history length as u32 LE bytes.
+    // Cleared on epoch change.
+    #[serde(skip)]
+    seen_tokens: HashSet<Vec<u8>>,
     // Smart card for NAC split-key signing (runtime only, not serialized)
     #[serde(skip)]
     nac_card: SmartCardHandle,
@@ -231,7 +237,7 @@ pub struct TokenEntry {
     pub token: Vec<u8>, // most minimal Token.
     credential: Vec<u8>,
     whole_value: i32,
-    fractional_value: f32,
+    fractional_value: i32,
     value_code: i32,
     // TODO add mint pk to demo different token authority for same value code.
 }
@@ -650,7 +656,7 @@ impl Wallet for WalletData {
         return false;
     }
 
-    fn verify_tokens(&self, tokens: &Vec<token::Token>) -> bool {
+    fn verify_tokens(&mut self, tokens: &Vec<token::Token>) -> bool {
         for token in tokens.iter() {
             if let Err(e) = token.verify(
                 self.transfer_credential.group_public_key.as_ref().unwrap(),
@@ -660,10 +666,17 @@ impl Wallet for WalletData {
                 error!("invalid token: {:?}", e);
                 return false;
             }
+            // Replay protection: reject tokens we've already seen in this epoch.
+            // Key = base signature + history length (identifies a specific token version).
+            if let Some(ref base) = token.base {
+                let mut replay_key = base.signature.clone();
+                replay_key.extend_from_slice(&(token.history.len() as u32).to_le_bytes());
+                if !self.seen_tokens.insert(replay_key) {
+                    error!("replay detected: token already seen in this epoch");
+                    return false;
+                }
+            }
         }
-        // TODO: Pulled validate out to simplify handling of the
-        //       wallet data in receiver. These structures all need to
-        //       be cleaned up.
         return true;
     }
     fn gossip_synchronize(&mut self, update: &EpochUpdate) -> bool {
@@ -695,6 +708,10 @@ impl Wallet for WalletData {
             return false;
         }
         if let Some(data) = update.data.as_ref() {
+            if data.epoch != self.epoch.epoch {
+                // New epoch — clear replay protection cache.
+                self.seen_tokens.clear();
+            }
             self.epoch.epoch = data.epoch;
             self.epoch.group_bitfield = data.group_bitfield.clone();
             // Before we continue, confirm the extended hash is legitimate.
@@ -755,7 +772,7 @@ impl Wallet for WalletData {
             version: Version::Current.into(),
             amount: Some(token::Amount {
                 whole: 1,
-                fractional: 0.0,
+                fractional: 0,
                 code: token::AmountType::TestToken.into(),
             }),
             tags: vec![token::Tag {

@@ -36,8 +36,9 @@ message SignedTicket {
 
 message Amount {
   int32 whole = 1;
-  // Must be [0.0, 1.0)
-  float fractional = 2;
+  // Fractional amount in micros (millionths of one whole unit).
+  // Range: [0, 999999]. For example, 500000 represents 0.5.
+  int32 fractional = 2;
   // Specifies the currency type promised but does not
   // imply issuing authority for the currency.
   // That will depend on mint (group) keys.
@@ -46,6 +47,7 @@ message Amount {
 
 enum Version {
   V0 = 0;
+  V1 = 1; // BLS12-381 based ECDAA (128-bit security)
 }
 
 message Descriptor {
