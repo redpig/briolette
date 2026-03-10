@@ -883,6 +883,7 @@ mod tests {
     use briolette_proto::briolette::registrar::registrar_server::RegistrarServer;
     use briolette_proto::briolette::tokenmap::token_map_server::TokenMapServer;
     use briolette_proto::briolette::validate::validate_server::ValidateServer;
+    use briolette_crypto::v0::split::SmartCard as _;
     use briolette_proto::briolette::ErrorCode as BrioletteErrorCode;
     use briolette_tokenmap::server::BrioletteTokenMap;
     use briolette_validate::server::BrioletteValidate;
@@ -1500,6 +1501,528 @@ mod tests {
         // TODO: check the revocation database.
 
         teardown();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn split_key_initialize_and_get_tickets() {
+        let tokenmap_uri = setup_tokenmap().await;
+        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
+        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
+        let mut wd = WalletData::default();
+        wd.clerk_uri = clerk_uri.clone();
+        wd.network_credential.issuer_uri = registrar_uri.clone();
+        wd.transfer_credential.issuer_uri = registrar_uri.clone();
+
+        // Use split-key initialization with mock smart cards
+        let nac_card = Box::new(split::MockCard::new());
+        let ttc_card = Box::new(split::MockCard::new());
+        assert_eq!(
+            wd.initialize_split_keys(b"split-test-id", nac_card, ttc_card),
+            true
+        );
+        assert!(wd.is_split_key_mode());
+        assert!(wd.network_credential.host_secret_key.is_some());
+        assert!(wd.transfer_credential.host_secret_key.is_some());
+
+        // Credential issuance uses the combined_sk, same as standard mode
+        assert_eq!(wd.initialize_credential().await, true);
+        assert_ne!(wd.network_credential.credential, None);
+        assert_ne!(wd.transfer_credential.credential, None);
+
+        // Epoch sync
+        assert_eq!(wd.synchronize().await, true);
+
+        // get_tickets now signs with sign_split internally
+        assert_eq!(wd.get_tickets(5).await, true);
+        assert_eq!(wd.tickets.len(), 5);
+
+        teardown();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn split_key_withdraw_and_transfer() {
+        let tokenmap_uri = setup_tokenmap().await;
+        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
+        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
+        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let mut wd = WalletData::default();
+        wd.clerk_uri = clerk_uri.clone();
+        wd.network_credential.issuer_uri = registrar_uri.clone();
+        wd.transfer_credential.issuer_uri = registrar_uri.clone();
+        wd.mint_uri = mint_uri.clone();
+
+        let nac_card = Box::new(split::MockCard::new());
+        let ttc_card = Box::new(split::MockCard::new());
+        assert_eq!(
+            wd.initialize_split_keys(b"split-test-id2", nac_card, ttc_card),
+            true
+        );
+        assert_eq!(wd.initialize_credential().await, true);
+        assert_eq!(wd.synchronize().await, true);
+        assert_eq!(wd.get_tickets(5).await, true);
+        assert_eq!(wd.withdraw(10).await, true);
+        assert_eq!(wd.tokens.len(), 10);
+        assert_eq!(wd.tickets.len(), 4);
+
+        // Transfer uses split signing for TTC credential
+        let destination: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
+        let destination_addr = destination.encode_to_vec();
+        assert_eq!(wd.transfer(2, destination_addr), true);
+        assert_eq!(wd.pending_tokens.len(), 2);
+
+        // Verify the split-signed transfer is accepted by standard verification
+        let t = token::Token::decode(wd.pending_tokens[0].as_slice()).unwrap();
+        assert_eq!(
+            Ok(true),
+            t.verify(
+                wd.transfer_credential.group_public_key.as_ref().unwrap(),
+                &wd.epoch.mint_signing_keys,
+                &wd.epoch.ticket_signing_keys
+            )
+        );
+
+        teardown();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn split_key_multi_hop_transfer() {
+        let tokenmap_uri = setup_tokenmap().await;
+        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
+        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
+        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let mut wd = WalletData::default();
+        wd.clerk_uri = clerk_uri.clone();
+        wd.network_credential.issuer_uri = registrar_uri.clone();
+        wd.transfer_credential.issuer_uri = registrar_uri.clone();
+        wd.mint_uri = mint_uri.clone();
+
+        let nac_card = Box::new(split::MockCard::new());
+        let ttc_card = Box::new(split::MockCard::new());
+        assert_eq!(
+            wd.initialize_split_keys(b"split-test-id3", nac_card, ttc_card),
+            true
+        );
+        assert_eq!(wd.initialize_credential().await, true);
+        assert_eq!(wd.synchronize().await, true);
+        assert_eq!(wd.get_tickets(5).await, true);
+        assert_eq!(wd.withdraw(10).await, true);
+
+        // First transfer
+        let dest1: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
+        assert_eq!(wd.transfer(2, dest1.encode_to_vec()), true);
+        let t = token::Token::decode(wd.pending_tokens.pop().unwrap().as_slice()).unwrap();
+        wd.tokens.push(t.into());
+
+        // Second transfer of same token (multi-hop)
+        let dest2: token::SignedTicket = wd.tickets[1].clone().into();
+        assert_eq!(wd.transfer(1, dest2.encode_to_vec()), true);
+
+        // Verify multi-hop split-signed token
+        let t2 = token::Token::decode(wd.pending_tokens.last().unwrap().as_slice()).unwrap();
+        assert_eq!(t2.history.len(), 2);
+        assert_eq!(
+            Ok(true),
+            t2.verify(
+                wd.transfer_credential.group_public_key.as_ref().unwrap(),
+                &wd.epoch.mint_signing_keys,
+                &wd.epoch.ticket_signing_keys
+            )
+        );
+
+        teardown();
+    }
+
+    // ========================================================================
+    // Security tests: Broken/malicious card or host cannot sign
+    // ========================================================================
+
+    /// A malicious card that uses a different secret key than the one used
+    /// during key generation. Simulates a compromised or swapped card.
+    struct WrongKeyCard {
+        inner: split::MockCard,
+    }
+
+    impl WrongKeyCard {
+        fn new() -> Self {
+            // Create a card with a completely independent random key
+            WrongKeyCard {
+                inner: split::MockCard::new(),
+            }
+        }
+    }
+
+    impl split::SmartCard for WrongKeyCard {
+        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
+            self.inner.public_key_share(base)
+        }
+        fn sign_commit(
+            &mut self,
+            s_point: &[u8],
+            basename_base: Option<&[u8]>,
+        ) -> Option<split::CardSignCommitment> {
+            self.inner.sign_commit(s_point, basename_base)
+        }
+        fn sign_respond(&mut self, challenge: &[u8]) -> Option<split::CardSignResponse> {
+            self.inner.sign_respond(challenge)
+        }
+        fn secret_key_share(&self) -> Vec<u8> {
+            self.inner.secret_key_share()
+        }
+    }
+
+    /// A card that returns garbage commitments (corrupted U point).
+    struct CorruptCommitCard {
+        inner: split::MockCard,
+    }
+
+    impl CorruptCommitCard {
+        fn new() -> Self {
+            CorruptCommitCard {
+                inner: split::MockCard::new(),
+            }
+        }
+    }
+
+    impl split::SmartCard for CorruptCommitCard {
+        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
+            self.inner.public_key_share(base)
+        }
+        fn sign_commit(
+            &mut self,
+            s_point: &[u8],
+            basename_base: Option<&[u8]>,
+        ) -> Option<split::CardSignCommitment> {
+            let mut commit = self.inner.sign_commit(s_point, basename_base)?;
+            // Corrupt the U_card point by flipping bytes
+            if commit.u_card.len() > 2 {
+                commit.u_card[1] ^= 0xFF;
+                commit.u_card[2] ^= 0xFF;
+            }
+            Some(commit)
+        }
+        fn sign_respond(&mut self, challenge: &[u8]) -> Option<split::CardSignResponse> {
+            self.inner.sign_respond(challenge)
+        }
+        fn secret_key_share(&self) -> Vec<u8> {
+            self.inner.secret_key_share()
+        }
+    }
+
+    /// A card that returns a garbage response scalar.
+    struct CorruptResponseCard {
+        inner: split::MockCard,
+    }
+
+    impl CorruptResponseCard {
+        fn new() -> Self {
+            CorruptResponseCard {
+                inner: split::MockCard::new(),
+            }
+        }
+    }
+
+    impl split::SmartCard for CorruptResponseCard {
+        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
+            self.inner.public_key_share(base)
+        }
+        fn sign_commit(
+            &mut self,
+            s_point: &[u8],
+            basename_base: Option<&[u8]>,
+        ) -> Option<split::CardSignCommitment> {
+            self.inner.sign_commit(s_point, basename_base)
+        }
+        fn sign_respond(&mut self, challenge: &[u8]) -> Option<split::CardSignResponse> {
+            let mut resp = self.inner.sign_respond(challenge)?;
+            // Corrupt the s_card scalar by flipping bytes
+            if resp.s_card.len() > 2 {
+                resp.s_card[0] ^= 0xFF;
+                resp.s_card[1] ^= 0xFF;
+            }
+            Some(resp)
+        }
+        fn secret_key_share(&self) -> Vec<u8> {
+            self.inner.secret_key_share()
+        }
+    }
+
+    /// A card that refuses to respond (returns None from sign_respond).
+    struct RefusingCard {
+        inner: split::MockCard,
+    }
+
+    impl RefusingCard {
+        fn new() -> Self {
+            RefusingCard {
+                inner: split::MockCard::new(),
+            }
+        }
+    }
+
+    impl split::SmartCard for RefusingCard {
+        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
+            self.inner.public_key_share(base)
+        }
+        fn sign_commit(
+            &mut self,
+            s_point: &[u8],
+            basename_base: Option<&[u8]>,
+        ) -> Option<split::CardSignCommitment> {
+            self.inner.sign_commit(s_point, basename_base)
+        }
+        fn sign_respond(&mut self, _challenge: &[u8]) -> Option<split::CardSignResponse> {
+            // Refuse to respond — simulates card removal or failure
+            None
+        }
+        fn secret_key_share(&self) -> Vec<u8> {
+            self.inner.secret_key_share()
+        }
+    }
+
+    /// Helper: set up a split-key credential at the crypto level.
+    /// Returns (group_pk, host_sk, credential, card) ready for signing tests.
+    fn setup_split_credential() -> (Vec<u8>, Vec<u8>, Vec<u8>, split::MockCard) {
+        let mut issuer_sk = Vec::new();
+        let mut group_pk = Vec::new();
+        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+
+        let nonce = b"security-test-nonce".to_vec();
+        let card = split::MockCard::new();
+
+        let (host_sk, member_pk, _combined_sk) =
+            split::generate_split_wallet_keypair(&card, &nonce)
+                .expect("split keygen failed");
+
+        let mut credential = Vec::new();
+        let mut credential_sig = Vec::new();
+        assert!(v0::issue_credential(
+            &member_pk,
+            &issuer_sk,
+            &nonce,
+            &mut credential,
+            &mut credential_sig,
+        ));
+
+        (group_pk, host_sk, credential, card)
+    }
+
+    #[test]
+    fn split_wrong_card_produces_invalid_signature() {
+        // A card with a different secret key than the one used at keygen
+        // should produce signatures that fail verification.
+        let (group_pk, host_sk, credential, _original_card) = setup_split_credential();
+
+        let mut wrong_card = WrongKeyCard::new();
+        let message = b"test message".to_vec();
+        let basename = Some(b"test-basename".to_vec());
+        let mut sig = Vec::new();
+
+        let signed = split::sign_split(
+            &mut wrong_card,
+            &host_sk,
+            &message,
+            &credential,
+            &basename,
+            true,
+            &mut sig,
+        );
+        // sign_split may succeed (it doesn't check correctness), but verify must fail
+        if signed {
+            assert!(
+                !v0::verify(&group_pk, &basename, &None, &sig, &message),
+                "signature from wrong card must not verify"
+            );
+        }
+    }
+
+    #[test]
+    fn split_wrong_host_key_produces_invalid_signature() {
+        // The host using a different secret key share should produce
+        // signatures that fail verification.
+        let (group_pk, _host_sk, credential, mut card) = setup_split_credential();
+
+        // Generate a completely different host key
+        let mut wrong_host_sk = vec![0u8; 32];
+        wrong_host_sk[0] = 0x42;
+        wrong_host_sk[1] = 0x13;
+        wrong_host_sk[31] = 0x07;
+
+        let message = b"test message".to_vec();
+        let basename = Some(b"test-basename".to_vec());
+        let mut sig = Vec::new();
+
+        let signed = split::sign_split(
+            &mut card,
+            &wrong_host_sk,
+            &message,
+            &credential,
+            &basename,
+            true,
+            &mut sig,
+        );
+        if signed {
+            assert!(
+                !v0::verify(&group_pk, &basename, &None, &sig, &message),
+                "signature with wrong host key must not verify"
+            );
+        }
+    }
+
+    #[test]
+    fn split_corrupt_card_commitment_produces_invalid_signature() {
+        // A card that corrupts its commitment point U_card should
+        // produce signatures that fail verification.
+        let (group_pk, host_sk, credential, _original_card) = setup_split_credential();
+
+        let mut corrupt_card = CorruptCommitCard::new();
+        let message = b"test message".to_vec();
+        let mut sig = Vec::new();
+
+        // sign_split will likely fail because the corrupted point can't be deserialized
+        let signed = split::sign_split(
+            &mut corrupt_card,
+            &host_sk,
+            &message,
+            &credential,
+            &None,
+            true,
+            &mut sig,
+        );
+        if signed {
+            assert!(
+                !v0::verify(&group_pk, &None, &None, &sig, &message),
+                "signature from card with corrupt commitment must not verify"
+            );
+        }
+    }
+
+    #[test]
+    fn split_corrupt_card_response_produces_invalid_signature() {
+        // A card that corrupts its response scalar s_card should
+        // produce signatures that fail verification.
+        let (group_pk, host_sk, credential, _original_card) = setup_split_credential();
+
+        let mut corrupt_card = CorruptResponseCard::new();
+        let message = b"test message".to_vec();
+        let basename = Some(b"test-basename".to_vec());
+        let mut sig = Vec::new();
+
+        let signed = split::sign_split(
+            &mut corrupt_card,
+            &host_sk,
+            &message,
+            &credential,
+            &basename,
+            true,
+            &mut sig,
+        );
+        if signed {
+            assert!(
+                !v0::verify(&group_pk, &basename, &None, &sig, &message),
+                "signature from card with corrupt response must not verify"
+            );
+        }
+    }
+
+    #[test]
+    fn split_refusing_card_cannot_sign() {
+        // A card that refuses to respond to the challenge
+        // must cause sign_split to fail.
+        let (_group_pk, host_sk, credential, _original_card) = setup_split_credential();
+
+        let mut refusing_card = RefusingCard::new();
+        let message = b"test message".to_vec();
+        let mut sig = Vec::new();
+
+        let signed = split::sign_split(
+            &mut refusing_card,
+            &host_sk,
+            &message,
+            &credential,
+            &None,
+            true,
+            &mut sig,
+        );
+        assert!(!signed, "sign_split must fail when card refuses to respond");
+    }
+
+    #[test]
+    fn split_host_alone_cannot_sign() {
+        // The host alone (without any card involvement) cannot produce
+        // a valid signature using only its host_sk share.
+        let (group_pk, host_sk, credential, _card) = setup_split_credential();
+
+        let message = b"test message".to_vec();
+        let basename = Some(b"test-basename".to_vec());
+        let mut sig = Vec::new();
+
+        // Try to use standard sign() with just the host's share
+        let signed = v0::sign(
+            &message,
+            &credential,
+            &host_sk,
+            &basename,
+            true,
+            &mut sig,
+        );
+        if signed {
+            assert!(
+                !v0::verify(&group_pk, &basename, &None, &sig, &message),
+                "host key share alone must not produce valid signature"
+            );
+        }
+    }
+
+    #[test]
+    fn split_card_alone_cannot_sign() {
+        // The card's secret key share alone cannot produce
+        // a valid signature using standard sign().
+        let (group_pk, _host_sk, credential, card) = setup_split_credential();
+
+        let card_sk = card.secret_key_share();
+        let message = b"test message".to_vec();
+        let basename = Some(b"test-basename".to_vec());
+        let mut sig = Vec::new();
+
+        // Try to use standard sign() with just the card's share
+        let signed = v0::sign(
+            &message,
+            &credential,
+            &card_sk,
+            &basename,
+            true,
+            &mut sig,
+        );
+        if signed {
+            assert!(
+                !v0::verify(&group_pk, &basename, &None, &sig, &message),
+                "card key share alone must not produce valid signature"
+            );
+        }
+    }
+
+    #[test]
+    fn split_correct_card_and_host_produce_valid_signature() {
+        // Sanity check: correct card + host produce a valid signature.
+        let (group_pk, host_sk, credential, mut card) = setup_split_credential();
+
+        let message = b"test message".to_vec();
+        let basename = Some(b"test-basename".to_vec());
+        let mut sig = Vec::new();
+
+        assert!(split::sign_split(
+            &mut card,
+            &host_sk,
+            &message,
+            &credential,
+            &basename,
+            true,
+            &mut sig,
+        ));
+        assert!(
+            v0::verify(&group_pk, &basename, &None, &sig, &message),
+            "correct split signature must verify"
+        );
     }
 
     pub fn teardown() {
