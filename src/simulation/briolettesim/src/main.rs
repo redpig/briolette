@@ -879,7 +879,7 @@ impl Simulation for Simulator {
     ) -> usize {
         let mut count = 0;
         let helper = &mut *self.helper.write().expect("interior mutability");
-        let mut stats = Statistics::default();
+        let stats = Statistics::default();
 
         for e in &agent.data.pending {
             queue.enqueue(e.source, e.target, e.data.clone());

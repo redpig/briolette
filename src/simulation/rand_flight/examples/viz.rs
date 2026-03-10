@@ -21,7 +21,7 @@ use rand_flight::{Flight, Step};
 fn main() {
     let rng = Box::new(SeedableRng::seed_from_u64(1));
     let dist = Box::new(Uniform::new::<f64, f64>(0., 20.));
-    let mut lf = Flight::<StdRng, Uniform<f64>, u64, 2>::new(rng, dist, &[200, 200]).unwrap();
+    let mut lf = Flight::<StdRng, Uniform<f64>, u64, 2>::new(rng, dist, [200, 200]).unwrap();
 
     // Show a sequence with at least one large jump and many small
     // moves to help validate the shift to 2d.

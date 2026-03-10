@@ -55,7 +55,6 @@ use rand_distr::{Distribution, OpenClosed01};
 /// println!("{}", val);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(feature = "serde1", derive(serde::Serialize, serde::Deserialize))]
 pub struct Levy<F>
 where
     F: Float,
@@ -83,8 +82,6 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(feature = "std")]
-#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 impl std::error::Error for Error {}
 
 impl<F> Levy<F>

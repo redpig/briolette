@@ -14,7 +14,6 @@
 
 // Provides a simple case to exercise simulation features.
 use rand::prelude::*;
-use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
@@ -260,7 +259,7 @@ impl Simulation for Simulator {
     fn generate(
         &self,
         agent: &Agent<Self::Data>,
-        view: &WorldView<Self>,
+        _view: &WorldView<Self>,
         queue: &mut EventQueue<Self>,
     ) -> usize {
         let mut count = 0;
@@ -491,7 +490,7 @@ impl Simulation for Simulator {
                     EntityEvent::Eat(amt) => {
                         if let Address::View(id) = event.source {
                             let cell = world.grid.at_location(world.grid.get_location(id));
-                            let mut resource = &mut world.resources[cell.resources[0]];
+                            let resource = &mut world.resources[cell.resources[0]];
                             if amt >= &resource.food {
                                 resource.food = 0;
                             }
@@ -502,7 +501,7 @@ impl Simulation for Simulator {
                     }
                     EntityEvent::Plant(location) => {
                         let cell = world.grid.at_location(location.clone());
-                        let mut resource = &mut world.resources[cell.resources[0]];
+                        let resource = &mut world.resources[cell.resources[0]];
                         resource.food += 36;
                     }
                     _ => {}
