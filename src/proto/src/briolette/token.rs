@@ -224,6 +224,15 @@ pub trait TokenTransfer {
         destination: &SignedTicket,
         credential_secret: Vec<u8>,
     ) -> Result<bool, BrioletteErrorCode>;
+
+    /// Transfer using split-key signing with a smart card.
+    /// The credential secret is split between the card and host_secret_key.
+    fn transfer_split(
+        &mut self,
+        destination: &SignedTicket,
+        card: &mut dyn v0::split::SmartCard,
+        host_secret_key: Vec<u8>,
+    ) -> Result<bool, BrioletteErrorCode>;
     // TODO: Pull base signing out of Mint
     // fn base(&mut self, ...)
 }
@@ -286,6 +295,85 @@ impl TokenTransfer for Token {
             &serialized_transfer,
             &committed_credential,
             &credential_secret,
+            &basename,
+            false, // require the committed credential!
+            &mut signature,
+        ) == false
+        {
+            return Err(BrioletteErrorCode::FailedToSignTokenTransfer);
+        }
+        // Don't duplicate the storage here.
+        transfer.previous_signature.clear();
+        // Remove the duplicated credential from the Token when serialized
+        // This saves 260 bytes per transfer. At present, history is 515 bytes.
+        v0::deflate_signature(&mut signature);
+        let history = History {
+            transfer: Some(transfer),
+            signature,
+        };
+        self.history.push(history);
+        return Ok(true);
+    }
+
+    fn transfer_split(
+        &mut self,
+        destination: &SignedTicket,
+        card: &mut dyn v0::split::SmartCard,
+        host_secret_key: Vec<u8>,
+    ) -> Result<bool, BrioletteErrorCode> {
+        // Grab the last signature to use as the basename and in the tx block.
+        let last_sig;
+        let committed_credential;
+        if let Some(last_tx) = self.history.last() {
+            last_sig = last_tx.signature.clone();
+            committed_credential = last_tx
+                .transfer
+                .as_ref()
+                .unwrap()
+                .recipient
+                .as_ref()
+                .unwrap()
+                .ticket
+                .as_ref()
+                .unwrap()
+                .credential
+                .clone();
+        } else {
+            last_sig = self
+                .base
+                .as_ref()
+                .expect("transfer cannot be called with no base")
+                .signature
+                .clone();
+            committed_credential = self
+                .base
+                .as_ref()
+                .unwrap()
+                .transfer
+                .as_ref()
+                .unwrap()
+                .recipient
+                .as_ref()
+                .unwrap()
+                .ticket
+                .as_ref()
+                .unwrap()
+                .credential
+                .clone();
+        }
+        let mut transfer = Transfer {
+            recipient: Some(destination.clone()),
+            tags: vec![],
+            previous_signature: last_sig.clone(),
+        };
+        let serialized_transfer = transfer.encode_to_vec();
+        let basename = Some(last_sig);
+        let mut signature = vec![];
+        if v0::split::sign_split(
+            card,
+            &host_secret_key,
+            &serialized_transfer,
+            &committed_credential,
             &basename,
             false, // require the committed credential!
             &mut signature,

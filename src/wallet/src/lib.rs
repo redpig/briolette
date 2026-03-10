@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use briolette_crypto::v0;
+use briolette_crypto::v0::split;
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
 use briolette_proto::briolette::clerk::{
     EpochRequest, EpochUpdate, EpochVerify, GetTicketsRequest, TicketRequest, TicketRequests,
@@ -32,6 +33,7 @@ use briolette_proto::briolette::validate::ValidateTokensRequest;
 use briolette_proto::briolette::Version;
 use briolette_proto::vec_utils;
 use chrono::Utc;
+use std::sync::{Arc, Mutex};
 
 use log::*;
 use p256::{
@@ -91,6 +93,16 @@ pub trait Wallet: Clone + Serialize + DeserializeOwned + Send {
     // Validate currently held tokens. Later this will enable recovery, but for
     // now it assures they are legitimate.
     async fn validate(&self) -> bool;
+
+    /// Initialize keys using split-key mode with smart cards.
+    /// The secret key is split between a smart card and the host.
+    /// The card holds card_sk, the host holds host_sk, and sk = card_sk + host_sk.
+    fn initialize_split_keys(
+        &mut self,
+        hw_id: &[u8],
+        nac_card: Box<dyn split::SmartCard + Send>,
+        ttc_card: Box<dyn split::SmartCard + Send>,
+    ) -> bool;
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -102,6 +114,10 @@ pub struct Credential {
     credential: Option<Vec<u8>>,
     // Issuing cred signature.
     credential_signature: Option<Vec<u8>>,
+    // Host's share of the secret key for split-key signing.
+    // When set, indicates this credential uses split-key mode.
+    #[serde(default)]
+    host_secret_key: Option<Vec<u8>>,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -115,6 +131,39 @@ pub struct Epoch {
     epoch_signing_keys: Vec<Vec<u8>>,
     ticket_signing_keys: Vec<Vec<u8>>,
     mint_signing_keys: Vec<Vec<u8>>,
+}
+
+/// Wrapper for a split::SmartCard trait object that can be shared across
+/// wallet operations. Skipped during serialization and excluded from
+/// equality/debug comparisons.
+#[derive(Default)]
+pub struct SmartCardHandle(Option<Arc<Mutex<Box<dyn split::SmartCard + Send>>>>);
+
+impl SmartCardHandle {
+    pub fn new(card: Box<dyn split::SmartCard + Send>) -> Self {
+        SmartCardHandle(Some(Arc::new(Mutex::new(card))))
+    }
+    pub fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+impl Clone for SmartCardHandle {
+    fn clone(&self) -> Self {
+        SmartCardHandle(self.0.clone())
+    }
+}
+
+impl PartialEq for SmartCardHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.is_some() == other.0.is_some()
+    }
+}
+
+impl std::fmt::Debug for SmartCardHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SmartCardHandle({})", if self.0.is_some() { "attached" } else { "none" })
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -154,6 +203,12 @@ pub struct WalletData {
     pub tokens: Vec<TokenEntry>,
     // Tokens ready to be sent
     pub pending_tokens: Vec<Vec<u8>>,
+    // Smart card for NAC split-key signing (runtime only, not serialized)
+    #[serde(skip)]
+    nac_card: SmartCardHandle,
+    // Smart card for TTC split-key signing (runtime only, not serialized)
+    #[serde(skip)]
+    ttc_card: SmartCardHandle,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -295,6 +350,59 @@ impl WalletData {
         }
         return false;
     }
+
+    /// Attach smart cards for split-key signing.
+    /// After calling this, signing operations will use `sign_split()` instead of `sign()`.
+    pub fn attach_smart_cards(
+        &mut self,
+        nac_card: Box<dyn split::SmartCard + Send>,
+        ttc_card: Box<dyn split::SmartCard + Send>,
+    ) {
+        self.nac_card = SmartCardHandle::new(nac_card);
+        self.ttc_card = SmartCardHandle::new(ttc_card);
+    }
+
+    /// Check if the wallet is in split-key mode (both credentials have host keys and cards attached).
+    pub fn is_split_key_mode(&self) -> bool {
+        self.network_credential.host_secret_key.is_some()
+            && self.transfer_credential.host_secret_key.is_some()
+            && self.nac_card.is_some()
+            && self.ttc_card.is_some()
+    }
+
+    /// Sign using either split-key or standard mode depending on wallet configuration.
+    fn sign_or_split(
+        card_handle: &SmartCardHandle,
+        host_sk: &Option<Vec<u8>>,
+        message: &Vec<u8>,
+        credential: &Vec<u8>,
+        secret_key: &Vec<u8>,
+        basename: &Option<Vec<u8>>,
+        randomize_cred: bool,
+        signature: &mut Vec<u8>,
+    ) -> bool {
+        if let (Some(handle), Some(hsk)) = (&card_handle.0, host_sk) {
+            let mut card = handle.lock().unwrap();
+            split::sign_split(
+                &mut **card,
+                hsk,
+                message,
+                credential,
+                basename,
+                randomize_cred,
+                signature,
+            )
+        } else {
+            v0::sign(
+                message,
+                credential,
+                secret_key,
+                basename,
+                randomize_cred,
+                signature,
+            )
+        }
+    }
 }
 
 #[async_trait]
@@ -316,6 +424,43 @@ impl Wallet for WalletData {
             &mut self.network_credential.public_key,
         );
         return ret;
+    }
+
+    fn initialize_split_keys(
+        &mut self,
+        id: &[u8],
+        nac_card: Box<dyn split::SmartCard + Send>,
+        ttc_card: Box<dyn split::SmartCard + Send>,
+    ) -> bool {
+        self.id = Vec::from(id);
+        self.hw_id = digest(id).into_bytes();
+
+        // Generate TTC split keypair
+        let ttc_nonce = self.hw_id.clone();
+        let (ttc_host_sk, ttc_pk, ttc_combined_sk) =
+            match split::generate_split_wallet_keypair(&*ttc_card, &ttc_nonce) {
+                Some(v) => v,
+                None => return false,
+            };
+        self.transfer_credential.public_key = ttc_pk.clone();
+        // The combined sk is needed for credential issuance with the current protocol.
+        self.transfer_credential.secret_key = ttc_combined_sk;
+        self.transfer_credential.host_secret_key = Some(ttc_host_sk);
+
+        // Generate NAC split keypair (using TTC public key as nonce, matching standard flow)
+        let (nac_host_sk, nac_pk, nac_combined_sk) =
+            match split::generate_split_wallet_keypair(&*nac_card, &ttc_pk) {
+                Some(v) => v,
+                None => return false,
+            };
+        self.network_credential.public_key = nac_pk;
+        self.network_credential.secret_key = nac_combined_sk;
+        self.network_credential.host_secret_key = Some(nac_host_sk);
+
+        // Attach the smart cards for runtime signing
+        self.attach_smart_cards(nac_card, ttc_card);
+
+        true
     }
 
     async fn initialize_credential(&mut self) -> bool {
@@ -412,7 +557,9 @@ impl Wallet for WalletData {
         let requests_serialized = requests.encode_to_vec();
         let basename = Some(self.epoch.epoch.to_le_bytes().to_vec());
         let mut signature = vec![];
-        assert!(v0::sign(
+        assert!(WalletData::sign_or_split(
+            &self.nac_card,
+            &self.network_credential.host_secret_key,
             &requests_serialized,
             &self.network_credential.credential.clone().unwrap(),
             &self.network_credential.secret_key,
@@ -655,9 +802,18 @@ impl Wallet for WalletData {
                 }
                 tx_amt -= 1;
                 if let Ok(mut token) = token::Token::decode(token_entry.token.as_slice()) {
-                    if let Err(e) =
-                        token.transfer(&signed_ticket, self.transfer_credential.secret_key.clone())
+                    let result = if let (Some(handle), Some(hsk)) =
+                        (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
                     {
+                        let mut card = handle.lock().unwrap();
+                        token.transfer_split(&signed_ticket, &mut **card, hsk.clone())
+                    } else {
+                        token.transfer(
+                            &signed_ticket,
+                            self.transfer_credential.secret_key.clone(),
+                        )
+                    };
+                    if let Err(e) = result {
                         error!("transfer() failed to sign token transfer: {:?}", e);
                         return false;
                     }
