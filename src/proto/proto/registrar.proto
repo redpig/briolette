@@ -74,21 +74,37 @@ message CredentialReply {
    bytes group_public_key = 3;
 }
 
-// TODO: This is not implemented yet.
 enum Algorithm {
   // There is no verification and the hwid bytes are used as the token cred nonce.
   NONE = 0;
-  // The "signature" is a X.509 certificate chain proving the "public_key"
-  // was generated in hardware. The "public_key" is the attested to key.
-  // For the token credential, this key is used to sign the token and the signature
-  // is in the nonce.
-  // The certificate chain will validate the HardwareId information.
+  // Android Key Attestation: the "signature" field contains the DER-encoded
+  // X.509 certificate chain from Android Keystore. The leaf certificate
+  // attests that "public_key" was generated in hardware (TEE/StrongBox).
+  // The registrar walks the chain up to a Google root CA, extracts the
+  // KeyDescription ASN.1 extension (OID 1.3.6.1.4.1.11129.2.1.17), and
+  // verifies attestationSecurityLevel, purpose, origin, and the challenge
+  // (which must equal SHA-256(hw_id)).
   ANDROID_KM_ATTESTATION = 1;
+  // Apple App Attest: the "signature" field contains a CBOR-encoded
+  // attestation object from DCAppAttestService.attestKey(). The registrar
+  // verifies the attestation against Apple's App Attest root CA, checks
+  // the nonce (SHA-256(hw_id || public_key)), and validates the RP ID
+  // hash matches the expected app identifier.
+  IOS_APP_ATTEST = 2;
 }
 
 message Signature {
   Algorithm algorithm = 1;
+  // For NONE: empty.
+  // For ANDROID_KM_ATTESTATION: concatenated DER-encoded X.509 certificate
+  //   chain (leaf || intermediate(s) || root), length-prefixed per cert:
+  //   [u32-be length][DER bytes][u32-be length][DER bytes]...
+  // For IOS_APP_ATTEST: CBOR-encoded attestation object from
+  //   DCAppAttestService.attestKey().
   bytes signature = 2;
+  // For ANDROID_KM_ATTESTATION: the attested public key (raw, from the
+  //   leaf certificate's SubjectPublicKeyInfo).
+  // For IOS_APP_ATTEST: the attested key identifier from App Attest.
   bytes public_key = 3;
 }
 

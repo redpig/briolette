@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::attestation;
 use briolette_crypto::v0;
 use briolette_proto::briolette::registrar::{
-    Algorithm, CredentialReply, RegisterReply, RegisterRequest,
+    Algorithm, CredentialReply, RegisterReply, RegisterRequest, SecurityLevel,
 };
 use briolette_proto::briolette::Version;
 use briolette_proto::briolette::{Error as BrioletteError, ErrorCode as BrioletteErrorCode};
 
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use std::path::Path;
 
 #[derive(Debug, Default)]
@@ -33,6 +34,14 @@ pub struct BrioletteRegistrar {
     network_group_public_key: Vec<u8>,
     transfer_secret_key: Vec<u8>,
     transfer_group_public_key: Vec<u8>,
+    /// DER-encoded trusted root certificates for Android Key Attestation.
+    pub android_trusted_roots: Vec<Vec<u8>>,
+    /// DER-encoded trusted root certificates for Apple App Attest.
+    pub ios_trusted_roots: Vec<Vec<u8>>,
+    /// Expected iOS app identifier (team_id.bundle_id) for App Attest.
+    pub ios_app_id: String,
+    /// Whether to require hardware attestation (reject Algorithm::NONE).
+    pub require_attestation: bool,
 }
 
 impl BrioletteRegistrar {
@@ -126,8 +135,82 @@ impl BrioletteRegistrar {
             network_group_public_key,
             transfer_secret_key,
             transfer_group_public_key,
+            ..Default::default()
         }
     }
+
+    /// Verify the hardware attestation based on the algorithm type.
+    /// Returns the hardware nonce to use for credential issuance.
+    fn verify_attestation(
+        &self,
+        hwid: &briolette_proto::briolette::registrar::HardwareId,
+        sig: &briolette_proto::briolette::registrar::Signature,
+    ) -> Result<Vec<u8>, BrioletteError> {
+        let algorithm = match sig.algorithm {
+            x if x == Algorithm::None as i32 => Algorithm::None,
+            x if x == Algorithm::AndroidKmAttestation as i32 => Algorithm::AndroidKmAttestation,
+            x if x == Algorithm::IosAppAttest as i32 => Algorithm::IosAppAttest,
+            _ => Algorithm::None,
+        };
+        match algorithm {
+            Algorithm::None => {
+                if self.require_attestation {
+                    error!("attestation required but Algorithm::NONE received");
+                    return Err(BrioletteError {
+                        code: BrioletteErrorCode::InvalidHwidSignature.into(),
+                    });
+                }
+                warn!("no hardware attestation provided; using hw_id as nonce");
+                Ok(hwid.hw_id.clone())
+            }
+            Algorithm::AndroidKmAttestation => {
+                info!("verifying Android Key Attestation");
+                match attestation::verify_android_attestation(
+                    hwid,
+                    sig,
+                    &self.android_trusted_roots,
+                ) {
+                    Ok(result) => {
+                        info!(
+                            "Android attestation verified: security_level={:?}",
+                            result.security_level
+                        );
+                        Ok(result.hw_nonce)
+                    }
+                    Err(e) => {
+                        error!("Android attestation verification failed: {}", e);
+                        Err(BrioletteError {
+                            code: BrioletteErrorCode::InvalidHwidSignature.into(),
+                        })
+                    }
+                }
+            }
+            Algorithm::IosAppAttest => {
+                info!("verifying iOS App Attest");
+                match attestation::verify_ios_attestation(
+                    hwid,
+                    sig,
+                    &self.ios_app_id,
+                    &self.ios_trusted_roots,
+                ) {
+                    Ok(result) => {
+                        info!(
+                            "iOS App Attest verified: security_level={:?}",
+                            result.security_level
+                        );
+                        Ok(result.hw_nonce)
+                    }
+                    Err(e) => {
+                        error!("iOS App Attest verification failed: {}", e);
+                        Err(BrioletteError {
+                            code: BrioletteErrorCode::InvalidHwidSignature.into(),
+                        })
+                    }
+                }
+            }
+        }
+    }
+
     // We always provide a non-async implementation for cleaner testing.
     // It also allows migration to different wrapping frameworks.
     pub fn register_call_impl(
@@ -135,7 +218,7 @@ impl BrioletteRegistrar {
         request: &RegisterRequest,
     ) -> Result<RegisterReply, BrioletteError> {
         trace!("register_call: request = {:?}", &request);
-        // 1. Validate the hwid signature
+        // 1. Validate the version and required fields.
         if request.version != Version::Current.into() {
             return Err(BrioletteError {
                 code: BrioletteErrorCode::InvalidVersion.into(),
@@ -155,13 +238,10 @@ impl BrioletteRegistrar {
         let network_request = request.network_credential.clone().unwrap();
         let transfer_request = request.transfer_credential.clone().unwrap();
 
-        // No verification occurs right now, so we fail if there is any!
-        if hwid_signature.algorithm != Algorithm::None.into() {
-            return Err(BrioletteError {
-                code: BrioletteErrorCode::InvalidHwidSignature.into(),
-            });
-        }
-        // 2. Issue a network credential with the nonce of the token public key.
+        // 2. Verify hardware attestation (Android Key Attestation, iOS App Attest, or NONE).
+        let hw_nonce = self.verify_attestation(&hwid, &hwid_signature)?;
+
+        // 3. Issue a network credential with the nonce of the token public key.
         let mut network_credential = vec![];
         let mut network_credential_signature = vec![];
         if v0::issue_credential(
@@ -177,14 +257,13 @@ impl BrioletteRegistrar {
             });
         }
 
-        // 3. Issue a token credential with the nonce of the signature-verified hwid
-        //        let mut network_credential = vec![];
+        // 4. Issue a token credential with the attestation-derived hardware nonce.
         let mut transfer_credential = vec![];
         let mut transfer_credential_signature = vec![];
         if v0::issue_credential(
             &transfer_request.public_key,
             &self.transfer_secret_key,
-            &hwid.hw_id.clone(), // for Algorithm::NONE
+            &hw_nonce,
             &mut transfer_credential,
             &mut transfer_credential_signature,
         ) == false
@@ -207,7 +286,7 @@ impl BrioletteRegistrar {
             }),
         };
 
-        // 4. Return the new credentials.
+        // 5. Return the new credentials.
         return Ok(reply);
     }
 }
