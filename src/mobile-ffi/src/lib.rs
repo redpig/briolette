@@ -469,4 +469,195 @@ mod tests {
         assert_eq!(b.whole, 42);
         assert_eq!(b.token_count, 3);
     }
+
+    #[test]
+    fn ticket_count_extract() {
+        let state = WalletState {
+            json: "{}".to_string(),
+            balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
+            ticket_count: 7,
+            wallet_name: "carol".to_string(),
+        };
+        assert_eq!(get_ticket_count(state), 7);
+    }
+
+    #[test]
+    fn load_wallet_valid_json() {
+        let json = r#"{"name":"alice","tokens":[],"tickets":[]}"#.to_string();
+        let state = load_wallet(json).unwrap();
+        assert_eq!(state.wallet_name, "alice");
+        assert_eq!(state.balance.whole, 0);
+        assert_eq!(state.balance.token_count, 0);
+        assert_eq!(state.ticket_count, 0);
+    }
+
+    #[test]
+    fn load_wallet_invalid_json_returns_error() {
+        let result = load_wallet("not valid json".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_wallet_missing_name_defaults_to_unknown() {
+        let json = r#"{"tokens":[],"tickets":[]}"#.to_string();
+        let state = load_wallet(json).unwrap();
+        assert_eq!(state.wallet_name, "unknown");
+    }
+
+    #[test]
+    fn save_wallet_roundtrip() {
+        let json = r#"{"name":"test","tokens":[],"tickets":[]}"#.to_string();
+        let state = WalletState {
+            json: json.clone(),
+            balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
+            ticket_count: 0,
+            wallet_name: "test".to_string(),
+        };
+        let saved = save_wallet(state).unwrap();
+        assert_eq!(saved, json);
+    }
+
+    #[test]
+    fn save_wallet_invalid_json_returns_error() {
+        let state = WalletState {
+            json: "{{broken".to_string(),
+            balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
+            ticket_count: 0,
+            wallet_name: "test".to_string(),
+        };
+        assert!(save_wallet(state).is_err());
+    }
+
+    #[test]
+    fn summarize_wallet_fractional_overflow_normalizes() {
+        // 2_500_000 micros = 2 whole + 500_000 fractional
+        let json = r#"{
+            "name": "norm",
+            "tokens": [
+                {"token": "", "credential": "", "whole_value": 0, "fractional_value": 2500000, "value_code": 0}
+            ],
+            "tickets": []
+        }"#;
+        let state = summarize_wallet(json, "norm").unwrap();
+        assert_eq!(state.balance.whole, 2);
+        assert_eq!(state.balance.fractional, 500_000);
+    }
+
+    #[test]
+    fn summarize_wallet_multiple_currencies_uses_last() {
+        let json = r#"{
+            "name": "multi",
+            "tokens": [
+                {"token": "", "credential": "", "whole_value": 1, "fractional_value": 0, "value_code": 0},
+                {"token": "", "credential": "", "whole_value": 2, "fractional_value": 0, "value_code": 840}
+            ],
+            "tickets": []
+        }"#;
+        let state = summarize_wallet(json, "multi").unwrap();
+        // Last token's code wins
+        assert_eq!(state.balance.currency, "USD");
+        assert_eq!(state.balance.whole, 3);
+    }
+
+    #[test]
+    fn summarize_wallet_eth_currency_code() {
+        let json = r#"{
+            "name": "eth",
+            "tokens": [
+                {"token": "", "credential": "", "whole_value": 1, "fractional_value": 0, "value_code": 8888}
+            ],
+            "tickets": []
+        }"#;
+        let state = summarize_wallet(json, "eth").unwrap();
+        assert_eq!(state.balance.currency, "ETH");
+    }
+
+    #[test]
+    fn summarize_wallet_eur_currency_code() {
+        let json = r#"{
+            "name": "eur",
+            "tokens": [
+                {"token": "", "credential": "", "whole_value": 1, "fractional_value": 0, "value_code": 978}
+            ],
+            "tickets": []
+        }"#;
+        let state = summarize_wallet(json, "eur").unwrap();
+        assert_eq!(state.balance.currency, "EUR");
+    }
+
+    #[test]
+    fn summarize_wallet_unknown_currency_code() {
+        let json = r#"{
+            "name": "x",
+            "tokens": [
+                {"token": "", "credential": "", "whole_value": 1, "fractional_value": 0, "value_code": 9999}
+            ],
+            "tickets": []
+        }"#;
+        let state = summarize_wallet(json, "x").unwrap();
+        assert_eq!(state.balance.currency, "CODE_9999");
+    }
+
+    #[test]
+    fn summarize_wallet_invalid_json_returns_error() {
+        let result = summarize_wallet("not json", "test");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn summarize_wallet_no_tokens_or_tickets_fields() {
+        // JSON with no tokens/tickets keys at all
+        let json = r#"{"name":"bare"}"#;
+        let state = summarize_wallet(json, "bare").unwrap();
+        assert_eq!(state.balance.whole, 0);
+        assert_eq!(state.balance.token_count, 0);
+        assert_eq!(state.ticket_count, 0);
+    }
+
+    #[test]
+    fn get_receiving_ticket_b64_no_tickets_returns_error() {
+        let state = WalletState {
+            json: r#"{"tickets":[]}"#.to_string(),
+            balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
+            ticket_count: 0,
+            wallet_name: "test".to_string(),
+        };
+        assert!(get_receiving_ticket_b64(state).is_err());
+    }
+
+    #[test]
+    fn get_receiving_ticket_b64_missing_tickets_key_returns_error() {
+        let state = WalletState {
+            json: r#"{}"#.to_string(),
+            balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
+            ticket_count: 0,
+            wallet_name: "test".to_string(),
+        };
+        assert!(get_receiving_ticket_b64(state).is_err());
+    }
+
+    #[test]
+    fn get_receiving_ticket_b64_valid_ticket() {
+        let state = WalletState {
+            json: r#"{"tickets":[{"ticket":[1,2,3,4]}]}"#.to_string(),
+            balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
+            ticket_count: 1,
+            wallet_name: "test".to_string(),
+        };
+        let b64 = get_receiving_ticket_b64(state).unwrap();
+        // [1,2,3,4] base64-encoded = "AQIDBA=="
+        assert_eq!(b64, "AQIDBA==");
+    }
+
+    #[test]
+    fn receive_tokens_invalid_base64_returns_error() {
+        let state = WalletState {
+            json: r#"{"name":"test","tokens":[],"tickets":[]}"#.to_string(),
+            balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
+            ticket_count: 0,
+            wallet_name: "test".to_string(),
+        };
+        let result = receive_tokens(state, vec!["not-base64!!!".to_string()]);
+        assert!(result.is_err());
+    }
 }
