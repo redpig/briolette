@@ -95,6 +95,72 @@ interface HwAttestationProvider {
 }
 
 /**
+ * Security mode for wallet registration.
+ *
+ * MEDIUM: phone hardware attestation only (init_wallet_keys path).
+ * HIGH:   phone attestation + NFC smartcard split-key proof (split_key_* path).
+ */
+enum class SecurityMode {
+    MEDIUM,
+    HIGH,
+}
+
+/**
+ * Result of split-key step 1: TTC base point for the NFC card.
+ */
+data class SplitKeyStep1Result(
+    val stateJson: String,
+    val bTtcB64: String,
+)
+
+/**
+ * Result of split-key step 2a: TTC challenge + NAC base point.
+ */
+data class SplitKeyStep2aResult(
+    val stateJson: String,
+    val cTtcB64: String,
+    val bNacB64: String,
+)
+
+/**
+ * Result of split-key step 2b: NAC challenge.
+ */
+data class SplitKeyStep2bResult(
+    val stateJson: String,
+    val cNacB64: String,
+)
+
+/**
+ * Provider for NFC smartcard interactions during split-key registration.
+ *
+ * Platform implementations use Android IsoDep or iOS CoreNFC to communicate
+ * with a JavaCard applet that holds its half of the ECDAA key shares.
+ */
+interface NfcCardProvider {
+    /** Whether NFC hardware is available on this device. */
+    val isAvailable: Boolean
+
+    /**
+     * Send a base point to the card and receive back (Q_card, U_card).
+     * Used for both TTC and NAC credential commit steps.
+     *
+     * @param basePointB64 the base point B (group element, base64)
+     * @return pair of (Q_card_b64, U_card_b64)
+     */
+    suspend fun commitWithCard(basePointB64: String): Pair<String, String>
+
+    /**
+     * Send challenges to the card and receive back response scalars.
+     * Used for both TTC and NAC credential response steps.
+     *
+     * @param challengeTtcB64 TTC challenge scalar (base64)
+     * @param challengeNacB64 NAC challenge scalar (base64)
+     * @return pair of (s_card_ttc_b64, s_card_nac_b64)
+     */
+    suspend fun respondWithCard(challengeTtcB64: String, challengeNacB64: String): Pair<String, String>
+}
+
+/**
  * QR code payload types used in the app.
  */
 sealed class QrPayload {

@@ -5,6 +5,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.briolette.AttestationData as FfiAttestationData
 import uniffi.briolette.KeyInitResult as FfiKeyInitResult
+import uniffi.briolette.SplitKeyStep1Result as FfiSplitKeyStep1Result
+import uniffi.briolette.SplitKeyStep2aResult as FfiSplitKeyStep2aResult
+import uniffi.briolette.SplitKeyStep2bResult as FfiSplitKeyStep2bResult
 import uniffi.briolette.Balance as FfiBalance
 import uniffi.briolette.TransferResult as FfiTransferResult
 import uniffi.briolette.ValidationResult as FfiValidationResult
@@ -67,6 +70,8 @@ class AndroidWalletBridge : WalletBridge {
             KeyInitResult(
                 walletJson = result.walletJson,
                 challengePreimageB64 = result.challengePreimageB64,
+                nacCardPublicKeyB64 = result.nacCardPublicKeyB64,
+                ttcCardPublicKeyB64 = result.ttcCardPublicKeyB64,
             )
         }
     }
@@ -74,6 +79,8 @@ class AndroidWalletBridge : WalletBridge {
     override suspend fun registerWalletWithAttestation(
         walletJson: String,
         attestation: HwAttestationData,
+        nacCardPublicKeyB64: String,
+        ttcCardPublicKeyB64: String,
     ): WalletState {
         return withContext(Dispatchers.IO) {
             val json = uniffi.briolette.registerWalletWithAttestation(
@@ -83,8 +90,61 @@ class AndroidWalletBridge : WalletBridge {
                     signatureB64 = attestation.signatureB64,
                     publicKeyB64 = attestation.publicKeyB64,
                 ),
+                nacCardPublicKeyB64,
+                ttcCardPublicKeyB64,
             )
             uniffi.briolette.loadWallet(json).toKotlin()
+        }
+    }
+
+    override suspend fun splitKeyStart(name: String, config: NetworkConfig): SplitKeyStep1Result {
+        return withContext(Dispatchers.IO) {
+            val result: FfiSplitKeyStep1Result = uniffi.briolette.splitKeyStart(
+                name, config.registrarUri, config.clerkUri, config.mintUri, config.validateUri,
+            )
+            SplitKeyStep1Result(stateJson = result.stateJson, bTtcB64 = result.bTtcB64)
+        }
+    }
+
+    override suspend fun splitKeyAfterTtcCommit(
+        stateJson: String, qCardTtcB64: String, uCardTtcB64: String,
+    ): SplitKeyStep2aResult {
+        return withContext(Dispatchers.IO) {
+            val result: FfiSplitKeyStep2aResult = uniffi.briolette.splitKeyAfterTtcCommit(
+                stateJson, qCardTtcB64, uCardTtcB64,
+            )
+            SplitKeyStep2aResult(
+                stateJson = result.stateJson,
+                cTtcB64 = result.cTtcB64,
+                bNacB64 = result.bNacB64,
+            )
+        }
+    }
+
+    override suspend fun splitKeyAfterNacCommit(
+        stateJson: String, qCardNacB64: String, uCardNacB64: String,
+    ): SplitKeyStep2bResult {
+        return withContext(Dispatchers.IO) {
+            val result: FfiSplitKeyStep2bResult = uniffi.briolette.splitKeyAfterNacCommit(
+                stateJson, qCardNacB64, uCardNacB64,
+            )
+            SplitKeyStep2bResult(stateJson = result.stateJson, cNacB64 = result.cNacB64)
+        }
+    }
+
+    override suspend fun splitKeyComplete(
+        stateJson: String, sCardTtcB64: String, sCardNacB64: String,
+    ): KeyInitResult {
+        return withContext(Dispatchers.IO) {
+            val result: FfiKeyInitResult = uniffi.briolette.splitKeyComplete(
+                stateJson, sCardTtcB64, sCardNacB64,
+            )
+            KeyInitResult(
+                walletJson = result.walletJson,
+                challengePreimageB64 = result.challengePreimageB64,
+                nacCardPublicKeyB64 = result.nacCardPublicKeyB64,
+                ttcCardPublicKeyB64 = result.ttcCardPublicKeyB64,
+            )
         }
     }
 

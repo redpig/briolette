@@ -10,6 +10,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.briolette.wallet.data.NetworkConfig
+import com.briolette.wallet.data.NfcCardProvider
+import com.briolette.wallet.data.SecurityMode
 import com.briolette.wallet.data.WalletRepository
 import kotlinx.coroutines.launch
 
@@ -23,6 +25,7 @@ import kotlinx.coroutines.launch
 fun SetupScreen(
     repository: WalletRepository,
     onSetupComplete: () -> Unit,
+    nfcCardProvider: NfcCardProvider? = null,
 ) {
     val isLoading by repository.isLoading.collectAsState()
     val error by repository.error.collectAsState()
@@ -31,6 +34,8 @@ fun SetupScreen(
     var walletName by remember { mutableStateOf("") }
     var serverHost by remember { mutableStateOf("127.0.0.1") }
     var showAdvanced by remember { mutableStateOf(false) }
+    var securityMode by remember { mutableStateOf(SecurityMode.MEDIUM) }
+    val nfcAvailable = nfcCardProvider?.isAvailable == true
 
     Column(
         modifier = Modifier
@@ -61,6 +66,51 @@ fun SetupScreen(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
         )
+
+        Spacer(Modifier.height(16.dp))
+
+        // Security mode selector
+        Text(
+            text = "Security Mode",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = securityMode == SecurityMode.MEDIUM,
+                onClick = { securityMode = SecurityMode.MEDIUM },
+                label = { Text("Medium") },
+                modifier = Modifier.weight(1f),
+            )
+            FilterChip(
+                selected = securityMode == SecurityMode.HIGH,
+                onClick = {
+                    if (nfcAvailable) securityMode = SecurityMode.HIGH
+                },
+                label = { Text("High") },
+                enabled = nfcAvailable,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Text(
+            text = if (securityMode == SecurityMode.HIGH)
+                "Phone attestation + NFC smartcard split-key"
+            else
+                "Phone attestation only",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+        )
+        if (!nfcAvailable) {
+            Text(
+                text = "High mode requires NFC hardware + smartcard",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+            )
+        }
 
         Spacer(Modifier.height(12.dp))
 
@@ -98,9 +148,12 @@ fun SetupScreen(
                             validateUri = "http://$serverHost:50055",
                         )
                         val name = walletName.ifBlank { "wallet" }
-                        // Repository handles 2-phase attested registration
-                        // (init keys → attest with ECDAA-bound challenge → register)
-                        repository.createWallet(name, config)
+                        repository.createWallet(
+                            name,
+                            config,
+                            securityMode = securityMode,
+                            nfcCardProvider = if (securityMode == SecurityMode.HIGH) nfcCardProvider else null,
+                        )
                         onSetupComplete()
                     } catch (_: Exception) {
                         // Error shown via repository.error

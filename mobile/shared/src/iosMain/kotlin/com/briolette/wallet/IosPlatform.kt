@@ -180,8 +180,34 @@ interface IosWalletDelegate {
         algorithm: Int,
         signatureB64: String,
         publicKeyB64: String,
+        nacCardPublicKeyB64: String,
+        ttcCardPublicKeyB64: String,
     ): String {
         return "{}"
+    }
+    fun splitKeyStart(
+        name: String,
+        registrarUri: String,
+        clerkUri: String,
+        mintUri: String,
+        validateUri: String,
+    ): Map<String, Any?> {
+        return emptyMap()
+    }
+    fun splitKeyAfterTtcCommit(
+        stateJson: String, qCardTtcB64: String, uCardTtcB64: String,
+    ): Map<String, Any?> {
+        return emptyMap()
+    }
+    fun splitKeyAfterNacCommit(
+        stateJson: String, qCardNacB64: String, uCardNacB64: String,
+    ): Map<String, Any?> {
+        return emptyMap()
+    }
+    fun splitKeyComplete(
+        stateJson: String, sCardTtcB64: String, sCardNacB64: String,
+    ): Map<String, Any?> {
+        return emptyMap()
     }
 }
 
@@ -248,12 +274,16 @@ class IosWalletBridge : WalletBridge {
         return KeyInitResult(
             walletJson = result["walletJson"] as? String ?: "{}",
             challengePreimageB64 = result["challengePreimageB64"] as? String ?: "",
+            nacCardPublicKeyB64 = result["nacCardPublicKeyB64"] as? String ?: "",
+            ttcCardPublicKeyB64 = result["ttcCardPublicKeyB64"] as? String ?: "",
         )
     }
 
     override suspend fun registerWalletWithAttestation(
         walletJson: String,
         attestation: HwAttestationData,
+        nacCardPublicKeyB64: String,
+        ttcCardPublicKeyB64: String,
     ): WalletState {
         val d = requireDelegate()
         val json = d.registerWalletWithAttestation(
@@ -261,9 +291,58 @@ class IosWalletBridge : WalletBridge {
             attestation.algorithm,
             attestation.signatureB64,
             attestation.publicKeyB64,
+            nacCardPublicKeyB64,
+            ttcCardPublicKeyB64,
         )
         val stateMap = d.loadWallet(json)
         return mapToWalletState(stateMap, json)
+    }
+
+    override suspend fun splitKeyStart(name: String, config: NetworkConfig): SplitKeyStep1Result {
+        val d = requireDelegate()
+        val result = d.splitKeyStart(
+            name, config.registrarUri, config.clerkUri, config.mintUri, config.validateUri,
+        )
+        return SplitKeyStep1Result(
+            stateJson = result["stateJson"] as? String ?: "{}",
+            bTtcB64 = result["bTtcB64"] as? String ?: "",
+        )
+    }
+
+    override suspend fun splitKeyAfterTtcCommit(
+        stateJson: String, qCardTtcB64: String, uCardTtcB64: String,
+    ): SplitKeyStep2aResult {
+        val d = requireDelegate()
+        val result = d.splitKeyAfterTtcCommit(stateJson, qCardTtcB64, uCardTtcB64)
+        return SplitKeyStep2aResult(
+            stateJson = result["stateJson"] as? String ?: "{}",
+            cTtcB64 = result["cTtcB64"] as? String ?: "",
+            bNacB64 = result["bNacB64"] as? String ?: "",
+        )
+    }
+
+    override suspend fun splitKeyAfterNacCommit(
+        stateJson: String, qCardNacB64: String, uCardNacB64: String,
+    ): SplitKeyStep2bResult {
+        val d = requireDelegate()
+        val result = d.splitKeyAfterNacCommit(stateJson, qCardNacB64, uCardNacB64)
+        return SplitKeyStep2bResult(
+            stateJson = result["stateJson"] as? String ?: "{}",
+            cNacB64 = result["cNacB64"] as? String ?: "",
+        )
+    }
+
+    override suspend fun splitKeyComplete(
+        stateJson: String, sCardTtcB64: String, sCardNacB64: String,
+    ): KeyInitResult {
+        val d = requireDelegate()
+        val result = d.splitKeyComplete(stateJson, sCardTtcB64, sCardNacB64)
+        return KeyInitResult(
+            walletJson = result["walletJson"] as? String ?: "{}",
+            challengePreimageB64 = result["challengePreimageB64"] as? String ?: "",
+            nacCardPublicKeyB64 = result["nacCardPublicKeyB64"] as? String ?: "",
+            ttcCardPublicKeyB64 = result["ttcCardPublicKeyB64"] as? String ?: "",
+        )
     }
 
     override suspend fun loadWallet(json: String): WalletState {

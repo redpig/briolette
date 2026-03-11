@@ -237,7 +237,9 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
         walletJson: String,
         algorithm: Int32,
         signatureB64: String,
-        publicKeyB64: String
+        publicKeyB64: String,
+        nacCardPublicKeyB64: String,
+        ttcCardPublicKeyB64: String
     ) -> String {
         do {
             let attestation = briolette.AttestationData(
@@ -247,10 +249,93 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
             )
             return try briolette.registerWalletWithAttestation(
                 walletJson: walletJson,
-                attestation: attestation
+                attestation: attestation,
+                nacCardPublicKeyB64: nacCardPublicKeyB64,
+                ttcCardPublicKeyB64: ttcCardPublicKeyB64
             )
         } catch {
             return "{}"
+        }
+    }
+
+    func splitKeyStart(
+        name: String,
+        registrarUri: String,
+        clerkUri: String,
+        mintUri: String,
+        validateUri: String
+    ) -> [String: Any?] {
+        do {
+            let result = try briolette.splitKeyStart(
+                name: name,
+                registrarUri: registrarUri,
+                clerkUri: clerkUri,
+                mintUri: mintUri,
+                validateUri: validateUri
+            )
+            return [
+                "stateJson": result.stateJson,
+                "bTtcB64": result.bTtcB64,
+            ]
+        } catch {
+            return [:]
+        }
+    }
+
+    func splitKeyAfterTtcCommit(
+        stateJson: String, qCardTtcB64: String, uCardTtcB64: String
+    ) -> [String: Any?] {
+        do {
+            let result = try briolette.splitKeyAfterTtcCommit(
+                stateJson: stateJson,
+                qCardTtcB64: qCardTtcB64,
+                uCardTtcB64: uCardTtcB64
+            )
+            return [
+                "stateJson": result.stateJson,
+                "cTtcB64": result.cTtcB64,
+                "bNacB64": result.bNacB64,
+            ]
+        } catch {
+            return [:]
+        }
+    }
+
+    func splitKeyAfterNacCommit(
+        stateJson: String, qCardNacB64: String, uCardNacB64: String
+    ) -> [String: Any?] {
+        do {
+            let result = try briolette.splitKeyAfterNacCommit(
+                stateJson: stateJson,
+                qCardNacB64: qCardNacB64,
+                uCardNacB64: uCardNacB64
+            )
+            return [
+                "stateJson": result.stateJson,
+                "cNacB64": result.cNacB64,
+            ]
+        } catch {
+            return [:]
+        }
+    }
+
+    func splitKeyComplete(
+        stateJson: String, sCardTtcB64: String, sCardNacB64: String
+    ) -> [String: Any?] {
+        do {
+            let result = try briolette.splitKeyComplete(
+                stateJson: stateJson,
+                sCardTtcB64: sCardTtcB64,
+                sCardNacB64: sCardNacB64
+            )
+            return [
+                "walletJson": result.walletJson,
+                "challengePreimageB64": result.challengePreimageB64,
+                "nacCardPublicKeyB64": result.nacCardPublicKeyB64,
+                "ttcCardPublicKeyB64": result.ttcCardPublicKeyB64,
+            ]
+        } catch {
+            return [:]
         }
     }
 

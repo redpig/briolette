@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.asStateFlow
 data class KeyInitResult(
     val walletJson: String,
     val challengePreimageB64: String,
+    val nacCardPublicKeyB64: String = "",
+    val ttcCardPublicKeyB64: String = "",
 )
 
 interface WalletBridge {
@@ -35,12 +37,43 @@ interface WalletBridge {
         throw UnsupportedOperationException("2-phase registration not supported")
     }
 
-    /** Phase 2: complete registration with cryptographically-bound attestation. */
+    /** Phase 2: complete registration with cryptographically-bound attestation.
+     *  Card public key fields are empty for MEDIUM mode, populated for HIGH mode. */
     suspend fun registerWalletWithAttestation(
         walletJson: String,
         attestation: HwAttestationData,
+        nacCardPublicKeyB64: String = "",
+        ttcCardPublicKeyB64: String = "",
     ): WalletState {
         throw UnsupportedOperationException("2-phase registration not supported")
+    }
+
+    // ---- Split-key protocol (HIGH security) ----
+
+    /** Split-key step 1: compute TTC base point for NFC card. */
+    suspend fun splitKeyStart(name: String, config: NetworkConfig): SplitKeyStep1Result {
+        throw UnsupportedOperationException("split-key not supported")
+    }
+
+    /** Split-key step 2a: after TTC card commit, get TTC challenge + NAC base. */
+    suspend fun splitKeyAfterTtcCommit(
+        stateJson: String, qCardTtcB64: String, uCardTtcB64: String,
+    ): SplitKeyStep2aResult {
+        throw UnsupportedOperationException("split-key not supported")
+    }
+
+    /** Split-key step 2b: after NAC card commit, get NAC challenge. */
+    suspend fun splitKeyAfterNacCommit(
+        stateJson: String, qCardNacB64: String, uCardNacB64: String,
+    ): SplitKeyStep2bResult {
+        throw UnsupportedOperationException("split-key not supported")
+    }
+
+    /** Split-key step 3: finalize keys with card response scalars. */
+    suspend fun splitKeyComplete(
+        stateJson: String, sCardTtcB64: String, sCardNacB64: String,
+    ): KeyInitResult {
+        throw UnsupportedOperationException("split-key not supported")
     }
 
     suspend fun loadWallet(json: String): WalletState
@@ -92,35 +125,94 @@ class WalletRepository(
 
     /** Create a new wallet and register with the network.
      *
-     * Uses 2-phase cryptographically-bound attestation when a provider is
-     * available: init keys → get challenge with ECDAA pks → attest → register.
-     * Falls back to unattested registration otherwise.
+     * MEDIUM mode: init keys → attest with ECDAA-bound challenge → register.
+     * HIGH mode:   split-key with NFC card → attest with card-derived keys → register.
+     * Falls back to unattested registration if attestation is unavailable.
      */
     suspend fun createWallet(
         name: String,
         config: NetworkConfig,
+        securityMode: SecurityMode = SecurityMode.MEDIUM,
+        nfcCardProvider: NfcCardProvider? = null,
     ) {
         withLoading {
             val provider = attestationProvider
-            val newState = if (provider != null && provider.isSupported) {
-                // 2-phase cryptographically-bound attestation:
-                // 1. Init keys → get challenge preimage (hw_id || nac_pk || ttc_pk)
-                val keyInit = bridge.initWalletKeys(name, config)
-                // 2. Provider decodes + SHA-256 hashes preimage, generates attestation
-                val attestation = provider.generate(keyInit.challengePreimageB64)
-                if (attestation != null) {
-                    // 3. Complete registration with bound attestation
-                    bridge.registerWalletWithAttestation(keyInit.walletJson, attestation)
-                } else {
-                    // Attestation failed; fall back to unattested
+            val newState = when {
+                // HIGH security: split-key with NFC card + attestation
+                securityMode == SecurityMode.HIGH && nfcCardProvider != null && provider != null -> {
+                    createWalletHighSecurity(name, config, nfcCardProvider, provider)
+                }
+                // MEDIUM security: attestation only
+                provider != null && provider.isSupported -> {
+                    createWalletMediumSecurity(name, config, provider)
+                }
+                // No attestation: unattested fallback
+                else -> {
                     bridge.createWallet(name, config)
                 }
-            } else {
-                bridge.createWallet(name, config)
             }
             _state.value = newState
             persistence.save(newState.json)
         }
+    }
+
+    /** MEDIUM security: phone attestation binds to ECDAA keys. */
+    private suspend fun createWalletMediumSecurity(
+        name: String,
+        config: NetworkConfig,
+        provider: HwAttestationProvider,
+    ): WalletState {
+        // 1. Init keys → get challenge preimage (hw_id || nac_pk || ttc_pk)
+        val keyInit = bridge.initWalletKeys(name, config)
+        // 2. Provider decodes + SHA-256 hashes preimage, generates attestation
+        val attestation = provider.generate(keyInit.challengePreimageB64)
+        return if (attestation != null) {
+            // 3. Complete registration with bound attestation (no card keys)
+            bridge.registerWalletWithAttestation(keyInit.walletJson, attestation)
+        } else {
+            bridge.createWallet(name, config)
+        }
+    }
+
+    /** HIGH security: NFC card split-key + phone attestation. */
+    private suspend fun createWalletHighSecurity(
+        name: String,
+        config: NetworkConfig,
+        nfcCardProvider: NfcCardProvider,
+        attestationProvider: HwAttestationProvider,
+    ): WalletState {
+        // Step 1: compute TTC base point
+        val step1 = bridge.splitKeyStart(name, config)
+
+        // Step 1→card: send TTC base point, get card's TTC commit
+        val (qCardTtc, uCardTtc) = nfcCardProvider.commitWithCard(step1.bTtcB64)
+
+        // Step 2a: process TTC commit, get TTC challenge + NAC base
+        val step2a = bridge.splitKeyAfterTtcCommit(step1.stateJson, qCardTtc, uCardTtc)
+
+        // Step 2a→card: send NAC base point, get card's NAC commit
+        val (qCardNac, uCardNac) = nfcCardProvider.commitWithCard(step2a.bNacB64)
+
+        // Step 2b: process NAC commit, get NAC challenge
+        val step2b = bridge.splitKeyAfterNacCommit(step2a.stateJson, qCardNac, uCardNac)
+
+        // Step 2b→card: send both challenges, get card's response scalars
+        val (sCardTtc, sCardNac) = nfcCardProvider.respondWithCard(step2a.cTtcB64, step2b.cNacB64)
+
+        // Step 3: finalize keys with card responses → KeyInitResult with card public keys
+        val keyInit = bridge.splitKeyComplete(step2b.stateJson, sCardTtc, sCardNac)
+
+        // Attest with challenge preimage bound to card-derived combined public keys
+        val attestation = attestationProvider.generate(keyInit.challengePreimageB64)
+            ?: throw Exception("Hardware attestation required for HIGH security mode")
+
+        // Register with attestation + card public key shares
+        return bridge.registerWalletWithAttestation(
+            keyInit.walletJson,
+            attestation,
+            nacCardPublicKeyB64 = keyInit.nacCardPublicKeyB64,
+            ttcCardPublicKeyB64 = keyInit.ttcCardPublicKeyB64,
+        )
     }
 
     /** Sync epoch data from the clerk. */
