@@ -10,17 +10,13 @@ import kotlinx.cinterop.usePinned
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
-import platform.CoreFoundation.CFDataGetBytePtr
-import platform.CoreFoundation.CFDataGetLength
 import platform.CoreGraphics.*
 import platform.CoreImage.CIContext
 import platform.CoreImage.CIFilter
 import platform.CoreImage.filterWithName
-import platform.Foundation.NSData
 import platform.Foundation.NSString
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSUTF8StringEncoding
-import platform.Foundation.create
 import platform.Foundation.dataUsingEncoding
 import platform.Foundation.setValue
 
@@ -105,32 +101,86 @@ class IosWalletPersistence : WalletPersistence {
 }
 
 /**
- * iOS WalletBridge — calls Rust FFI via the Swift UniFFI bindings.
+ * Delegate protocol for Swift to provide wallet FFI operations.
  *
- * The Swift bindings are generated from the same UDL file and linked
- * via the static library produced by `cargo build -p briolette-mobile-ffi`.
+ * The Swift app implements this interface using the UniFFI-generated bindings
+ * and sets it on [IosWalletBridge] at startup via [IosWalletBridge.setDelegate].
+ */
+interface IosWalletDelegate {
+    fun createWallet(name: String, registrarUri: String, clerkUri: String, mintUri: String, validateUri: String): String
+    fun loadWallet(json: String): Map<String, Any?>
+    fun saveWallet(stateJson: String): String
+    fun synchronize(stateJson: String, clerkUri: String): Map<String, Any?>
+    fun requestTickets(stateJson: String, clerkUri: String, count: Int): Map<String, Any?>
+    fun withdraw(stateJson: String, mintUri: String, amount: Int): Map<String, Any?>
+    fun transferTokens(stateJson: String, recipientTicketB64: String, amount: Int): Map<String, Any?>
+    fun receiveTokens(stateJson: String, tokensB64: List<String>): Map<String, Any?>
+    fun validateTokens(stateJson: String, validateUri: String): Map<String, Any?>
+    fun getReceivingTicketB64(stateJson: String): String
+    fun getBalance(stateJson: String): Map<String, Any?>
+    fun getTicketCount(stateJson: String): Int
+}
+
+/**
+ * iOS WalletBridge that delegates to a Swift-provided [IosWalletDelegate].
+ *
+ * If no delegate is set, operations fall back to JSON-only mode for basic
+ * wallet state management without network operations.
  */
 class IosWalletBridge : WalletBridge {
+
+    companion object {
+        private var delegate: IosWalletDelegate? = null
+
+        /**
+         * Set the Swift-side delegate. Call this from Swift before
+         * creating the Compose UI.
+         */
+        fun setDelegate(delegate: IosWalletDelegate) {
+            this.delegate = delegate
+        }
+    }
+
+    private fun requireDelegate(): IosWalletDelegate {
+        return delegate ?: throw UnsupportedOperationException(
+            "iOS wallet delegate not set. Call IosWalletBridge.setDelegate() from Swift at startup."
+        )
+    }
+
     override suspend fun createWallet(name: String, config: NetworkConfig): WalletState {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val json = d.createWallet(name, config.registrarUri, config.clerkUri, config.mintUri, config.validateUri)
+        val stateMap = d.loadWallet(json)
+        return mapToWalletState(stateMap, json)
     }
 
     override suspend fun loadWallet(json: String): WalletState {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val stateMap = d.loadWallet(json)
+        return mapToWalletState(stateMap, json)
     }
 
-    override suspend fun saveWallet(state: WalletState): String = state.json
+    override suspend fun saveWallet(state: WalletState): String {
+        val d = requireDelegate()
+        return d.saveWallet(state.json)
+    }
 
     override suspend fun synchronize(state: WalletState): WalletState {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val result = d.synchronize(state.json, "")
+        return mapToWalletState(result, result["json"] as? String ?: state.json)
     }
 
     override suspend fun requestTickets(state: WalletState, count: Int): WalletState {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val result = d.requestTickets(state.json, "", count)
+        return mapToWalletState(result, result["json"] as? String ?: state.json)
     }
 
     override suspend fun withdraw(state: WalletState, amount: Int): WalletState {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val result = d.withdraw(state.json, "", amount)
+        return mapToWalletState(result, result["json"] as? String ?: state.json)
     }
 
     override suspend fun transfer(
@@ -138,18 +188,53 @@ class IosWalletBridge : WalletBridge {
         recipientTicketB64: String,
         amount: Int,
     ): TransferResult {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val result = d.transferTokens(state.json, recipientTicketB64, amount)
+        @Suppress("UNCHECKED_CAST")
+        val stateMap = result["state"] as? Map<String, Any?> ?: emptyMap()
+        @Suppress("UNCHECKED_CAST")
+        val tokensB64 = result["tokensB64"] as? List<String> ?: emptyList()
+        return TransferResult(
+            state = mapToWalletState(stateMap, stateMap["json"] as? String ?: state.json),
+            tokensBase64 = tokensB64,
+        )
     }
 
     override suspend fun receiveTokens(state: WalletState, tokensB64: List<String>): WalletState {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val result = d.receiveTokens(state.json, tokensB64)
+        return mapToWalletState(result, result["json"] as? String ?: state.json)
     }
 
     override suspend fun validate(state: WalletState): ValidationResult {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        val result = d.validateTokens(state.json, "")
+        @Suppress("UNCHECKED_CAST")
+        val stateMap = result["state"] as? Map<String, Any?> ?: emptyMap()
+        return ValidationResult(
+            state = mapToWalletState(stateMap, stateMap["json"] as? String ?: state.json),
+            allValid = result["allValid"] as? Boolean ?: false,
+            validCount = (result["validCount"] as? Number)?.toInt() ?: 0,
+            invalidCount = (result["invalidCount"] as? Number)?.toInt() ?: 0,
+        )
     }
 
     override suspend fun getReceivingTicketB64(state: WalletState): String {
-        throw UnsupportedOperationException("iOS UniFFI bindings not yet wired")
+        val d = requireDelegate()
+        return d.getReceivingTicketB64(state.json)
+    }
+
+    private fun mapToWalletState(map: Map<String, Any?>, json: String): WalletState {
+        return WalletState(
+            json = json,
+            balance = Balance(
+                whole = (map["whole"] as? Number)?.toInt() ?: 0,
+                fractional = (map["fractional"] as? Number)?.toInt() ?: 0,
+                currency = map["currency"] as? String ?: "TEST",
+                tokenCount = (map["tokenCount"] as? Number)?.toInt() ?: 0,
+            ),
+            ticketCount = (map["ticketCount"] as? Number)?.toInt() ?: 0,
+            walletName = map["walletName"] as? String ?: "unknown",
+        )
     }
 }
