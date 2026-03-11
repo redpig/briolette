@@ -7,6 +7,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeUIViewController
+import com.briolette.wallet.data.NetworkConfig
 import com.briolette.wallet.data.WalletRepository
 import com.briolette.wallet.navigation.NavRoutes
 import com.briolette.wallet.ui.screens.*
@@ -73,6 +74,7 @@ private fun IosWalletApp(
     // Shared state
     var scannedPayTicket by remember { mutableStateOf<String?>(null) }
     var scannedReceiveTokens by remember { mutableStateOf<List<String>?>(null) }
+    var networkConfig by remember { mutableStateOf(NetworkConfig()) }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         when (currentRoute) {
@@ -97,6 +99,7 @@ private fun IosWalletApp(
                 onNavigateTopUp = { navigate(NavRoutes.TOP_UP) },
                 onNavigateMyQr = { navigate(NavRoutes.MY_QR) },
                 onNavigateHistory = { navigate(NavRoutes.HISTORY) },
+                onNavigateSettings = { navigate(NavRoutes.SETTINGS) },
             )
 
             NavRoutes.HISTORY -> HistoryScreen(
@@ -132,6 +135,17 @@ private fun IosWalletApp(
             NavRoutes.TOP_UP -> TopUpScreen(
                 repository = repository,
                 onBack = { popBack() },
+            )
+
+            NavRoutes.SETTINGS -> SettingsScreen(
+                repository = repository,
+                currentConfig = networkConfig,
+                onConfigChanged = { networkConfig = it },
+                onBack = { popBack() },
+                onResetWallet = {
+                    routeStack.clear()
+                    currentRoute = NavRoutes.SETUP
+                },
             )
 
             // Scanner placeholders for iOS (replace with AVFoundation)

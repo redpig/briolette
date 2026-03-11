@@ -3,72 +3,61 @@ package com.briolette.wallet
 import com.briolette.wallet.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uniffi.briolette.Balance as FfiBalance
+import uniffi.briolette.TransferResult as FfiTransferResult
+import uniffi.briolette.ValidationResult as FfiValidationResult
+import uniffi.briolette.WalletState as FfiWalletState
 
 /**
- * Android WalletBridge implementation that calls the Rust UniFFI bindings.
+ * Android WalletBridge using real UniFFI Rust bindings.
  *
- * All operations are dispatched to [Dispatchers.IO] since the Rust FFI
- * functions are blocking (they run a tokio runtime internally).
+ * All operations dispatch to [Dispatchers.IO] because the Rust FFI
+ * functions block (they create a tokio runtime internally).
  *
- * NOTE: This currently uses a stub implementation. When the UniFFI bindings
- * are generated (via `cargo run --bin uniffi-bindgen ...`), replace the stub
- * calls with actual `briolette_mobile.*` FFI calls.
+ * Translates between Kotlin common data models and UniFFI-generated types.
  */
 class AndroidWalletBridge : WalletBridge {
 
     override suspend fun createWallet(name: String, config: NetworkConfig): WalletState {
         return withContext(Dispatchers.IO) {
-            // TODO: Replace with UniFFI call:
-            // val json = briolette_mobile.createWallet(
-            //     name, config.registrarUri, config.clerkUri,
-            //     config.mintUri, config.validateUri
-            // )
-            // val ffiState = briolette_mobile.loadWallet(json)
-            // ffiState.toKotlin()
-            throw UnsupportedOperationException(
-                "UniFFI bindings not yet generated. " +
-                "Run: cargo run -p briolette-mobile-ffi --bin uniffi-bindgen " +
-                "generate src/mobile-ffi/src/briolette.udl --language kotlin"
+            val json = uniffi.briolette.createWallet(
+                name,
+                config.registrarUri,
+                config.clerkUri,
+                config.mintUri,
+                config.validateUri,
             )
+            uniffi.briolette.loadWallet(json).toKotlin()
         }
     }
 
     override suspend fun loadWallet(json: String): WalletState {
         return withContext(Dispatchers.IO) {
-            // val ffiState = briolette_mobile.loadWallet(json)
-            // ffiState.toKotlin()
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.loadWallet(json).toKotlin()
         }
     }
 
     override suspend fun saveWallet(state: WalletState): String {
         return withContext(Dispatchers.IO) {
-            // briolette_mobile.saveWallet(state.toFfi())
-            state.json
+            uniffi.briolette.saveWallet(state.toFfi())
         }
     }
 
     override suspend fun synchronize(state: WalletState): WalletState {
         return withContext(Dispatchers.IO) {
-            // val ffiState = briolette_mobile.synchronize(state.toFfi(), "")
-            // ffiState.toKotlin()
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.synchronize(state.toFfi(), "").toKotlin()
         }
     }
 
     override suspend fun requestTickets(state: WalletState, count: Int): WalletState {
         return withContext(Dispatchers.IO) {
-            // val ffiState = briolette_mobile.requestTickets(state.toFfi(), "", count.toUInt())
-            // ffiState.toKotlin()
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.requestTickets(state.toFfi(), "", count.toUInt()).toKotlin()
         }
     }
 
     override suspend fun withdraw(state: WalletState, amount: Int): WalletState {
         return withContext(Dispatchers.IO) {
-            // val ffiState = briolette_mobile.withdraw(state.toFfi(), "", amount.toUInt())
-            // ffiState.toKotlin()
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.withdraw(state.toFfi(), "", amount.toUInt()).toKotlin()
         }
     }
 
@@ -78,34 +67,71 @@ class AndroidWalletBridge : WalletBridge {
         amount: Int,
     ): TransferResult {
         return withContext(Dispatchers.IO) {
-            // val ffiResult = briolette_mobile.transferTokens(
-            //     state.toFfi(), recipientTicketB64, amount.toUInt()
-            // )
-            // ffiResult.toKotlin()
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.transferTokens(
+                state.toFfi(),
+                recipientTicketB64,
+                amount.toUInt(),
+            ).toKotlin()
         }
     }
 
     override suspend fun receiveTokens(state: WalletState, tokensB64: List<String>): WalletState {
         return withContext(Dispatchers.IO) {
-            // val ffiState = briolette_mobile.receiveTokens(state.toFfi(), tokensB64)
-            // ffiState.toKotlin()
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.receiveTokens(state.toFfi(), tokensB64).toKotlin()
         }
     }
 
     override suspend fun validate(state: WalletState): ValidationResult {
         return withContext(Dispatchers.IO) {
-            // val ffiResult = briolette_mobile.validateTokens(state.toFfi(), "")
-            // ffiResult.toKotlin()
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.validateTokens(state.toFfi(), "").toKotlin()
         }
     }
 
     override suspend fun getReceivingTicketB64(state: WalletState): String {
         return withContext(Dispatchers.IO) {
-            // briolette_mobile.getReceivingTicketB64(state.toFfi())
-            throw UnsupportedOperationException("UniFFI bindings not yet generated")
+            uniffi.briolette.getReceivingTicketB64(state.toFfi())
         }
     }
 }
+
+// ── FFI ↔ Kotlin conversions ────────────────────────────────────────────
+
+private fun FfiBalance.toKotlin() = Balance(
+    whole = this.whole,
+    fractional = this.fractional,
+    currency = this.currency,
+    tokenCount = this.tokenCount.toInt(),
+)
+
+private fun FfiWalletState.toKotlin() = WalletState(
+    json = this.json,
+    balance = this.balance.toKotlin(),
+    ticketCount = this.ticketCount.toInt(),
+    walletName = this.walletName,
+)
+
+private fun FfiTransferResult.toKotlin() = TransferResult(
+    state = this.state.toKotlin(),
+    tokensBase64 = this.tokensB64,
+)
+
+private fun FfiValidationResult.toKotlin() = ValidationResult(
+    state = this.state.toKotlin(),
+    allValid = this.allValid,
+    validCount = this.validCount.toInt(),
+    invalidCount = this.invalidCount.toInt(),
+)
+
+private fun Balance.toFfi() = FfiBalance(
+    whole = this.whole,
+    fractional = this.fractional,
+    currency = this.currency,
+    tokenCount = this.tokenCount.toUInt(),
+)
+
+private fun WalletState.toFfi() = FfiWalletState(
+    json = this.json,
+    balance = this.balance.toFfi(),
+    ticketCount = this.ticketCount.toUInt(),
+    walletName = this.walletName,
+)

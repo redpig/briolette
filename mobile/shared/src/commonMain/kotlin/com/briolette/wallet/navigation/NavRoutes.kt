@@ -14,4 +14,5 @@ object NavRoutes {
     const val TOP_UP = "top_up"
     const val TRANSFER_QR = "transfer_qr"
     const val HISTORY = "history"
+    const val SETTINGS = "settings"
 }

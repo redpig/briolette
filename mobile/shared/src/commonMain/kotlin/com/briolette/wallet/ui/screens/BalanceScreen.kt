@@ -27,6 +27,7 @@ fun BalanceScreen(
     onNavigateTopUp: () -> Unit,
     onNavigateMyQr: () -> Unit,
     onNavigateHistory: () -> Unit = {},
+    onNavigateSettings: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
     val isLoading by repository.isLoading.collectAsState()
@@ -39,14 +40,25 @@ fun BalanceScreen(
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(16.dp))
 
-        // Wallet name
-        Text(
-            text = state.walletName.ifBlank { "Briolette Wallet" },
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-        )
+        // Top row: wallet name + settings
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width(48.dp))
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = state.walletName.ifBlank { "Briolette Wallet" },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+            )
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onNavigateSettings) {
+                Text("...", style = MaterialTheme.typography.titleLarge)
+            }
+        }
 
         Spacer(Modifier.height(16.dp))
 

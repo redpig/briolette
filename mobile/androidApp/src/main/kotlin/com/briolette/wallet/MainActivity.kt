@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.briolette.wallet.data.NetworkConfig
 import com.briolette.wallet.data.WalletRepository
 import com.briolette.wallet.navigation.NavRoutes
 import com.briolette.wallet.ui.scanner.QrScannerScreen
@@ -49,6 +50,7 @@ fun WalletApp(
     var scannedPayTicket by remember { mutableStateOf<String?>(null) }
     var scannedReceiveTokens by remember { mutableStateOf<List<String>?>(null) }
     var outgoingTokens by remember { mutableStateOf<List<String>>(emptyList()) }
+    var networkConfig by remember { mutableStateOf(NetworkConfig()) }
 
     // Try to load saved wallet on first composition
     LaunchedEffect(Unit) {
@@ -91,6 +93,7 @@ fun WalletApp(
                 onNavigateTopUp = { navController.navigate(NavRoutes.TOP_UP) },
                 onNavigateMyQr = { navController.navigate(NavRoutes.MY_QR) },
                 onNavigateHistory = { navController.navigate(NavRoutes.HISTORY) },
+                onNavigateSettings = { navController.navigate(NavRoutes.SETTINGS) },
             )
         }
 
@@ -177,6 +180,21 @@ fun WalletApp(
             TopUpScreen(
                 repository = repository,
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        // ---- Settings ----
+        composable(NavRoutes.SETTINGS) {
+            SettingsScreen(
+                repository = repository,
+                currentConfig = networkConfig,
+                onConfigChanged = { networkConfig = it },
+                onBack = { navController.popBackStack() },
+                onResetWallet = {
+                    navController.navigate(NavRoutes.SETUP) {
+                        popUpTo(NavRoutes.BALANCE) { inclusive = true }
+                    }
+                },
             )
         }
     }
