@@ -88,11 +88,8 @@ fun SetupScreen(
             )
             FilterChip(
                 selected = securityMode == SecurityMode.HIGH,
-                onClick = {
-                    if (nfcAvailable) securityMode = SecurityMode.HIGH
-                },
+                onClick = { securityMode = SecurityMode.HIGH },
                 label = { Text("High") },
-                enabled = nfcAvailable,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -104,11 +101,11 @@ fun SetupScreen(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
         )
-        if (!nfcAvailable) {
+        if (securityMode == SecurityMode.HIGH && !nfcAvailable) {
             Text(
-                text = "High mode requires NFC hardware + smartcard",
+                text = "NFC smartcard will be required during setup",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
             )
         }
 
