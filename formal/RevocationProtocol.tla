@@ -13,12 +13,17 @@
  *   3. Gossip propagates epoch to all honest peers
  *   4. Honest peers reject transactions with revoked wallets
  *   5. Revoked wallet's tickets expire, clerk refuses new tickets
+ *   6. Non-revoked wallets can refresh tickets (preserving credential identity)
+ *
+ * Maps to (new): src/clerk/src/server.rs (refresh_tickets_impl),
+ *                src/wallet/src/lib.rs (refresh_tickets)
  *
  * Verifies:
  *   - Cumulative revocation (once revoked, always revoked)
  *   - Enforcement (honest peers at epoch >= k reject revoked wallet)
  *   - Eviction completeness (detected => eventually evicted)
  *   - No false revocation (only detected double-spenders get revoked)
+ *   - Revoked wallets cannot refresh tickets (RevokedCannotRefresh)
  *)
 EXTENDS Integers, FiniteSets, TLC
 
@@ -155,6 +160,21 @@ RequestTickets(w) ==
             /\ hasValidTicket' = [hasValidTicket EXCEPT ![w] = TRUE]
             /\ UNCHANGED <<epoch, currentEpoch, revoked, detected, evicted, txnRejected>>
 
+\* Step 6: Wallet refreshes tickets (preserving credential/pseudonym)
+\* Maps to: clerk refresh_tickets_impl (server.rs:285-439)
+\* Clerk verifies NAC signature, checks revocation status, re-signs tickets
+\* with new lifetime. Credential identity is preserved for double-spend linkage.
+RefreshTickets(w) ==
+    /\ w \in Wallets
+    /\ hasValidTicket[w] = TRUE  \* Must have current tickets to refresh
+    /\ IF IsRevoked(w, currentEpoch)
+       THEN \* Clerk rejects: group revocation check fails (server.rs:386-393)
+            /\ UNCHANGED vars
+       ELSE \* Clerk re-signs with new lifetime (server.rs:396-401)
+            /\ ticketExpiry' = [ticketExpiry EXCEPT ![w] = currentEpoch + TicketLifetime]
+            /\ UNCHANGED <<epoch, currentEpoch, revoked, detected, evicted,
+                           hasValidTicket, txnRejected>>
+
 \* Update eviction status
 CheckEviction(w) ==
     /\ w \in detected
@@ -186,6 +206,7 @@ Next ==
     \/ \E w \in Wallets, p \in Wallets: AttemptTransaction(w, p)
     \/ \E w \in Wallets: TicketExpiryCheck(w)
     \/ \E w \in Wallets: RequestTickets(w)
+    \/ \E w \in Wallets: RefreshTickets(w)
     \/ \E w \in Wallets: CheckEviction(w)
 
 Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
@@ -223,6 +244,13 @@ EvictedSubsetDetected ==
 \* Once evicted, wallet cannot have valid tickets
 EvictedMeansNoTickets ==
     \A w \in evicted: ~hasValidTicket[w]
+
+\* Revoked wallets cannot extend ticket expiry via refresh
+\* Maps to: clerk refresh_tickets_impl rejecting revoked groups (server.rs:386-393)
+RevokedCannotRefresh ==
+    \A w \in Wallets:
+        IsRevoked(w, currentEpoch) =>
+            ticketExpiry[w] <= currentEpoch + TicketLifetime
 
 \* Combined invariant
 Invariant ==

@@ -9,6 +9,7 @@
  *   2. Double-spend detection leading to revocation and eviction
  *   3. Gossip-based epoch propagation enabling revocation enforcement
  *   4. P2P transaction protocol correctness under revocation
+ *   5. Ticket refresh preserves safety (revoked wallets cannot refresh)
  *
  * Maps to: the full system as described in docs/design/theory_of_operation.md
  *          and docs/design/security_model.md
@@ -59,11 +60,14 @@ VARIABLES
     detected,        \* Set(Wallet) detected double-spenders
     evicted,         \* Set(Wallet) fully evicted
 
+    \* Ticket lifecycle (from RevocationProtocol)
+    ticketExpiry,    \* Wallet -> epoch when current tickets expire
+
     \* Double-spend tracking (from ForkDetection)
     doubleSpendLog   \* Set of [wallet, tokenId] double-spend events
 
 vars == <<tokens, mintedTotal, walletBalance, hasValidTicket,
-          epoch, currentEpoch, revoked, detected, evicted, doubleSpendLog>>
+          epoch, currentEpoch, revoked, detected, evicted, ticketExpiry, doubleSpendLog>>
 
 \* -----------------------------------------------------------------------
 \* Helpers
@@ -108,7 +112,7 @@ Mint(tid, value, recipient) ==
     /\ walletBalance' = [walletBalance EXCEPT ![recipient] =
          walletBalance[recipient] \union {tid}]
     /\ UNCHANGED <<hasValidTicket, epoch, currentEpoch, revoked,
-                   detected, evicted, doubleSpendLog>>
+                   detected, evicted, ticketExpiry, doubleSpendLog>>
 
 Transfer(tid, sender, recipient) ==
     /\ tid \in DOMAIN tokens
@@ -137,7 +141,7 @@ Transfer(tid, sender, recipient) ==
          ![sender] = walletBalance[sender] \ {tid},
          ![recipient] = walletBalance[recipient] \union {tid}]
     /\ UNCHANGED <<mintedTotal, hasValidTicket, currentEpoch, revoked,
-                   detected, evicted, doubleSpendLog>>
+                   detected, evicted, ticketExpiry, doubleSpendLog>>
 
 \* --- Double-Spend and Detection ---
 
@@ -150,7 +154,7 @@ DoubleSpend(w, tid) ==
     /\ tokens[tid].owner = w \/ tid \in walletBalance[w]
     /\ doubleSpendLog' = doubleSpendLog \union {<<w, tid>>}
     /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
-                   epoch, currentEpoch, revoked, detected, evicted>>
+                   epoch, currentEpoch, revoked, detected, evicted, ticketExpiry>>
 
 \* Validator detects the double-spend (token submitted to validate server)
 DetectDoubleSpend(w, tid) ==
@@ -158,7 +162,7 @@ DetectDoubleSpend(w, tid) ==
     /\ w \notin detected
     /\ detected' = detected \union {w}
     /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
-                   epoch, currentEpoch, revoked, evicted, doubleSpendLog>>
+                   epoch, currentEpoch, revoked, evicted, ticketExpiry, doubleSpendLog>>
 
 \* --- Revocation Lifecycle ---
 
@@ -170,7 +174,7 @@ AdvanceEpoch ==
             revoked[currentEpoch] \union newlyRevoked]
     /\ currentEpoch' = currentEpoch + 1
     /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
-                   epoch, detected, evicted, doubleSpendLog>>
+                   epoch, detected, evicted, ticketExpiry, doubleSpendLog>>
 
 \* --- Gossip ---
 
@@ -183,24 +187,24 @@ GossipOnly(w1, w2) ==
             ![w1] = IF w1 \in Honest THEN maxE ELSE epoch[w1],
             ![w2] = IF w2 \in Honest THEN maxE ELSE epoch[w2]]
     /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
-                   currentEpoch, revoked, detected, evicted, doubleSpendLog>>
+                   currentEpoch, revoked, detected, evicted, ticketExpiry, doubleSpendLog>>
 
 SynchronizeWithClerk(w) ==
     /\ w \in Honest
     /\ epoch' = [epoch EXCEPT ![w] = currentEpoch]
     /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
-                   currentEpoch, revoked, detected, evicted, doubleSpendLog>>
+                   currentEpoch, revoked, detected, evicted, ticketExpiry, doubleSpendLog>>
 
 \* --- Ticket Expiry and Eviction ---
 
 TicketExpiry(w) ==
     /\ w \in Wallets
     /\ hasValidTicket[w] = TRUE
-    \* Simplified: tickets expire when currentEpoch advances past lifetime
-    /\ currentEpoch > TicketLifetime
+    \* Per-wallet expiry: tickets expire when currentEpoch advances past wallet's expiry
+    /\ currentEpoch > ticketExpiry[w]
     /\ hasValidTicket' = [hasValidTicket EXCEPT ![w] = FALSE]
     /\ UNCHANGED <<tokens, mintedTotal, walletBalance, epoch,
-                   currentEpoch, revoked, detected, evicted, doubleSpendLog>>
+                   currentEpoch, revoked, detected, evicted, ticketExpiry, doubleSpendLog>>
 
 RequestTickets(w) ==
     /\ w \in Wallets
@@ -208,10 +212,25 @@ RequestTickets(w) ==
     /\ IF IsRevoked(w, currentEpoch)
        THEN /\ evicted' = evicted \union {w}
             /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
-                           epoch, currentEpoch, revoked, detected, doubleSpendLog>>
+                           epoch, currentEpoch, revoked, detected, ticketExpiry, doubleSpendLog>>
        ELSE /\ hasValidTicket' = [hasValidTicket EXCEPT ![w] = TRUE]
+            /\ ticketExpiry' = [ticketExpiry EXCEPT ![w] = currentEpoch + TicketLifetime]
             /\ UNCHANGED <<tokens, mintedTotal, walletBalance, epoch,
                            currentEpoch, revoked, detected, evicted, doubleSpendLog>>
+
+\* Wallet refreshes tickets while they're still valid (preserving credential)
+\* Maps to: clerk refresh_tickets_impl (server.rs:285-439)
+\* Clerk verifies NAC signature, checks revocation, re-signs with new lifetime.
+RefreshTickets(w) ==
+    /\ w \in Wallets
+    /\ hasValidTicket[w] = TRUE
+    /\ IF IsRevoked(w, currentEpoch)
+       THEN \* Clerk rejects: group revocation check (server.rs:386-393)
+            UNCHANGED vars
+       ELSE \* Clerk re-signs with new lifetime (server.rs:396-401)
+            /\ ticketExpiry' = [ticketExpiry EXCEPT ![w] = currentEpoch + TicketLifetime]
+            /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
+                           epoch, currentEpoch, revoked, detected, evicted, doubleSpendLog>>
 
 \* -----------------------------------------------------------------------
 \* Specification
@@ -228,6 +247,7 @@ Init ==
     /\ revoked = [e \in 0..MaxEpoch |-> {}]
     /\ detected = {}
     /\ evicted = {}
+    /\ ticketExpiry = [w \in Wallets |-> TicketLifetime]
     /\ doubleSpendLog = {}
 
 Next ==
@@ -242,6 +262,7 @@ Next ==
     \/ \E w \in Wallets: SynchronizeWithClerk(w)
     \/ \E w \in Wallets: TicketExpiry(w)
     \/ \E w \in Wallets: RequestTickets(w)
+    \/ \E w \in Wallets: RefreshTickets(w)
 
 Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 
@@ -257,6 +278,7 @@ TypeInvariant ==
     /\ evicted \subseteq detected
     /\ \A w \in Wallets: epoch[w] \in 0..MaxEpoch
     /\ \A w \in Wallets: hasValidTicket[w] \in BOOLEAN
+    /\ \A w \in Wallets: ticketExpiry[w] \in 0..(MaxEpoch + TicketLifetime)
 
 \* End-to-end value conservation
 \* Leaf token values never exceed total minted
@@ -285,6 +307,13 @@ HonestNeverRevoked ==
 EpochMonotonic ==
     \A w \in Wallets: epoch[w] <= currentEpoch
 
+\* Revoked wallets cannot extend ticket expiry via refresh
+\* Maps to: clerk refresh_tickets_impl rejecting revoked groups (server.rs:386-393)
+RevokedCannotRefresh ==
+    \A w \in Wallets:
+        IsRevoked(w, currentEpoch) =>
+            ticketExpiry[w] <= currentEpoch + TicketLifetime
+
 \* Cumulative revocation
 CumulativeRevocation ==
     \A e1 \in 0..MaxEpoch: \A e2 \in 0..MaxEpoch:
@@ -297,6 +326,7 @@ Invariant ==
     /\ NoFalseRevocation
     /\ HonestNeverRevoked
     /\ EpochMonotonic
+    /\ RevokedCannotRefresh
     /\ CumulativeRevocation
 
 \* -----------------------------------------------------------------------

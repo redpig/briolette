@@ -102,6 +102,10 @@ Transact(txn, payer, proposedValue) ==
 
 \* Payer finalizes the transfer (tokens are now bound to receiver's ticket)
 \* Maps to: transfer_impl (server.rs:342-445)
+\* Note: ticket expiry is only checked on current holder's ticket, not on
+\* historical tickets in the token's transfer chain. This is modeled in
+\* BrioletteSystem.tla where Transfer checks hasValidTicket[sender/recipient]
+\* but not historical owners. See token.rs:VerifyTicket::verify_historical().
 TransferStep(txn, payer, finalValue) ==
     /\ txn \in TxnIds
     /\ txnState[txn] = "Transfer"
