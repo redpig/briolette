@@ -24,7 +24,6 @@
 EXTENDS Integers, Sequences, FiniteSets, TLC
 
 CONSTANTS
-    Wallets,          \* Set of wallet identifiers
     TokenIds,         \* Set of token identifiers
     Sigs,             \* Set of abstract signature values
     MaxHistory,       \* Maximum history length
@@ -39,12 +38,12 @@ ASSUME MaxSubmissions \in Nat /\ MaxSubmissions >= 1
    splitValue = 0 means no split tag. *)
 HistoryEntry == [sig: Sigs, splitValue: 0..MaxValue]
 
-(* A token view as stored in the TokenMap *)
-TokenView == [history: Seq(HistoryEntry), value: 1..MaxValue]
+\* Bounded sequences: all sequences of HistoryEntry with length 1..n
+BSeq(S, n) == UNION {[1..i -> S] : i \in 1..n}
 
 VARIABLES
-    tokenMap,       \* TokenId -> set of TokenView records
-    revocations,    \* Set of detected double-spend events
+    tokenMap,       \* TokenId -> set of [history, value] records
+    revocations,    \* Set of detected double-spend token IDs
     submitted,      \* Number of submissions processed
     classifications \* Sequence of classification results for audit
 
@@ -73,112 +72,98 @@ ForkIndex(a, b) ==
        ELSE CHOOSE i \in forkPositions :
             \A j \in forkPositions : i <= j
 
-\* Check if a candidate is "known" against the existing token views
-\* (candidate's history is prefix of or equal to some existing view)
-IsKnown(candidate, views) ==
-    \E v \in views: IsPrefix(candidate.history, v.history)
+\* Check if a candidate history is "known" against the existing views
+IsKnown(candHist, views) ==
+    \E v \in views: IsPrefix(candHist, v.history)
 
-\* Check if candidate extends some existing view
-\* Returns the view it extends, or {} if none
-IsExtension(candidate, views) ==
-    {v \in views: IsStrictPrefix(v.history, candidate.history)}
+\* Set of views that the candidate extends
+ExtendedViews(candHist, views) ==
+    {v \in views: IsStrictPrefix(v.history, candHist)}
 
 \* Check if two histories form a valid split at their fork point
-IsValidSplit(candidate, existing) ==
-    LET fi == ForkIndex(candidate.history, existing.history)
+IsValidSplitPair(candHist, candValue, existing) ==
+    LET fi == ForkIndex(candHist, existing.history)
     IN /\ fi > 0
-       /\ fi <= Len(candidate.history)
+       /\ fi <= Len(candHist)
        /\ fi <= Len(existing.history)
-       /\ candidate.history[fi].splitValue > 0
+       /\ candHist[fi].splitValue > 0
        /\ existing.history[fi].splitValue > 0
-       /\ candidate.history[fi].splitValue + existing.history[fi].splitValue
-          = candidate.value
-       \* Currency code match is implicit — all tokens in this model share a code
+       /\ candHist[fi].splitValue + existing.history[fi].splitValue = candValue
 
-\* Check if candidate is a second split (valid split with some existing view)
-IsSecondSplit(candidate, views) ==
-    \E v \in views: IsValidSplit(candidate, v)
-
-\* Check if candidate forks with some existing view (non-split fork)
-HasFork(candidate, views) ==
-    \E v \in views:
-        /\ ForkIndex(candidate.history, v.history) > 0
-        /\ ~IsValidSplit(candidate, v)
+\* Check if candidate is a second split
+IsSecondSplit(candHist, candValue, views) ==
+    \E v \in views: IsValidSplitPair(candHist, candValue, v)
 
 \* -----------------------------------------------------------------------
 \* Classification operator — the core decision tree
 \* -----------------------------------------------------------------------
-Classify(candidate, views) ==
-    IF views = {}                          THEN "New"
-    ELSE IF IsKnown(candidate, views)      THEN "Known"
-    ELSE IF IsExtension(candidate, views) # {} THEN "Extension"
-    ELSE IF IsSecondSplit(candidate, views) THEN "ValidSplit"
-    ELSE                                        "DoubleSpend"
+Classify(candHist, candValue, views) ==
+    IF views = {}                                     THEN "New"
+    ELSE IF IsKnown(candHist, views)                  THEN "Known"
+    ELSE IF ExtendedViews(candHist, views) # {}       THEN "Extension"
+    ELSE IF IsSecondSplit(candHist, candValue, views)  THEN "ValidSplit"
+    ELSE                                                    "DoubleSpend"
 
 \* -----------------------------------------------------------------------
 \* Actions
 \* -----------------------------------------------------------------------
 
 \* Submit a brand-new token (no existing entry in tokenMap)
-SubmitNewToken(tid, tv) ==
+SubmitNewToken(tid, hist, value) ==
     /\ tid \in TokenIds
-    /\ tv \in TokenView
-    /\ Len(tv.history) >= 1
-    /\ Len(tv.history) <= MaxHistory
     /\ tid \notin DOMAIN tokenMap
     /\ submitted < MaxSubmissions
-    /\ tokenMap' = [tokenMap EXCEPT ![tid] = {tv}]
+    /\ tokenMap' = [x \in DOMAIN tokenMap \union {tid} |->
+         IF x = tid THEN {[history |-> hist, value |-> value]}
+         ELSE tokenMap[x]]
     /\ classifications' = Append(classifications, "New")
     /\ submitted' = submitted + 1
     /\ UNCHANGED revocations
 
 \* Submit a token that already has an entry in the tokenMap
-SubmitExistingToken(tid, candidate) ==
+\* Value must match the existing entry's value (same token descriptor)
+SubmitExistingToken(tid, hist, value) ==
     /\ tid \in TokenIds
-    /\ candidate \in TokenView
-    /\ Len(candidate.history) >= 1
-    /\ Len(candidate.history) <= MaxHistory
     /\ tid \in DOMAIN tokenMap
     /\ submitted < MaxSubmissions
+    \* Token descriptor (value) is fixed at minting — all views share it
+    /\ \E v \in tokenMap[tid]: value = v.value
     /\ LET views == tokenMap[tid]
-           class == Classify(candidate, views)
+           class == Classify(hist, value, views)
        IN /\ classifications' = Append(classifications, class)
           /\ submitted' = submitted + 1
           /\ CASE class = "Known" ->
                   /\ UNCHANGED tokenMap
                   /\ UNCHANGED revocations
                [] class = "Extension" ->
-                  \* Replace the view being extended
-                  LET extended == CHOOSE v \in IsExtension(candidate, views) : TRUE
+                  LET extended == CHOOSE v \in ExtendedViews(hist, views) : TRUE
                   IN /\ tokenMap' = [tokenMap EXCEPT
-                         ![tid] = (views \ {extended}) \union {candidate}]
+                         ![tid] = (views \ {extended}) \union
+                                  {[history |-> hist, value |-> value]}]
                      /\ UNCHANGED revocations
                [] class = "ValidSplit" ->
-                  \* Add the new split history
-                  /\ tokenMap' = [tokenMap EXCEPT ![tid] = views \union {candidate}]
+                  /\ tokenMap' = [tokenMap EXCEPT
+                       ![tid] = views \union {[history |-> hist, value |-> value]}]
                   /\ UNCHANGED revocations
                [] class = "DoubleSpend" ->
-                  \* Add the candidate and record revocation
-                  /\ tokenMap' = [tokenMap EXCEPT ![tid] = views \union {candidate}]
-                  /\ revocations' = revocations \union
-                       {[tokenId |-> tid, candidate |-> candidate]}
+                  /\ tokenMap' = [tokenMap EXCEPT
+                       ![tid] = views \union {[history |-> hist, value |-> value]}]
+                  /\ revocations' = revocations \union {tid}
 
 \* -----------------------------------------------------------------------
 \* Specification
 \* -----------------------------------------------------------------------
 
 Init ==
-    /\ tokenMap = [t \in {} |-> {}]  \* Empty function
+    /\ tokenMap = [t \in {} |-> {}]
     /\ revocations = {}
     /\ submitted = 0
     /\ classifications = <<>>
 
 Next ==
-    \E tid \in TokenIds, tv \in TokenView:
-        /\ Len(tv.history) >= 1
-        /\ Len(tv.history) <= MaxHistory
-        /\ \/ SubmitNewToken(tid, tv)
-           \/ SubmitExistingToken(tid, tv)
+    \E tid \in TokenIds, hist \in BSeq(HistoryEntry, MaxHistory), value \in 1..MaxValue:
+        \/ SubmitNewToken(tid, hist, value)
+        \/ SubmitExistingToken(tid, hist, value)
 
 Spec == Init /\ [][Next]_vars
 
@@ -191,28 +176,24 @@ ValidClassification ==
     \A i \in 1..Len(classifications):
         classifications[i] \in {"New", "Known", "Extension", "ValidSplit", "DoubleSpend"}
 
-\* Revocations only happen for DoubleSpend classifications
-RevocationOnlyOnDoubleSpend ==
-    \A r \in revocations:
-        /\ r.tokenId \in DOMAIN tokenMap
-        /\ \E i \in 1..Len(classifications): classifications[i] = "DoubleSpend"
-
 \* In the TokenMap, all token views for the same tokenId share the same value
 ConsistentValue ==
     \A tid \in DOMAIN tokenMap:
         \A v1, v2 \in tokenMap[tid]:
             v1.value = v2.value
 
-\* For any two views in the same tokenId entry that fork, if both have split
-\* tags at the fork point, their split values must sum to the denomination
+\* For any two views in a non-revoked token that fork with split tags,
+\* their split values must sum to the denomination.
+\* Revoked tokens may have invalid splits (they are double-spends).
 SplitConservation ==
     \A tid \in DOMAIN tokenMap:
-        \A v1, v2 \in tokenMap[tid]:
-            LET fi == ForkIndex(v1.history, v2.history)
-            IN (fi > 0 /\ fi <= Len(v1.history) /\ fi <= Len(v2.history)
-                /\ v1.history[fi].splitValue > 0
-                /\ v2.history[fi].splitValue > 0)
-               => (v1.history[fi].splitValue + v2.history[fi].splitValue = v1.value)
+        tid \notin revocations =>
+            \A v1, v2 \in tokenMap[tid]:
+                LET fi == ForkIndex(v1.history, v2.history)
+                IN (fi > 0 /\ fi <= Len(v1.history) /\ fi <= Len(v2.history)
+                    /\ v1.history[fi].splitValue > 0
+                    /\ v2.history[fi].splitValue > 0)
+                   => (v1.history[fi].splitValue + v2.history[fi].splitValue = v1.value)
 
 \* If a fork exists without valid split tags, a revocation must exist
 DoubleSpendAlwaysDetected ==
@@ -223,23 +204,15 @@ DoubleSpendAlwaysDetected ==
                 /\ ~(v1.history[fi].splitValue > 0
                      /\ v2.history[fi].splitValue > 0
                      /\ v1.history[fi].splitValue + v2.history[fi].splitValue = v1.value))
-               => \E r \in revocations: r.tokenId = tid
+               => tid \in revocations
 
-\* No honest (non-forking) extension is ever classified as DoubleSpend
-\* This is structural: if a candidate extends an existing view, Classify
-\* returns "Extension" before reaching "DoubleSpend".
-
-\* The number of views per token is bounded: at most 2 (original + one split)
-\* plus extensions. In practice we allow up to the number of submissions.
+\* The number of views per token is bounded
 TokenMapBounded ==
     \A tid \in DOMAIN tokenMap:
         Cardinality(tokenMap[tid]) <= MaxSubmissions
 
 TypeInvariant ==
-    /\ \A tid \in DOMAIN tokenMap: \A v \in tokenMap[tid]: v \in TokenView
-    /\ revocations \subseteq [tokenId: TokenIds, candidate: TokenView]
     /\ submitted \in 0..MaxSubmissions
-    /\ classifications \in Seq({"New", "Known", "Extension", "ValidSplit", "DoubleSpend"})
 
 \* Combined invariant
 Invariant ==

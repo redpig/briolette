@@ -94,6 +94,14 @@ PublishRevocation(w) ==
          revoked[currentEpoch] \union {w}]
     /\ UNCHANGED <<epoch, detected, evicted, ticketExpiry, hasValidTicket, txnRejected>>
 
+\* Operator publishes a new epoch (even without new revocations)
+\* Needed for ticket expiry to eventually trigger
+AdvanceEpoch ==
+    /\ currentEpoch < MaxEpoch
+    /\ currentEpoch' = currentEpoch + 1
+    /\ revoked' = [revoked EXCEPT ![currentEpoch + 1] = revoked[currentEpoch]]
+    /\ UNCHANGED <<epoch, detected, evicted, ticketExpiry, hasValidTicket, txnRejected>>
+
 \* Step 3: Gossip propagates epoch between transacting peers
 \* Maps to: do_transaction gossip in briolettesim
 GossipEpoch(w1, w2) ==
@@ -179,6 +187,7 @@ Init ==
 Next ==
     \/ \E w \in Wallets: DetectDoubleSpend(w)
     \/ \E w \in Wallets: PublishRevocation(w)
+    \/ AdvanceEpoch
     \/ \E w1 \in Wallets, w2 \in Wallets: GossipEpoch(w1, w2)
     \/ \E w \in Wallets: SynchronizeWithClerk(w)
     \/ \E w \in Wallets, p \in Wallets: AttemptTransaction(w, p)

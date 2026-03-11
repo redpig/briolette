@@ -145,7 +145,13 @@ Init ==
     /\ txnTimer = [t \in TxnIds |-> 0]
     /\ txnEpochMatch = [t \in TxnIds |-> FALSE]
 
+\* Allow termination when all transactions are in terminal states
+Terminated ==
+    /\ \A t \in TxnIds: txnState[t] \in {"Complete", "Timeout", "Unused"}
+    /\ UNCHANGED vars
+
 Next ==
+    \/ Terminated
     \/ \E txn \in TxnIds, r \in Wallets, a \in 1..MaxValue, em \in BOOLEAN:
          Initiate(txn, r, a, em)
     \/ \E txn \in TxnIds, p \in Wallets:

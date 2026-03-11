@@ -1,0 +1,4 @@
+*.bin
+*.jar
+states/
+*_TTrace_*
