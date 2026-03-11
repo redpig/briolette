@@ -1,0 +1,171 @@
+# Briolette Docker Compose
+#
+# Starts all briolette services in the correct dependency order.
+#
+# Quick start:
+#   docker compose up -d
+#   docker compose run --rm demo
+#
+# The services share a data volume that mirrors the src/ layout expected
+# by the binaries (they use relative paths like ../registrar/data/).
+
+x-common: &common
+  build: .
+  restart: unless-stopped
+  volumes:
+    - briolette-data:/briolette/services
+
+services:
+  # ============================================================
+  # Core infrastructure services (no dependencies)
+  # ============================================================
+
+  registrar:
+    <<: *common
+    working_dir: /briolette/services/registrar
+    command: ["briolette-registrar-server"]
+    ports:
+      - "50051:50051"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/50051' 2>/dev/null"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  tokenmap:
+    <<: *common
+    working_dir: /briolette/services/tokenmap
+    command: ["briolette-tokenmap-server"]
+    ports:
+      - "50054:50054"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/50054' 2>/dev/null"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  # ============================================================
+  # Bootstrap: register wallet credentials and generate epoch
+  # These run once at startup to populate the data volume.
+  # ============================================================
+
+  init-registrar:
+    <<: *common
+    working_dir: /briolette/services/registrar
+    command: ["briolette-registrar-client"]
+    depends_on:
+      registrar:
+        condition: service_healthy
+    restart: "no"
+
+  # ============================================================
+  # Services that depend on registrar data
+  # ============================================================
+
+  clerk:
+    <<: *common
+    working_dir: /briolette/services/clerk
+    command: ["briolette-clerk-server"]
+    ports:
+      - "50052:50052"
+    depends_on:
+      registrar:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/50052' 2>/dev/null"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  init-epoch:
+    <<: *common
+    working_dir: /briolette/services/clerk
+    command: >
+      sh -c "sleep 2 && briolette-clerk-generate-epoch"
+    depends_on:
+      clerk:
+        condition: service_healthy
+      tokenmap:
+        condition: service_healthy
+    restart: "no"
+
+  mint:
+    <<: *common
+    working_dir: /briolette/services/mint
+    command: ["briolette-mint-server"]
+    ports:
+      - "50053:50053"
+    depends_on:
+      clerk:
+        condition: service_healthy
+      tokenmap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/50053' 2>/dev/null"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  # ============================================================
+  # Services that depend on epoch data
+  # ============================================================
+
+  validate:
+    <<: *common
+    working_dir: /briolette/services/validate
+    command: ["briolette-validate-server"]
+    ports:
+      - "50055:50055"
+    depends_on:
+      init-epoch:
+        condition: service_completed_successfully
+      tokenmap:
+        condition: service_healthy
+      clerk:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/50055' 2>/dev/null"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  receiver:
+    <<: *common
+    working_dir: /briolette/services/receiver
+    command: ["briolette-receiver-server"]
+    ports:
+      - "50056:50056"
+    depends_on:
+      init-epoch:
+        condition: service_completed_successfully
+      validate:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/50056' 2>/dev/null"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  # ============================================================
+  # Demo: runs a 2-token transaction to verify everything works
+  # ============================================================
+
+  demo:
+    <<: *common
+    working_dir: /briolette/services/receiver
+    command: >
+      sh -c "echo '=== Running briolette demo transaction ===' &&
+             sleep 3 &&
+             briolette-receiver-client &&
+             echo '=== Demo transaction completed successfully! ==='"
+    depends_on:
+      receiver:
+        condition: service_healthy
+      mint:
+        condition: service_healthy
+    restart: "no"
+    profiles:
+      - demo
+
+volumes:
+  briolette-data:

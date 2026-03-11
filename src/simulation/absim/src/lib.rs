@@ -353,7 +353,7 @@ impl<S: Simulation> ManagerInterface<S> for Manager<S> {
         if self.delay_queue.contains_key(&delay) == false {
             self.delay_queue.insert(delay, EventQueue::new());
         }
-        let mut queue = self.delay_queue.get_mut(&delay).unwrap();
+        let queue = self.delay_queue.get_mut(&delay).unwrap();
         for datum in data {
             queue.enqueue(source.clone(), target.clone(), datum);
         }

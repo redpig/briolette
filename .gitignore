@@ -1,0 +1,14 @@
+target/
+*.db
+*.db-journal
+Cargo.lock
+src/*/data/
+*.cred
+*.cred.sig
+
+# Generated key material and server state — never commit secrets
+data/**/*.sk
+data/**/*.gpk
+data/**/*.pk
+data/**/*.state
+data/**/*.pb

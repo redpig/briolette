@@ -1,0 +1,35 @@
+[package]
+name = "briolette-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "briolette_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "briolette-bridge-server"
+path = "src/server_main.rs"
+
+[features]
+default = []
+alloy = ["dep:alloy", "dep:url", "dep:serde", "dep:serde_json"]
+
+[dependencies]
+briolette-crypto = { path = "../crypto", version = "*" }
+briolette-proto = { path = "../proto", version = "*" }
+briolette-service-auth = { path = "../service_auth", version = "*" }
+tonic = { version = "0.8" }
+prost = "0.11"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "time", "sync"] }
+log = { version = "0.4.17", features = ["max_level_trace", "release_max_level_info"] }
+stderrlog = "0.5.4"
+sha2 = "0.10.6"
+async-trait = "0.1.64"
+alloy = { version = "1", features = ["provider-http", "contract", "sol-types", "signers", "signer-local"], optional = true }
+url = { version = "2", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[build-dependencies]
+tonic-build = "0.8"

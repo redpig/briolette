@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use briolette_crypto::v0;
+use briolette_crypto::v0::split;
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
 use briolette_proto::briolette::clerk::{
-    EpochRequest, EpochUpdate, EpochVerify, GetTicketsRequest, TicketRequest, TicketRequests,
+    EpochRequest, EpochUpdate, EpochVerify, GetTicketsRequest, RefreshTicketsRequest,
+    TicketRequest, TicketRequests,
 };
 use briolette_proto::briolette::mint::mint_client::MintClient;
 use briolette_proto::briolette::mint::GetTokensRequest;
@@ -25,6 +27,7 @@ use briolette_proto::briolette::registrar::{
     Signature as RegistrarSignature,
 };
 use briolette_proto::briolette::token;
+use briolette_proto::briolette::token::TicketExpiry;
 use briolette_proto::briolette::token::TokenTransfer;
 use briolette_proto::briolette::token::TokenVerify;
 use briolette_proto::briolette::validate::validate_client::ValidateClient;
@@ -49,8 +52,10 @@ use prost::Message;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha256::digest;
+use std::collections::HashSet;
 use std::convert::From;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 // This is prototype code so we are going full async. As seen in the testing,
 // much of the logic is synchronous. Later, we'll come back through and extract
@@ -95,6 +100,58 @@ pub trait Wallet: Clone + Serialize + DeserializeOwned + Send {
     async fn validate(&self) -> bool;
     // Validates tokens which are not held.
     async fn validate_tokens(&self, tokens: &Vec<token::Token>) -> bool;
+
+    // Migrate tokens bound to expired tickets to valid tickets.
+    // Returns the number of tokens successfully migrated.
+    fn self_transfer_expired(&mut self) -> usize;
+
+    // Refresh specific tickets at the clerk, preserving the same credential
+    // (payment pseudonym) but getting a fresh lifetime.  Returns the number
+    // of tickets successfully refreshed.
+    async fn refresh_tickets(&mut self, ticket_indices: &[usize]) -> usize;
+
+    /// Initialize keys using split-key mode with smart cards.
+    /// The secret key is split between a smart card and the host.
+    /// The card holds card_sk, the host holds host_sk, and sk = card_sk + host_sk.
+    fn initialize_split_keys(
+        &mut self,
+        hw_id: &[u8],
+        nac_card: Box<dyn split::SmartCard + Send>,
+        ttc_card: Box<dyn split::SmartCard + Send>,
+    ) -> bool;
+}
+
+/// Wrapper for a split::SmartCard trait object that can be shared across
+/// wallet operations. Skipped during serialization and excluded from
+/// equality/debug comparisons.
+#[derive(Default)]
+pub struct SmartCardHandle(Option<Arc<Mutex<Box<dyn split::SmartCard + Send>>>>);
+
+impl SmartCardHandle {
+    pub fn new(card: Box<dyn split::SmartCard + Send>) -> Self {
+        SmartCardHandle(Some(Arc::new(Mutex::new(card))))
+    }
+    pub fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+impl Clone for SmartCardHandle {
+    fn clone(&self) -> Self {
+        SmartCardHandle(self.0.clone())
+    }
+}
+
+impl PartialEq for SmartCardHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.is_some() == other.0.is_some()
+    }
+}
+
+impl std::fmt::Debug for SmartCardHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SmartCardHandle({})", if self.0.is_some() { "attached" } else { "none" })
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -107,6 +164,10 @@ pub struct Credential {
     credential: Option<Vec<u8>>,
     // Issuing cred signature.
     credential_signature: Option<Vec<u8>>,
+    // Host's share of the secret key for split-key signing.
+    // When set, indicates this credential uses split-key mode.
+    #[serde(default)]
+    host_secret_key: Option<Vec<u8>>,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -162,6 +223,17 @@ pub struct WalletData {
     pub tokens: Vec<TokenEntry>,
     // Tokens ready to be sent
     pub pending_tokens: Vec<Vec<u8>>,
+    // Replay protection: tracks tokens seen in the current epoch.
+    // Key = base signature bytes (unique per token) + history length as u32 LE bytes.
+    // Cleared on epoch change.
+    #[serde(skip)]
+    seen_tokens: HashSet<Vec<u8>>,
+    // Smart card for NAC split-key signing (runtime only, not serialized)
+    #[serde(skip)]
+    nac_card: SmartCardHandle,
+    // Smart card for TTC split-key signing (runtime only, not serialized)
+    #[serde(skip)]
+    ttc_card: SmartCardHandle,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -178,9 +250,9 @@ pub struct TicketEntry {
 pub struct TokenEntry {
     pub token: Vec<u8>, // most minimal Token.
     credential: Vec<u8>,
-    whole_value: i32,
-    fractional_value: f32,
-    value_code: i32,
+    pub whole_value: i32,
+    pub fractional_value: f32,
+    pub value_code: i32,
     // TODO add mint pk to demo different token authority for same value code.
 }
 
@@ -223,7 +295,7 @@ impl From<token::Token> for TokenEntry {
                 .value
                 .as_ref()
                 .unwrap()
-                .fractional,
+                .fractional as f32,
             value_code: item
                 .descriptor
                 .as_ref()
@@ -326,6 +398,59 @@ impl WalletData {
             return true;
         }
         return false;
+    }
+
+    /// Attach smart cards for split-key signing.
+    /// After calling this, signing operations will use `sign_split()` instead of `sign()`.
+    pub fn attach_smart_cards(
+        &mut self,
+        nac_card: Box<dyn split::SmartCard + Send>,
+        ttc_card: Box<dyn split::SmartCard + Send>,
+    ) {
+        self.nac_card = SmartCardHandle::new(nac_card);
+        self.ttc_card = SmartCardHandle::new(ttc_card);
+    }
+
+    /// Check if the wallet is in split-key mode (both credentials have host keys and cards attached).
+    pub fn is_split_key_mode(&self) -> bool {
+        self.network_credential.host_secret_key.is_some()
+            && self.transfer_credential.host_secret_key.is_some()
+            && self.nac_card.is_some()
+            && self.ttc_card.is_some()
+    }
+
+    /// Sign using either split-key or standard mode depending on wallet configuration.
+    fn sign_or_split(
+        card_handle: &SmartCardHandle,
+        host_sk: &Option<Vec<u8>>,
+        message: &Vec<u8>,
+        credential: &Vec<u8>,
+        secret_key: &Vec<u8>,
+        basename: &Option<Vec<u8>>,
+        randomize_cred: bool,
+        signature: &mut Vec<u8>,
+    ) -> bool {
+        if let (Some(handle), Some(hsk)) = (&card_handle.0, host_sk) {
+            let mut card = handle.lock().unwrap();
+            split::sign_split(
+                &mut **card,
+                hsk,
+                message,
+                credential,
+                basename,
+                randomize_cred,
+                signature,
+            )
+        } else {
+            v0::sign(
+                message,
+                credential,
+                secret_key,
+                basename,
+                randomize_cred,
+                signature,
+            )
+        }
     }
 }
 
@@ -438,7 +563,9 @@ impl Wallet for WalletData {
         let requests_serialized = requests.encode_to_vec();
         let basename = Some(self.epoch.epoch.to_le_bytes().to_vec());
         let mut signature = vec![];
-        assert!(v0::sign(
+        assert!(WalletData::sign_or_split(
+            &self.nac_card,
+            &self.network_credential.host_secret_key,
             &requests_serialized,
             &self.network_credential.credential.clone().unwrap(),
             &self.network_credential.secret_key,
@@ -569,6 +696,10 @@ impl Wallet for WalletData {
             return false;
         }
         if let Some(data) = update.data.as_ref() {
+            if data.epoch != self.epoch.epoch {
+                // New epoch — clear replay protection cache.
+                self.seen_tokens.clear();
+            }
             self.epoch.epoch = data.epoch;
             self.epoch.group_bitfield = data.group_bitfield.clone();
             // Before we continue, confirm the extended hash is legitimate.
@@ -629,7 +760,7 @@ impl Wallet for WalletData {
             version: Version::Current.into(),
             amount: Some(token::Amount {
                 whole: 1,
-                fractional: 0.0,
+                fractional: 0,
                 code: token::AmountType::TestToken.into(),
             }),
             tags: vec![token::Tag {
@@ -681,9 +812,18 @@ impl Wallet for WalletData {
                 }
                 tx_amt -= 1;
                 if let Ok(mut token) = token::Token::decode(token_entry.token.as_slice()) {
-                    if let Err(e) =
-                        token.transfer(&signed_ticket, self.transfer_credential.secret_key.clone())
+                    let result = if let (Some(handle), Some(hsk)) =
+                        (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
                     {
+                        let mut card = handle.lock().unwrap();
+                        token.transfer_split(&signed_ticket, &mut **card, hsk.clone())
+                    } else {
+                        token.transfer(
+                            &signed_ticket,
+                            self.transfer_credential.secret_key.clone(),
+                        )
+                    };
+                    if let Err(e) = result {
                         error!("transfer() failed to sign token transfer: {:?}", e);
                         return false;
                     }
@@ -699,6 +839,275 @@ impl Wallet for WalletData {
             }
         }
         return true;
+    }
+
+    fn self_transfer_expired(&mut self) -> usize {
+        let now = Utc::now().timestamp() as u64;
+
+        // Find the best valid destination ticket: shortest-lived first
+        let valid_ticket_idx = self
+            .tickets
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| {
+                let st: token::SignedTicket = (*t).clone().into();
+                st.expires_on() > now
+            })
+            .min_by_key(|(_, t)| {
+                let st: token::SignedTicket = (*t).clone().into();
+                st.expires_on()
+            })
+            .map(|(i, _)| i);
+
+        let dest_idx = match valid_ticket_idx {
+            Some(i) => i,
+            None => {
+                warn!("self_transfer_expired: no valid tickets available");
+                return 0;
+            }
+        };
+        let destination: token::SignedTicket = self.tickets[dest_idx].clone().into();
+
+        // Identify tokens bound to expired tickets
+        let mut expired_indices: Vec<usize> = Vec::new();
+        for (i, token_entry) in self.tokens.iter().enumerate() {
+            if let Ok(tok) = token::Token::decode(token_entry.token.as_slice()) {
+                let current_ticket = if let Some(last_history) = tok.history.last() {
+                    last_history
+                        .transfer
+                        .as_ref()
+                        .and_then(|t| t.recipient.as_ref())
+                        .cloned()
+                } else {
+                    tok.base
+                        .as_ref()
+                        .and_then(|b| b.transfer.as_ref())
+                        .and_then(|t| t.recipient.as_ref())
+                        .cloned()
+                };
+                if let Some(ticket) = current_ticket {
+                    if ticket.expires_on() < now {
+                        expired_indices.push(i);
+                    }
+                }
+            }
+        }
+
+        if expired_indices.is_empty() {
+            return 0;
+        }
+
+        // Transfer each expired-ticket token to the valid destination.
+        let mut migrated = 0usize;
+        for &idx in expired_indices.iter().rev() {
+            let token_entry = self.tokens.remove(idx);
+            if let Ok(mut tok) = token::Token::decode(token_entry.token.as_slice()) {
+                let result = if let (Some(handle), Some(hsk)) =
+                    (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
+                {
+                    let mut card = handle.lock().unwrap();
+                    tok.transfer_split(&destination, &mut **card, hsk.clone())
+                } else {
+                    tok.transfer(
+                        &destination,
+                        self.transfer_credential.secret_key.clone(),
+                    )
+                };
+                match result {
+                    Ok(_) => {
+                        self.tokens.push(tok.into());
+                        migrated += 1;
+                    }
+                    Err(e) => {
+                        error!("self_transfer_expired: failed to sign transfer: {:?}", e);
+                        self.tokens.insert(idx, token_entry);
+                    }
+                }
+            } else {
+                error!("self_transfer_expired: failed to decode token");
+                self.tokens.insert(idx, token_entry);
+            }
+        }
+
+        if migrated > 0 {
+            info!(
+                "self_transfer_expired: migrated {} tokens to valid ticket",
+                migrated
+            );
+        }
+        migrated
+    }
+
+    async fn refresh_tickets(&mut self, ticket_indices: &[usize]) -> usize {
+        if self.network_credential.credential.is_none() {
+            error!("refresh_tickets: wallet must have valid credentials");
+            return 0;
+        }
+        if ticket_indices.is_empty() {
+            return 0;
+        }
+
+        // Collect the SignedTickets to refresh.
+        let mut signed_tickets: Vec<token::SignedTicket> = Vec::new();
+        for &idx in ticket_indices {
+            if idx >= self.tickets.len() {
+                error!("refresh_tickets: ticket index {} out of range", idx);
+                return 0;
+            }
+            let entry = &self.tickets[idx];
+            let ticket = match token::Ticket::decode(entry.ticket.as_slice()) {
+                Ok(t) => t,
+                Err(e) => {
+                    error!("refresh_tickets: failed to decode ticket {}: {:?}", idx, e);
+                    return 0;
+                }
+            };
+            signed_tickets.push(token::SignedTicket {
+                ticket: Some(ticket),
+                signature: entry.signature.clone(),
+            });
+        }
+
+        // Serialize the tickets and sign with NAC using epoch basename.
+        let mut tickets_msg = Vec::new();
+        for st in &signed_tickets {
+            tickets_msg.extend_from_slice(&st.encode_to_vec());
+        }
+        let basename = Some(self.epoch.epoch.to_le_bytes().to_vec());
+        let mut signature = vec![];
+        if !WalletData::sign_or_split(
+            &self.nac_card,
+            &self.network_credential.host_secret_key,
+            &tickets_msg,
+            &self.network_credential.credential.clone().unwrap(),
+            &self.network_credential.secret_key,
+            &basename,
+            true,
+            &mut signature,
+        ) {
+            error!("refresh_tickets: failed to sign refresh request");
+            return 0;
+        }
+
+        let request = RefreshTicketsRequest {
+            version: Version::Current.into(),
+            known_epoch: self.epoch.epoch,
+            nac_public_key: self.network_credential.group_public_key.clone().unwrap(),
+            ttc_public_key: self.transfer_credential.group_public_key.clone().unwrap(),
+            tickets: signed_tickets,
+            nac_signature: signature,
+        };
+
+        let mut refreshed = 0usize;
+        if let Ok(mut client) = ClerkClient::multiconnect(&self.clerk_uri).await {
+            match client.refresh_tickets(request).await {
+                Ok(response) => {
+                    let msg = response.into_inner();
+                    // Verify signing key is trusted.
+                    let mut vk: Option<Vec<u8>> = None;
+                    for key in &self.epoch.ticket_signing_keys {
+                        if vec_utils::vec_equal(key, &msg.signing_key) {
+                            vk = Some(key.clone());
+                        }
+                    }
+                    if vk.is_none() {
+                        error!("refresh_tickets: clerk presented unknown signing key");
+                        return 0;
+                    }
+                    let ticket_pk =
+                        PublicKey::from_public_key_der(vk.unwrap().as_slice()).unwrap();
+                    let ticket_vk: VerifyingKey = ticket_pk.into();
+
+                    // Replace tickets in-place.  The response tickets are in the same
+                    // order as the request.
+                    for (i, signed_ticket) in msg.tickets.iter().enumerate() {
+                        if i >= ticket_indices.len() {
+                            break;
+                        }
+                        let idx = ticket_indices[i];
+                        let mut sig = signed_ticket.signature.clone();
+                        sig.pop(); // Drop RecoveryId
+
+                        if let Some(ticket) = signed_ticket.ticket.clone() {
+                            let serialized = ticket.encode_to_vec();
+                            match Signature::try_from(sig.as_slice()) {
+                                Ok(signature) => {
+                                    if let Err(e) =
+                                        ticket_vk.verify(serialized.as_slice(), &signature)
+                                    {
+                                        error!(
+                                            "refresh_tickets: ticket {} sig verify failed: {:?}",
+                                            idx, e
+                                        );
+                                        continue;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "refresh_tickets: ticket {} invalid sig: {:?}",
+                                        idx, e
+                                    );
+                                    continue;
+                                }
+                            }
+                            // Update the ticket entry in-place.
+                            let entry = &mut self.tickets[idx];
+                            entry.ticket = serialized;
+                            // Credential stays the same.
+                            if let Some(tags) = ticket.tags {
+                                entry.created_on = tags.created_on;
+                                entry.lifetime = tags.lifetime;
+                            }
+                            entry.signature = signed_ticket.signature.clone();
+                            refreshed += 1;
+                        }
+                    }
+                    if refreshed > 0 {
+                        info!("refresh_tickets: refreshed {} tickets", refreshed);
+                    }
+                }
+                Err(e) => {
+                    error!("refresh_tickets: RPC failed: {:?}", e);
+                }
+            }
+        }
+        refreshed
+    }
+
+    fn initialize_split_keys(
+        &mut self,
+        id: &[u8],
+        nac_card: Box<dyn split::SmartCard + Send>,
+        ttc_card: Box<dyn split::SmartCard + Send>,
+    ) -> bool {
+        self.id = Vec::from(id);
+        self.hw_id = digest(id).into_bytes();
+
+        // Generate TTC split keypair
+        let ttc_nonce = self.hw_id.clone();
+        let (ttc_host_sk, ttc_pk, ttc_combined_sk) =
+            match split::generate_split_wallet_keypair(&*ttc_card, &ttc_nonce) {
+                Some(v) => v,
+                None => return false,
+            };
+        self.transfer_credential.public_key = ttc_pk.clone();
+        self.transfer_credential.secret_key = ttc_combined_sk;
+        self.transfer_credential.host_secret_key = Some(ttc_host_sk);
+
+        // Generate NAC split keypair
+        let (nac_host_sk, nac_pk, nac_combined_sk) =
+            match split::generate_split_wallet_keypair(&*nac_card, &ttc_pk) {
+                Some(v) => v,
+                None => return false,
+            };
+        self.network_credential.public_key = nac_pk;
+        self.network_credential.secret_key = nac_combined_sk;
+        self.network_credential.host_secret_key = Some(nac_host_sk);
+
+        // Attach the smart cards for runtime signing
+        self.attach_smart_cards(nac_card, ttc_card);
+
+        true
     }
 
     async fn validate_tokens(&self, tokens: &Vec<token::Token>) -> bool {

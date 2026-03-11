@@ -94,7 +94,71 @@ impl TokenVerify for Token {
                 .unwrap()
                 .credential;
         }
-        // 3. Enjoy a valid token.
+        // 3. Verify the current holder's ticket is not expired.
+        // Historical tickets are verified for signature/key only (done above).
+        // Only the current holder must have a valid, non-expired ticket.
+        // This preserves velocity control (wallets must visit the clerk to
+        // get fresh tickets) while allowing tokens with expired historical
+        // tickets to remain verifiable.
+        if !trusted_clerks.is_empty() {
+            let current_ticket = if let Some(last_history) = self.history.last() {
+                last_history
+                    .transfer
+                    .as_ref()
+                    .unwrap()
+                    .recipient
+                    .as_ref()
+                    .unwrap()
+            } else {
+                self.base
+                    .as_ref()
+                    .unwrap()
+                    .transfer
+                    .as_ref()
+                    .unwrap()
+                    .recipient
+                    .as_ref()
+                    .unwrap()
+            };
+            current_ticket.verify(trusted_clerks, None)?;
+        }
+
+        // 4. Verify the token has not expired (valid_until tag in base transfer).
+        if let Some(ref base) = self.base {
+            if let Some(ref transfer) = base.transfer {
+                for tag in transfer.tags.iter() {
+                    if let Some(tag::Value::ValidUntil(valid_until)) = tag.value {
+                        let now = Utc::now().timestamp() as u64;
+                        if now > valid_until {
+                            return Err(BrioletteErrorCode::TokenExpired);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Verify that no split amount exceeds the descriptor value.
+        let descriptor = self.descriptor.as_ref().unwrap();
+        if let Some(ref original_value) = descriptor.value {
+            for history in self.history.iter() {
+                if let Some(ref transfer) = history.transfer {
+                    for tag in transfer.tags.iter() {
+                        if let Some(tag::Value::SplitValue(ref split_amount)) = tag.value {
+                            if split_amount.code != original_value.code {
+                                return Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch);
+                            }
+                            if split_amount.whole > original_value.whole
+                                || (split_amount.whole == original_value.whole
+                                    && split_amount.fractional > original_value.fractional)
+                            {
+                                return Err(BrioletteErrorCode::InvalidSplitExceedsValue);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 6. Enjoy a valid token.
         return Ok(true);
     }
 }
@@ -125,13 +189,16 @@ impl HistoryVerify for History {
         if self.transfer.is_none() || self.transfer.as_ref().unwrap().recipient.is_none() {
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
+        // Historical tickets: verify signature + key only, skip expiration.
+        // Token lifetime is controlled by Tag.valid_until, not by historical
+        // ticket expiration.
         self.transfer
             .as_ref()
             .unwrap()
             .recipient
             .as_ref()
             .unwrap()
-            .verify(&allowed_ticket_keys, None)?;
+            .verify_historical(&allowed_ticket_keys, None)?;
 
         let mut transfer = self.transfer.clone().unwrap();
         transfer.previous_signature = previous_signature.clone();
@@ -162,14 +229,14 @@ impl HistoryVerify for History {
         if self.transfer.is_none() || self.transfer.as_ref().unwrap().recipient.is_none() {
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
-        // Start with the ticket
+        // Base ticket is also historical — verify signature + key only.
         self.transfer
             .as_ref()
             .unwrap()
             .recipient
             .as_ref()
             .unwrap()
-            .verify(&allowed_ticket_keys, None)?;
+            .verify_historical(&allowed_ticket_keys, None)?;
         let mut sig: Vec<u8> = self.signature.clone();
         if sig.len() == 0 {
             debug!("base missing signature");
@@ -223,6 +290,15 @@ pub trait TokenTransfer {
         &mut self,
         destination: &SignedTicket,
         credential_secret: Vec<u8>,
+    ) -> Result<bool, BrioletteErrorCode>;
+
+    /// Transfer using split-key signing with a smart card.
+    /// The credential secret is split between the card and host_secret_key.
+    fn transfer_split(
+        &mut self,
+        destination: &SignedTicket,
+        card: &mut dyn v0::split::SmartCard,
+        host_secret_key: Vec<u8>,
     ) -> Result<bool, BrioletteErrorCode>;
     // TODO: Pull base signing out of Mint
     // fn base(&mut self, ...)
@@ -305,6 +381,85 @@ impl TokenTransfer for Token {
         self.history.push(history);
         return Ok(true);
     }
+
+    fn transfer_split(
+        &mut self,
+        destination: &SignedTicket,
+        card: &mut dyn v0::split::SmartCard,
+        host_secret_key: Vec<u8>,
+    ) -> Result<bool, BrioletteErrorCode> {
+        // Grab the last signature to use as the basename and in the tx block.
+        let last_sig;
+        let committed_credential;
+        if let Some(last_tx) = self.history.last() {
+            last_sig = last_tx.signature.clone();
+            committed_credential = last_tx
+                .transfer
+                .as_ref()
+                .unwrap()
+                .recipient
+                .as_ref()
+                .unwrap()
+                .ticket
+                .as_ref()
+                .unwrap()
+                .credential
+                .clone();
+        } else {
+            last_sig = self
+                .base
+                .as_ref()
+                .expect("transfer cannot be called with no base")
+                .signature
+                .clone();
+            committed_credential = self
+                .base
+                .as_ref()
+                .unwrap()
+                .transfer
+                .as_ref()
+                .unwrap()
+                .recipient
+                .as_ref()
+                .unwrap()
+                .ticket
+                .as_ref()
+                .unwrap()
+                .credential
+                .clone();
+        }
+        let mut transfer = Transfer {
+            recipient: Some(destination.clone()),
+            tags: vec![],
+            previous_signature: last_sig.clone(),
+        };
+        let serialized_transfer = transfer.encode_to_vec();
+        let basename = Some(last_sig);
+        let mut signature = vec![];
+        if v0::split::sign_split(
+            card,
+            &host_secret_key,
+            &serialized_transfer,
+            &committed_credential,
+            &basename,
+            false, // require the committed credential!
+            &mut signature,
+        ) == false
+        {
+            return Err(BrioletteErrorCode::FailedToSignTokenTransfer);
+        }
+        // Don't duplicate the storage here.
+        transfer.previous_signature.clear();
+        // Remove the duplicated credential from the Token when serialized
+        // This saves 260 bytes per transfer. At present, history is 515 bytes.
+        v0::deflate_signature(&mut signature);
+        let history = History {
+            transfer: Some(transfer),
+            signature,
+        };
+        self.history.push(history);
+        return Ok(true);
+    }
 }
 
 pub trait TicketExpiry {
@@ -325,10 +480,65 @@ pub trait VerifyTicket {
         allowed_signing_keys: &Vec<Vec<u8>>,
         credential: Option<Vec<u8>>,
     ) -> Result<bool, BrioletteErrorCode>;
+    /// Verify the ticket's clerk signature and group membership without
+    /// checking expiration. Used for historical tickets in a token's
+    /// provenance chain — token lifetime is controlled by Tag.valid_until,
+    /// not by the shortest-lived ticket in the history.
+    fn verify_historical(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode>;
 }
 
 impl VerifyTicket for SignedTicket {
     fn verify(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode> {
+        // First verify signature and signing key (shared with verify_historical)
+        self.verify_signature_and_key(allowed_signing_keys, credential)?;
+
+        // Now check expiration — only enforced on the current holder's ticket
+        let now = Utc::now().timestamp() as u64;
+        let tags = self.ticket.clone().unwrap().tags.clone().unwrap();
+        if tags.created_on >= now {
+            trace!("ticket created in the future: {}", tags.created_on);
+            return Err(BrioletteErrorCode::InvalidTicketCreatedOn);
+        }
+        if self.expires_on() < now {
+            trace!("ticket expired");
+            return Err(BrioletteErrorCode::TicketExpired);
+        }
+
+        Ok(true)
+    }
+
+    fn verify_historical(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode> {
+        // For historical tickets in a token's provenance chain, we only verify
+        // the clerk signature and that the signing key is known. Token lifetime
+        // is controlled by Tag.valid_until, not by historical ticket expiration.
+        self.verify_signature_and_key(allowed_signing_keys, credential)
+    }
+}
+
+/// Internal helper for signature/key verification shared between
+/// verify() and verify_historical().
+trait VerifyTicketSignature {
+    fn verify_signature_and_key(
+        &self,
+        allowed_signing_keys: &Vec<Vec<u8>>,
+        credential: Option<Vec<u8>>,
+    ) -> Result<bool, BrioletteErrorCode>;
+}
+
+impl VerifyTicketSignature for SignedTicket {
+    fn verify_signature_and_key(
         &self,
         allowed_signing_keys: &Vec<Vec<u8>>,
         credential: Option<Vec<u8>>,
@@ -343,7 +553,6 @@ impl VerifyTicket for SignedTicket {
             debug!("ticket missing");
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
-        // Verify the signature -- fallthrough is valid.
         let mut sig: Vec<u8> = self.signature.clone();
         if sig.len() == 0 {
             debug!("ticket missing signature");
@@ -355,7 +564,6 @@ impl VerifyTicket for SignedTicket {
             return Err(BrioletteErrorCode::UnrecoverablePublicKey);
         }
         if let Ok(signature) = Signature::try_from(sig.as_slice()) {
-            // Recovery the public key
             let found_vk: VerifyingKey;
             let found_vk_bytes: Vec<u8>;
             if let Ok(vk) =
@@ -367,7 +575,6 @@ impl VerifyTicket for SignedTicket {
                 debug!("could not recover public key");
                 return Err(BrioletteErrorCode::UnrecoverablePublicKey);
             }
-            // See if it is known
             let ticket_vk: VerifyingKey;
             if let Some(_tsk) = allowed_signing_keys
                 .iter()
@@ -382,20 +589,6 @@ impl VerifyTicket for SignedTicket {
                 trace!("ticket signature did not verify: {:?}", e);
                 return Err(BrioletteErrorCode::InvalidTicketSignature);
             }
-
-            // Now we need to check any relevant tags
-            let now = Utc::now().timestamp() as u64;
-            let tags = self.ticket.clone().unwrap().tags.clone().unwrap();
-            // TODO: Ensure valid group_number range.
-            if tags.created_on >= now {
-                trace!("ticket created in the future: {}", tags.created_on);
-                return Err(BrioletteErrorCode::InvalidTicketCreatedOn);
-            }
-            if self.expires_on() < now {
-                trace!("ticket expired");
-                return Err(BrioletteErrorCode::TicketExpired);
-            }
-
             return Ok(true);
         }
         Err(BrioletteErrorCode::UnparseableTicketSignature)
@@ -406,11 +599,11 @@ impl Add for Amount {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
-        // TODO clean up
         assert_eq!(self.code, other.code);
+        let total_frac = self.fractional + other.fractional;
         Self {
-            whole: self.whole + other.whole,
-            fractional: self.fractional + other.fractional,
+            whole: self.whole + other.whole + total_frac / 1_000_000,
+            fractional: total_frac % 1_000_000,
             code: self.code,
         }
     }

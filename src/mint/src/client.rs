@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         version: Version::Current.into(),
         amount: Some(Amount {
             whole: 1,
-            fractional: 0.0,
+            fractional: 0,
             code: AmountType::TestToken.into(),
         }),
         tags: vec![Tag {

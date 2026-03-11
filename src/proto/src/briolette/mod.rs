@@ -171,3 +171,11 @@ pub mod swapper {
         }
     }
 }
+
+pub mod service_auth {
+    tonic::include_proto!("briolette.service_auth");
+}
+
+pub mod bridge {
+    tonic::include_proto!("briolette.bridge");
+}

@@ -4,9 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# v0: native wrapping
-libc = "0.2"
-
 # For local storage serialization.
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -14,8 +11,11 @@ log = "0.4.17"
 
 # For custom errors
 thiserror = "1.0.56"
-anyhow = "1.0.79"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[build-dependencies]
-cc = "1.0"
+# Native Rust pairing-based crypto (BN254 curve)
+substrate-bn = "0.6"
+# BLS12-381 pairing curve (128-bit security) for v1
+bls12_381_plus = "0.8"
+ff = "0.13"
+rand = "0.8"
+sha2 = "0.10"

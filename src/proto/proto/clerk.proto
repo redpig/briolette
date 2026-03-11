@@ -39,8 +39,7 @@ service Clerk {
     //
     // This call issues a fresh ticket for the given expired tickets if their signing NAC is not revoked
     // and the credentials have not been involved in any double spends.
-    // rpc RefreshTicket(RefreshTicketRequest) returns (RefreshTicketReply);
-
+    rpc RefreshTickets(RefreshTicketsRequest) returns (RefreshTicketsReply);
 
     // Returns time-bound tickets for receiving payments.
     rpc GetTickets (GetTicketsRequest) returns (GetTicketsReply);
@@ -158,5 +157,28 @@ message GetTicketsRequest {
 message GetTicketsReply {
   repeated .briolette.token.SignedTicket tickets = 1;
   // Public key for verifying the tickets.
+  bytes signing_key = 2;
+}
+
+// Request to refresh one or more existing tickets, preserving the same
+// credential (and thus the same payment pseudonym) but with a fresh
+// lifetime.  This enables persistent peer payment identities without
+// requiring long-lived tickets that widen the eviction window.
+message RefreshTicketsRequest {
+  Version version = 1;
+  uint64 known_epoch = 2;
+  bytes nac_public_key = 3;
+  bytes ttc_public_key = 4;
+  // The existing signed tickets to refresh.  The clerk will re-sign the
+  // same credential with a new created_on and lifetime.
+  repeated .briolette.token.SignedTicket tickets = 5;
+  // NAC signature over the serialized tickets list, using the current
+  // epoch as the basename (same linkability as GetTicketsRequest).
+  bytes nac_signature = 6;
+}
+
+message RefreshTicketsReply {
+  // Fresh tickets with the same credentials but new lifetimes.
+  repeated .briolette.token.SignedTicket tickets = 1;
   bytes signing_key = 2;
 }
