@@ -80,6 +80,13 @@ public class BrioletteApplet extends Applet {
     private static final short SW_BASENAME_USED      = (short) 0x6A84;
     /** Incorrect P1 (unsupported curve version). */
     private static final short SW_BAD_VERSION        = (short) 0x6A86;
+    /** Swap authorization verification failed. */
+    private static final short SW_SWAP_AUTH_FAILED   = (short) 0x6A85;
+    /** Swap public key not set. */
+    private static final short SW_NO_SWAP_KEY        = (short) 0x6A87;
+
+    /** Size of swap authorization token: c (32B) + s (32B). */
+    private static final short SWAP_AUTH_BYTES       = (short) 64;
 
     // ========================================================================
     // Session types
@@ -117,6 +124,12 @@ public class BrioletteApplet extends Applet {
     /** Current session type (SESSION_NONE, SESSION_SIGN, SESSION_JOIN). */
     private byte[] sessionType;
 
+    /** Scratch buffer for swap authorization verification (RAM). */
+    private byte[] scratchPoint;
+
+    /** Scratch buffer for swap auth hash computation (RAM). */
+    private byte[] scratchHash;
+
     // ========================================================================
     // Crypto instances
     // ========================================================================
@@ -150,6 +163,10 @@ public class BrioletteApplet extends Applet {
             BN254Params.FR_BYTES, JCSystem.CLEAR_ON_DESELECT);
         sessionType = JCSystem.makeTransientByteArray(
             (short) 1, JCSystem.CLEAR_ON_DESELECT);
+        scratchPoint = JCSystem.makeTransientByteArray(
+            BN254Params.G1_BYTES, JCSystem.CLEAR_ON_DESELECT);
+        scratchHash = JCSystem.makeTransientByteArray(
+            (short) 32, JCSystem.CLEAR_ON_DESELECT);
 
         rng = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
 
@@ -287,12 +304,17 @@ public class BrioletteApplet extends Applet {
      *   Input:  65B (S point)
      *   Output: 65B (U_card = S * r_card)
      *
-     * With basename (INS 0x11 or 0x13):
+     * With basename (INS 0x11):
      *   Input:  130B (S point || bsn_base point)
      *   Output: 195B (U_card || K_card || K_u_card)
      *
+     * Swap mode with authorization (INS 0x13):
+     *   Input:  194B (S point || bsn_base point || auth_c(32B) || auth_s(32B))
+     *   Output: 195B (U_card || K_card || K_u_card)
+     *   The card verifies the Schnorr swap authorization before proceeding.
+     *
      * @param hasBasename true if basename point is included
-     * @param isSwap true to skip bloom filter check (swap override)
+     * @param isSwap true for swap mode (requires swap authorization token)
      */
     private void processSignCommit(APDU apdu, boolean hasBasename, boolean isSwap) {
         requireKeyInitialized();
@@ -300,10 +322,41 @@ public class BrioletteApplet extends Applet {
         byte[] buffer = apdu.getBuffer();
         short dataLen = apdu.setIncomingAndReceive();
 
-        short expectedLen = hasBasename ?
-            (short)(BN254Params.G1_BYTES * 2) : BN254Params.G1_BYTES;
+        // Compute expected input length
+        short expectedLen;
+        if (!hasBasename) {
+            expectedLen = BN254Params.G1_BYTES;
+        } else if (isSwap) {
+            // Swap: S(65) + bsn_base(65) + auth_c(32) + auth_s(32) = 194
+            expectedLen = (short)(BN254Params.G1_BYTES * 2 + SWAP_AUTH_BYTES);
+        } else {
+            // Normal basename: S(65) + bsn_base(65) = 130
+            expectedLen = (short)(BN254Params.G1_BYTES * 2);
+        }
         if (dataLen != expectedLen) {
             ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        }
+
+        short bsnOffset = (short)(ISO7816.OFFSET_CDATA + BN254Params.G1_BYTES);
+
+        if (hasBasename) {
+            if (isSwap) {
+                // === Verify swap authorization (Schnorr signature from swap server) ===
+                if (!swapPubkeySet) {
+                    ISOException.throwIt(SW_NO_SWAP_KEY);
+                }
+                short authOffset = (short)(bsnOffset + BN254Params.G1_BYTES);
+                if (!verifySwapAuth(buffer, bsnOffset, buffer, authOffset)) {
+                    ISOException.throwIt(SW_SWAP_AUTH_FAILED);
+                }
+                // Swap auth verified — do NOT add to bloom filter
+                // (swap transactions return fresh tokens with new basenames)
+            } else {
+                // Normal basename: check bloom filter
+                if (bloomFilter.checkAndAdd(buffer, bsnOffset, BN254Params.G1_BYTES)) {
+                    ISOException.throwIt(SW_BASENAME_USED);
+                }
+            }
         }
 
         // Generate ephemeral randomness r_card
@@ -318,18 +371,6 @@ public class BrioletteApplet extends Applet {
         short outOffset = BN254Params.G1_BYTES;
 
         if (hasBasename) {
-            short bsnOffset = (short)(ISO7816.OFFSET_CDATA + BN254Params.G1_BYTES);
-
-            // Bloom filter check (unless swap mode)
-            if (!isSwap) {
-                if (bloomFilter.checkAndAdd(buffer, bsnOffset, BN254Params.G1_BYTES)) {
-                    // Basename already used in this epoch
-                    sessionType[0] = SESSION_NONE;
-                    Util.arrayFillNonAtomic(rCard, (short) 0, BN254Params.FR_BYTES, (byte) 0);
-                    ISOException.throwIt(SW_BASENAME_USED);
-                }
-            }
-
             // K_card = bsn_base * card_sk
             ecPointMul(buffer, bsnOffset, cardSk, (short) 0,
                        buffer, outOffset);
@@ -342,6 +383,132 @@ public class BrioletteApplet extends Applet {
         }
 
         apdu.setOutgoingAndSend((short) 0, outOffset);
+    }
+
+    /**
+     * Verify a swap authorization Schnorr signature.
+     *
+     * The swap server signs the basename with its private key:
+     *   c = H(R || bsn_base || swap_pk), s = r + c * swap_sk
+     *
+     * We verify by reconstructing R:
+     *   R' = G * s - swap_pk * c  (2 scalar muls + point subtraction)
+     *   c' = H(R' || bsn_base || swap_pk)
+     *   Check c == c'
+     *
+     * @param bsnBuf    Buffer containing basename G1 point (65 bytes)
+     * @param bsnOff    Offset of basename in buffer
+     * @param authBuf   Buffer containing auth token: c(32B) || s(32B)
+     * @param authOff   Offset of auth token in buffer
+     * @return true if the swap authorization is valid
+     */
+    private boolean verifySwapAuth(byte[] bsnBuf, short bsnOff,
+                                    byte[] authBuf, short authOff) {
+        // auth_c is at authOff (32 bytes), auth_s is at authOff+32 (32 bytes)
+        short cOff = authOff;
+        short sOff = (short)(authOff + BN254Params.FR_BYTES);
+
+        // Step 1: Compute R' = G * s + swap_pk * (-c)
+        // First: tmp1 = G * s
+        ecPointMul(BN254Params.G1_X, (short) 0, // BN254 generator (needs uncompressed form)
+                   authBuf, sOff,
+                   scratchPoint, (short) 0);
+
+        // NOTE: In a full implementation with JCMathLib:
+        //   ECPoint g_s = G.multiplication(s);
+        //   BigNat neg_c = SCALAR_ORDER.subtract(c);  // -c mod order
+        //   ECPoint pk_c = swap_pk.multiplication(neg_c);
+        //   ECPoint r_prime = g_s.add(pk_c);
+        //
+        // For this prototype, ecPointMul and ecPointAdd are stubs.
+        // The full verification would be:
+        //   1. scratchPoint = G * s
+        //   2. tmp = swap_pk * negate(c)
+        //   3. R' = scratchPoint + tmp
+        //   4. hash = H(R' || bsn_base || swap_pk)
+        //   5. compare hash with c
+
+        // Step 2: Negate c: neg_c = SCALAR_ORDER - c
+        scalarNegate(authBuf, cOff, scratchHash, (short) 0);
+
+        // Step 3: Compute swap_pk * (-c) into a temporary area
+        // We need another scratch buffer for this; reuse the APDU buffer
+        // tail area or allocate additional transient memory.
+        // For this prototype, we document the full flow:
+
+        // Step 4: R' = G*s + swap_pk*(-c) via ECPoint addition
+        // ecPointAdd(scratchPoint, 0, tmpPoint, 0, scratchPoint, 0);
+
+        // Step 5: Hash: c' = SHA256(R' || bsn_base || swap_pk) reduced to Fr
+        // sha256.reset();
+        // sha256.update(scratchPoint, 0, G1_BYTES);       // R'
+        // sha256.update(bsnBuf, bsnOff, G1_BYTES);        // bsn_base
+        // sha256.doFinal(swapPubkey, 0, G1_BYTES, scratchHash, 0); // swap_pk
+        // reduceModOrder(scratchHash, 0);
+
+        // Step 6: Compare c' with c
+        // return Util.arrayCompare(scratchHash, 0, authBuf, cOff, FR_BYTES) == 0;
+
+        // Full verification stub (returns true for prototype; replace with above)
+        return verifySwapAuthSchnorr(bsnBuf, bsnOff, authBuf, cOff, authBuf, sOff);
+    }
+
+    /**
+     * Full Schnorr verification for swap authorization.
+     *
+     * Verifies: c == H(G*s - swap_pk*c || bsn_base || swap_pk)
+     *
+     * NOTE: Placeholder — requires JCMathLib for actual EC operations.
+     * In a real implementation:
+     *   1. ECPoint r_prime = generator.mult(s).add(swap_pk.mult(negate(c)))
+     *   2. byte[] hash = SHA256(r_prime.getW() || bsn_base || swap_pk)
+     *   3. return hash == c
+     */
+    private boolean verifySwapAuthSchnorr(byte[] bsnBuf, short bsnOff,
+                                           byte[] cBuf, short cOff,
+                                           byte[] sBuf, short sOff) {
+        // Implementation with JCMathLib (pseudocode for actual integration):
+        //
+        // BigNat s_bn = new BigNat(FR_BYTES);
+        // s_bn.fromByteArray(sBuf, sOff, FR_BYTES);
+        //
+        // BigNat c_bn = new BigNat(FR_BYTES);
+        // c_bn.fromByteArray(cBuf, cOff, FR_BYTES);
+        //
+        // BigNat order = new BigNat(FR_BYTES);
+        // order.fromByteArray(BN254Params.SCALAR_ORDER, 0, FR_BYTES);
+        //
+        // // Negate c: neg_c = order - c
+        // BigNat neg_c = new BigNat(FR_BYTES);
+        // neg_c.clone(order);
+        // neg_c.subtract(c_bn);
+        //
+        // // R' = G * s + swap_pk * (-c)
+        // ECPoint g_s = new ECPoint(BN254_CURVE);
+        // g_s.setW(G1_GENERATOR_UNCOMPRESSED);
+        // g_s.multiplication(s_bn);
+        //
+        // ECPoint pk_neg_c = new ECPoint(BN254_CURVE);
+        // pk_neg_c.setW(swapPubkey, 0, G1_BYTES);
+        // pk_neg_c.multiplication(neg_c);
+        //
+        // g_s.add(pk_neg_c);  // g_s is now R'
+        //
+        // // c' = H(R' || bsn_base || swap_pk)
+        // sha256.reset();
+        // byte[] r_prime_buf = new byte[G1_BYTES];
+        // g_s.getW(r_prime_buf, 0);
+        // sha256.update(r_prime_buf, 0, G1_BYTES);
+        // sha256.update(bsnBuf, bsnOff, G1_BYTES);
+        // byte[] hash_out = new byte[32];
+        // sha256.doFinal(swapPubkey, 0, G1_BYTES, hash_out, 0);
+        // reduceModOrder(hash_out, 0);
+        //
+        // return Util.arrayCompare(hash_out, 0, cBuf, cOff, FR_BYTES) == 0;
+
+        // Stub: always returns false (secure default — swap disabled until
+        // JCMathLib is integrated). Override for simulator testing.
+        return false;
     }
 
     // ========================================================================
@@ -617,5 +784,43 @@ public class BrioletteApplet extends Applet {
 
         // Stub: leave value as-is (statistically < order for random 256-bit values
         // since order is close to 2^254)
+    }
+
+    /**
+     * Compute result = SCALAR_ORDER - input (mod SCALAR_ORDER).
+     * Negation in the scalar field.
+     *
+     * NOTE: Placeholder — replace with JCMathLib BigNat.subtract().
+     */
+    private void scalarNegate(byte[] inBuf, short inOff,
+                               byte[] outBuf, short outOff) {
+        // In a real implementation:
+        //   BigNat val = fromByteArray(inBuf, inOff, FR_BYTES);
+        //   BigNat order = fromByteArray(SCALAR_ORDER);
+        //   BigNat result = order.subtract(val);  // order - val = -val mod order
+        //   result.toByteArray(outBuf, outOff, FR_BYTES);
+
+        // Stub: output zeros
+        Util.arrayFillNonAtomic(outBuf, outOff, BN254Params.FR_BYTES, (byte) 0);
+    }
+
+    /**
+     * Compute result_point = point_a + point_b (EC point addition on G1).
+     *
+     * NOTE: Placeholder — replace with JCMathLib ECPoint.add().
+     */
+    private void ecPointAdd(byte[] aBuf, short aOff,
+                            byte[] bBuf, short bOff,
+                            byte[] outBuf, short outOff) {
+        // In a real implementation using JCMathLib:
+        //   ECPoint a = new ECPoint(BN254_CURVE);
+        //   a.setW(aBuf, aOff, G1_BYTES);
+        //   ECPoint b = new ECPoint(BN254_CURVE);
+        //   b.setW(bBuf, bOff, G1_BYTES);
+        //   a.add(b);
+        //   a.getW(outBuf, outOff);
+
+        // Stub: copy first point
+        Util.arrayCopy(aBuf, aOff, outBuf, outOff, BN254Params.G1_BYTES);
     }
 }

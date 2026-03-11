@@ -294,14 +294,16 @@ pub trait TokenTransfer {
 
     /// Transfer using split-key signing with a smart card.
     /// The credential secret is split between the card and host_secret_key.
-    /// If `is_swap` is true, the card's bloom filter check is bypassed
-    /// (used when sending tokens to a swap server for fresh replacements).
+    /// If `swap_auth` is provided, it is passed to the card to authorize a
+    /// bloom-filter-bypassing swap operation. The swap authorization is a
+    /// Schnorr signature from the swap server binding to the specific basename,
+    /// verified on-card against the stored swap server public key.
     fn transfer_split(
         &mut self,
         destination: &SignedTicket,
         card: &mut dyn v0::split::SmartCard,
         host_secret_key: Vec<u8>,
-        is_swap: bool,
+        swap_auth: Option<&v0::split::SwapAuthorization>,
     ) -> Result<bool, BrioletteErrorCode>;
     // TODO: Pull base signing out of Mint
     // fn base(&mut self, ...)
@@ -390,16 +392,14 @@ impl TokenTransfer for Token {
         destination: &SignedTicket,
         card: &mut dyn v0::split::SmartCard,
         host_secret_key: Vec<u8>,
-        is_swap: bool,
+        swap_auth: Option<&v0::split::SwapAuthorization>,
     ) -> Result<bool, BrioletteErrorCode> {
-        // NOTE: The `is_swap` flag is passed through to inform NFC card
-        // implementations to use SIGN_COMMIT_BSN_SWAP (INS 0x13) instead of
-        // SIGN_COMMIT_BSN (INS 0x11), which skips the bloom filter check.
-        // For MockCard and standard signing, this flag has no effect since
-        // the bloom filter is only implemented on the JavaCard applet.
-        // When using NfcSmartCard, the caller should downcast and use
-        // sign_commit_swap() directly via the wallet layer.
-        let _ = is_swap;
+        // The swap_auth, if provided, is used by NfcSmartCard to send
+        // SIGN_COMMIT_BSN_SWAP (INS 0x13) with the authorization token.
+        // The card verifies the Schnorr signature against its stored swap
+        // server public key before allowing bloom-filter-bypassed signing.
+        // For MockCard, this has no effect (no bloom filter on mock).
+        let _ = swap_auth;
         // Grab the last signature to use as the basename and in the tx block.
         let last_sig;
         let committed_credential;

@@ -816,7 +816,7 @@ impl Wallet for WalletData {
                         (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
                     {
                         let mut card = handle.lock().unwrap();
-                        token.transfer_split(&signed_ticket, &mut **card, hsk.clone(), false)
+                        token.transfer_split(&signed_ticket, &mut **card, hsk.clone(), None)
                     } else {
                         token.transfer(
                             &signed_ticket,
@@ -906,7 +906,7 @@ impl Wallet for WalletData {
                     (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
                 {
                     let mut card = handle.lock().unwrap();
-                    tok.transfer_split(&destination, &mut **card, hsk.clone(), false)
+                    tok.transfer_split(&destination, &mut **card, hsk.clone(), None)
                 } else {
                     tok.transfer(
                         &destination,

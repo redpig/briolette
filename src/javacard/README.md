@@ -55,7 +55,7 @@ CLA = `0x80`. P1 = curve version (`0x00` = BN254, `0x01` = BLS12-381). P2 = `0x0
 | `0x10` | SIGN_COMMIT          | 65B S point                | 65B U_card                     |
 | `0x11` | SIGN_COMMIT_BSN      | 130B S ‖ bsn_base          | 195B U_card ‖ K_card ‖ K_u     |
 | `0x12` | SIGN_RESPOND         | 32B challenge              | 32B s_card                     |
-| `0x13` | SIGN_COMMIT_BSN_SWAP | 130B S ‖ bsn_base          | 195B (skip bloom filter)       |
+| `0x13` | SIGN_COMMIT_BSN_SWAP | 194B S ‖ bsn ‖ auth_c ‖ auth_s | 195B (verified swap auth)  |
 | `0x20` | JOIN_COMMIT          | 65B base point B           | 65B U_card                     |
 | `0x21` | JOIN_RESPOND         | 32B challenge              | 32B s_card                     |
 | `0x30` | RESET_BLOOM          | 4B epoch (BE u32)          | SW 9000                        |
@@ -68,7 +68,9 @@ CLA = `0x80`. P1 = curve version (`0x00` = BN254, `0x01` = BLS12-381). P2 = `0x0
 - `6A80`: Wrong data length
 - `6985`: Conditions not satisfied
 - `6A84`: Basename already used (bloom filter hit)
+- `6A85`: Swap authorization verification failed
 - `6A86`: Unsupported curve version
+- `6A87`: Swap public key not set
 - `6D00`: Unknown INS
 
 ## Architecture
@@ -124,6 +126,34 @@ A production implementation must integrate JCMathLib:
 
 The bloom filter uses 1200 bytes of EEPROM with 7 hash functions derived from SHA-256,
 targeting ~1% false positive rate for 1000 basenames per epoch.
+
+## Swap Authorization
+
+When a wallet sends tokens to a swap server (to exchange for fresh tokens), the bloom
+filter would normally block re-signing with a previously-used basename. Instead of
+blindly trusting the host to signal "this is a swap", the card requires a **cryptographic
+swap authorization** — a Schnorr signature from the swap server proving it authorized
+this specific transaction.
+
+### Protocol
+
+1. Swap server has keypair: `(swap_sk, swap_pk = G1 * swap_sk)`
+2. Card stores `swap_pk` during personalization (INS `0x31`)
+3. When wallet wants to swap, it requests authorization from the swap server
+4. Server signs the basename: `c = H(G*r || bsn_base || swap_pk), s = r + c * swap_sk`
+5. Wallet sends `(c, s)` as 64-byte authorization token with INS `0x13`
+6. Card verifies: `R' = G*s - swap_pk*c`, `c' = H(R' || bsn_base || swap_pk)`, checks `c == c'`
+
+### Security Properties
+
+- **Basename-bound**: The authorization is tied to a specific basename (derived from the
+  token's previous signature). Reusing it for a different transaction fails verification.
+- **Server-authenticated**: Only the swap server (holder of `swap_sk`) can create valid
+  authorizations. A compromised host cannot forge them.
+- **Card-verified**: The card performs the full Schnorr verification using only G1 scalar
+  multiplications (2 muls) + point addition + SHA-256, all within JavaCard capabilities.
+- **Secure default**: The stub implementation returns `false` (swap disabled) until
+  JCMathLib is integrated. No trust-the-host fallback.
 
 ## Testing
 

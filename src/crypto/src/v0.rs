@@ -837,6 +837,125 @@ pub mod split {
         pub s_card: Vec<u8>,
     }
 
+    /// Swap authorization token: a Schnorr signature from the swap server
+    /// binding to a specific basename. The card verifies this before allowing
+    /// a bloom-filter-bypassing swap signing operation.
+    ///
+    /// Scheme: Given swap server keypair (swap_sk, swap_pk = G1 * swap_sk):
+    ///   Create: r = random, R = G1 * r, c = H(R || bsn_base || swap_pk), s = r + c * swap_sk
+    ///   Verify: R' = G1 * s - swap_pk * c, c' = H(R' || bsn_base || swap_pk), check c == c'
+    ///
+    /// The token is (c, s) — 64 bytes. Basename-bound: can't be reused for other transactions.
+    pub struct SwapAuthorization {
+        /// Schnorr challenge: c = H(R || bsn_base || swap_pk)
+        pub c: Vec<u8>,
+        /// Schnorr response: s = r + c * swap_sk
+        pub s: Vec<u8>,
+    }
+
+    impl SwapAuthorization {
+        /// Serialize to 64 bytes: c (32 bytes) || s (32 bytes).
+        pub fn to_bytes(&self) -> Vec<u8> {
+            let mut out = Vec::with_capacity(64);
+            out.extend_from_slice(&self.c);
+            out.extend_from_slice(&self.s);
+            out
+        }
+
+        /// Deserialize from 64 bytes.
+        pub fn from_bytes(data: &[u8]) -> Option<Self> {
+            if data.len() != 64 {
+                return None;
+            }
+            Some(SwapAuthorization {
+                c: data[..32].to_vec(),
+                s: data[32..64].to_vec(),
+            })
+        }
+    }
+
+    /// Hash function for swap authorization Schnorr signatures.
+    /// c = H(R || bsn_base || swap_pk)
+    fn swap_auth_hash(r_point: &G1, bsn_base: &G1, swap_pk: &G1) -> Fr {
+        let mut data = Vec::new();
+        data.extend_from_slice(&serialize_g1(r_point));
+        data.extend_from_slice(&serialize_g1(bsn_base));
+        data.extend_from_slice(&serialize_g1(swap_pk));
+        hash_to_fr(&data)
+    }
+
+    /// Create a swap authorization token.
+    ///
+    /// Called by the swap server when a wallet requests to swap tokens.
+    /// The server signs the basename (derived from the token's previous signature)
+    /// with its private key, producing a token the card can verify.
+    ///
+    /// - `swap_sk`: Swap server's secret key (32 bytes, Fr scalar)
+    /// - `swap_pk`: Swap server's public key (65 bytes, G1 point = G1 * swap_sk)
+    /// - `bsn_base_bytes`: The basename G1 point being authorized (65 bytes)
+    ///
+    /// Returns the authorization token, or None on invalid input.
+    pub fn swap_auth_create(
+        swap_sk: &[u8],
+        swap_pk: &[u8],
+        bsn_base_bytes: &[u8],
+    ) -> Option<SwapAuthorization> {
+        let sk = deserialize_fr(swap_sk)?;
+        let pk = deserialize_g1(swap_pk)?;
+        let bsn = deserialize_g1(bsn_base_bytes)?;
+
+        let r = random_fr();
+        let r_point = G1::one() * r;
+        let c = swap_auth_hash(&r_point, &bsn, &pk);
+        let s = r + c * sk;
+
+        Some(SwapAuthorization {
+            c: serialize_fr(&c).to_vec(),
+            s: serialize_fr(&s).to_vec(),
+        })
+    }
+
+    /// Verify a swap authorization token.
+    ///
+    /// Called by the card (or host for testing) to verify that the swap server
+    /// authorized signing with this specific basename.
+    ///
+    /// - `swap_pk`: Swap server's public key (65 bytes, G1 point)
+    /// - `bsn_base_bytes`: The basename G1 point being authorized (65 bytes)
+    /// - `auth`: The swap authorization token to verify
+    ///
+    /// Returns true if the authorization is valid.
+    pub fn swap_auth_verify(
+        swap_pk: &[u8],
+        bsn_base_bytes: &[u8],
+        auth: &SwapAuthorization,
+    ) -> bool {
+        let pk = match deserialize_g1(swap_pk) {
+            Some(v) => v,
+            None => return false,
+        };
+        let bsn = match deserialize_g1(bsn_base_bytes) {
+            Some(v) => v,
+            None => return false,
+        };
+        let c = match deserialize_fr(&auth.c) {
+            Some(v) => v,
+            None => return false,
+        };
+        let s = match deserialize_fr(&auth.s) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        // Reconstruct R' = G1 * s - swap_pk * c
+        let r_prime = G1::one() * s + pk * (-c);
+
+        // Recompute challenge
+        let c_prime = swap_auth_hash(&r_prime, &bsn, &pk);
+
+        c == c_prime
+    }
+
     /// Trait representing the operations a smart card must support.
     /// All operations are G1 scalar multiplications and Fr arithmetic only.
     /// No pairings, no G2 operations, no GT operations.
@@ -1331,15 +1450,27 @@ pub mod split {
                 self.send_apdu(INS_RESET_BLOOM, 0x00, &data).is_some()
             }
 
-            /// Sign commit with swap mode (skips bloom filter check).
+            /// Sign commit with swap mode.
+            ///
+            /// Requires a swap authorization token (64 bytes: c || s) from
+            /// the swap server, proving the server authorized this specific
+            /// basename for swapping. The card verifies the Schnorr signature
+            /// against its stored swap server public key before proceeding.
+            ///
+            /// APDU data: S(65) || bsn_base(65) || auth_c(32) || auth_s(32) = 194 bytes
             pub fn sign_commit_swap(
                 &mut self,
                 s_point: &[u8],
                 basename_base: &[u8],
+                swap_auth: &SwapAuthorization,
             ) -> Option<CardSignCommitment> {
-                let mut data = Vec::with_capacity(s_point.len() + basename_base.len());
+                let auth_bytes = swap_auth.to_bytes();
+                let mut data = Vec::with_capacity(
+                    s_point.len() + basename_base.len() + auth_bytes.len()
+                );
                 data.extend_from_slice(s_point);
                 data.extend_from_slice(basename_base);
+                data.extend_from_slice(&auth_bytes);
                 let resp = self.send_apdu(INS_SIGN_COMMIT_SWAP, P1_BN254, &data)?;
                 if resp.len() != G1_BYTES * 3 {
                     return None;
@@ -2942,6 +3073,103 @@ mod tests {
                 true,
                 &mut sig,
             ));
+        }
+
+        #[test]
+        fn swap_auth_create_verify_succeeds() {
+            // Generate swap server keypair
+            let swap_sk = random_fr();
+            let swap_pk = G1::one() * swap_sk;
+            let swap_sk_bytes = serialize_fr(&swap_sk).to_vec();
+            let swap_pk_bytes = serialize_g1(&swap_pk).to_vec();
+
+            // Create a basename point (simulating hash_to_g1 of previous signature)
+            let bsn_base = hash_to_g1(b"previous-signature-data");
+            let bsn_base_bytes = serialize_g1(&bsn_base).to_vec();
+
+            // Swap server creates authorization
+            let auth = split::swap_auth_create(
+                &swap_sk_bytes, &swap_pk_bytes, &bsn_base_bytes,
+            ).expect("swap_auth_create failed");
+
+            // Card verifies authorization
+            assert!(split::swap_auth_verify(
+                &swap_pk_bytes, &bsn_base_bytes, &auth,
+            ));
+        }
+
+        #[test]
+        fn swap_auth_wrong_basename_rejected() {
+            let swap_sk = random_fr();
+            let swap_pk = G1::one() * swap_sk;
+            let swap_sk_bytes = serialize_fr(&swap_sk).to_vec();
+            let swap_pk_bytes = serialize_g1(&swap_pk).to_vec();
+
+            let bsn1 = hash_to_g1(b"basename-1");
+            let bsn1_bytes = serialize_g1(&bsn1).to_vec();
+            let bsn2 = hash_to_g1(b"basename-2");
+            let bsn2_bytes = serialize_g1(&bsn2).to_vec();
+
+            // Create auth for basename-1
+            let auth = split::swap_auth_create(
+                &swap_sk_bytes, &swap_pk_bytes, &bsn1_bytes,
+            ).unwrap();
+
+            // Verify against basename-1 succeeds
+            assert!(split::swap_auth_verify(&swap_pk_bytes, &bsn1_bytes, &auth));
+
+            // Verify against basename-2 fails (auth is bound to basename-1)
+            assert!(!split::swap_auth_verify(&swap_pk_bytes, &bsn2_bytes, &auth));
+        }
+
+        #[test]
+        fn swap_auth_wrong_server_rejected() {
+            let swap_sk = random_fr();
+            let swap_pk = G1::one() * swap_sk;
+            let swap_sk_bytes = serialize_fr(&swap_sk).to_vec();
+            let swap_pk_bytes = serialize_g1(&swap_pk).to_vec();
+
+            // Different server's key
+            let other_sk = random_fr();
+            let other_pk = G1::one() * other_sk;
+            let other_pk_bytes = serialize_g1(&other_pk).to_vec();
+
+            let bsn = hash_to_g1(b"test-basename");
+            let bsn_bytes = serialize_g1(&bsn).to_vec();
+
+            // Auth from real server
+            let auth = split::swap_auth_create(
+                &swap_sk_bytes, &swap_pk_bytes, &bsn_bytes,
+            ).unwrap();
+
+            // Verify against real server succeeds
+            assert!(split::swap_auth_verify(&swap_pk_bytes, &bsn_bytes, &auth));
+
+            // Verify against different server fails
+            assert!(!split::swap_auth_verify(&other_pk_bytes, &bsn_bytes, &auth));
+        }
+
+        #[test]
+        fn swap_auth_serialization_roundtrip() {
+            let swap_sk = random_fr();
+            let swap_pk = G1::one() * swap_sk;
+            let swap_sk_bytes = serialize_fr(&swap_sk).to_vec();
+            let swap_pk_bytes = serialize_g1(&swap_pk).to_vec();
+
+            let bsn = hash_to_g1(b"roundtrip-test");
+            let bsn_bytes = serialize_g1(&bsn).to_vec();
+
+            let auth = split::swap_auth_create(
+                &swap_sk_bytes, &swap_pk_bytes, &bsn_bytes,
+            ).unwrap();
+
+            // Serialize and deserialize
+            let bytes = auth.to_bytes();
+            assert_eq!(bytes.len(), 64);
+            let auth2 = split::SwapAuthorization::from_bytes(&bytes).unwrap();
+
+            // Deserialized auth still verifies
+            assert!(split::swap_auth_verify(&swap_pk_bytes, &bsn_bytes, &auth2));
         }
 
         #[test]
