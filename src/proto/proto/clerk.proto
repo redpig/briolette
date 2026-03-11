@@ -16,6 +16,7 @@ syntax = "proto3";
 package briolette.clerk;
 import "common.proto";
 import "token.proto";
+import "registrar.proto";
 
 service Clerk {
     // TODO: allow non-ticket calls to get the current epoch and state updates.
@@ -78,6 +79,28 @@ message ExtendedEpochData {
   // TODO: Add epoch key distribution to the registrar.
   // Add service URIs for failover, recovery registration, etc.
   briolette.ServiceMap service_map = 6;
+  // Per-security-level ticket policy.  Maps security level (0=LOW, 1=MEDIUM,
+  // 2=HIGH) to the ticket lifetime (in epochs) for wallets in that tier.
+  // If empty, all wallets receive the same default lifetime.
+  repeated SecurityLevelPolicy security_policies = 7;
+  // TTC group public keys indexed by security level.  When set, the clerk
+  // uses this to determine which security tier a credential belongs to,
+  // enabling differentiated policy (e.g. longer ticket lifetimes for
+  // hardware-backed wallets).
+  repeated SecurityLevelGroupKeys security_level_keys = 8;
+}
+
+// Policy parameters for a specific security level.
+message SecurityLevelPolicy {
+  .briolette.registrar.SecurityLevel level = 1;
+  // Ticket lifetime in epochs for wallets at this security level.
+  uint32 ticket_lifetime = 2;
+}
+
+// Maps a security level to its TTC group public key.
+message SecurityLevelGroupKeys {
+  .briolette.registrar.SecurityLevel level = 1;
+  bytes ttc_group_public_key = 2;
 }
 
 // TODO: figure out delta updates, if needed.

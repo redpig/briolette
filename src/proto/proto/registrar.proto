@@ -125,4 +125,7 @@ message RegisterReply {
    CredentialReply network_credential = 1;
    CredentialReply transfer_credential = 2;
    // TODO: Include epoch signing key and URI!  Wallet can hard code initially.
+   // The security level granted based on hardware attestation.
+   // Determines ticket lifetime and other policy applied by the clerk.
+   SecurityLevel granted_security_level = 3;
 }
