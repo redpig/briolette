@@ -24,7 +24,7 @@ use briolette_proto::briolette::mint::GetTokensRequest;
 use briolette_proto::briolette::registrar::registrar_client::RegistrarClient;
 use briolette_proto::briolette::registrar::{
     Algorithm, CredentialRequest, HardwareId, RegisterRequest, SecurityLevel,
-    Signature as RegistrarSignature,
+    Signature as RegistrarSignature, SplitKeyProof,
 };
 use briolette_proto::briolette::token;
 use briolette_proto::briolette::token::TicketExpiry;
@@ -242,6 +242,12 @@ pub struct WalletData {
     attestation_signature: Vec<u8>,
     #[serde(skip)]
     attestation_public_key: Vec<u8>,
+    // Card public key shares for split-key proof (runtime only).
+    // Set via set_split_key_proof() before calling initialize_credential().
+    #[serde(skip)]
+    nac_card_public_key: Vec<u8>,
+    #[serde(skip)]
+    ttc_card_public_key: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -438,6 +444,19 @@ impl WalletData {
         self.attestation_public_key = public_key;
     }
 
+    /// Set the card public key shares for split-key proof.
+    /// Call this before `initialize_credential()` when using split keys.
+    /// This allows the registrar to verify the ECDAA keys involve a
+    /// smartcard and upgrade the wallet to the HIGH security tier.
+    pub fn set_split_key_proof(
+        &mut self,
+        nac_card_pk: Vec<u8>,
+        ttc_card_pk: Vec<u8>,
+    ) {
+        self.nac_card_public_key = nac_card_pk;
+        self.ttc_card_public_key = ttc_card_pk;
+    }
+
     pub fn load(wallet_file: &Path) -> Result<Self, WalletDataError> {
         let maybe_data = std::fs::read(wallet_file);
         if let Ok(data) = maybe_data {
@@ -546,6 +565,17 @@ impl Wallet for WalletData {
             eprintln!("initialize_keys() must be called before initialize_credential");
             return false;
         }
+        // Include split-key proof if card public key shares are available.
+        let split_key_proof = if !self.nac_card_public_key.is_empty()
+            && !self.ttc_card_public_key.is_empty()
+        {
+            Some(SplitKeyProof {
+                nac_card_public_key: self.nac_card_public_key.clone(),
+                ttc_card_public_key: self.ttc_card_public_key.clone(),
+            })
+        } else {
+            None
+        };
         let request = tonic::Request::new(RegisterRequest {
             version: Version::Current.into(),
             hwid: Some(HardwareId {
@@ -566,6 +596,7 @@ impl Wallet for WalletData {
             transfer_credential: Some(CredentialRequest {
                 public_key: self.transfer_credential.public_key.clone(),
             }),
+            split_key_proof,
         });
         match RegistrarClient::multiconnect(&self.network_credential.issuer_uri).await {
             Ok(mut client) => {

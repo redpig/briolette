@@ -92,6 +92,7 @@ impl ServiceIdentity {
             transfer_credential: Some(CredentialRequest {
                 public_key: public_key.clone(),
             }),
+            split_key_proof: None,
         };
 
         let mut client = RegistrarClient::connect(registrar_uri.to_string()).await?;

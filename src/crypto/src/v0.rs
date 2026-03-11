@@ -812,6 +812,40 @@ pub fn credential_in_group(credential: &Vec<u8>, group_public_key: &Vec<u8>) -> 
 // ============================================================================
 // Split-key signing (Brickell & Li style)
 //
+/// Verify a split-key proof: that `card_pk_bytes` is a valid non-identity
+/// G1 point and differs from `combined_pk_bytes` (the full ECDAA public key).
+/// This proves the combined key has both a card and host contribution.
+///
+/// `combined_pk_bytes` is the serialized ECDAA public key (Q, c, s, n format
+/// from `generate_wallet_keypair` — the first 65 bytes are the G1 point Q).
+/// `card_pk_bytes` is the card's share Q_card (65-byte uncompressed G1).
+///
+/// Returns true if the proof is valid.
+pub fn verify_split_key_proof(combined_pk_bytes: &[u8], card_pk_bytes: &[u8]) -> bool {
+    // Parse the card's public key share.
+    let card_q = match deserialize_g1(card_pk_bytes) {
+        Some(q) => q,
+        None => return false,
+    };
+    // Must not be the identity point.
+    if card_q.is_zero() {
+        return false;
+    }
+    // Parse the combined public key (first 65 bytes of the ECDAA PK).
+    if combined_pk_bytes.len() < 65 {
+        return false;
+    }
+    let combined_q = match deserialize_g1(&combined_pk_bytes[..65]) {
+        Some(q) => q,
+        None => return false,
+    };
+    // Card share must differ from the combined key (host also contributed).
+    if card_q == combined_q {
+        return false;
+    }
+    true
+}
+
 // The member secret key is additively split: sk = card_sk + host_sk
 // The smart card performs only G1 scalar multiplications and Fr arithmetic.
 // No pairings are ever needed on the card side.

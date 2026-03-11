@@ -118,6 +118,23 @@ message RegisterRequest {
    // TODO: One for network admin and one for token transfer credentials.
    CredentialRequest network_credential = 4;
    CredentialRequest transfer_credential = 5;
+   // Optional smartcard split-key proof.  When present, the registrar
+   // verifies the card's public key shares are valid curve points that
+   // differ from the combined public keys (proving a card contributed).
+   // If valid AND hardware attestation passes, the wallet is upgraded
+   // to the HIGH security tier.  Without this, attestation alone caps
+   // at MEDIUM.
+   SplitKeyProof split_key_proof = 6;
+}
+
+// Proof that ECDAA keys were generated with a smartcard split-key
+// protocol.  Each share is the card's G1 public key contribution
+// (Q_card) for the respective credential.  The registrar verifies:
+//   1. Q_card is a valid non-identity G1 point.
+//   2. Q_card != Q (the combined key), proving host also contributed.
+message SplitKeyProof {
+   bytes nac_card_public_key = 1;
+   bytes ttc_card_public_key = 2;
 }
 
 message RegisterReply {

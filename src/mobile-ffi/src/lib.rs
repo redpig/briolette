@@ -183,6 +183,10 @@ pub fn create_wallet(
 pub struct KeyInitResult {
     pub wallet_json: String,
     pub challenge_preimage_b64: String,
+    // Card public key shares for split-key proof (base64).
+    // Empty strings when not using split keys.
+    pub nac_card_public_key_b64: String,
+    pub ttc_card_public_key_b64: String,
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +236,8 @@ pub fn init_wallet_keys(
     Ok(KeyInitResult {
         wallet_json,
         challenge_preimage_b64: B64.encode(&challenge_preimage),
+        nac_card_public_key_b64: String::new(),
+        ttc_card_public_key_b64: String::new(),
     })
 }
 
@@ -244,6 +250,8 @@ pub fn init_wallet_keys(
 pub fn register_wallet_with_attestation(
     wallet_json: String,
     attestation: AttestationData,
+    nac_card_public_key_b64: String,
+    ttc_card_public_key_b64: String,
 ) -> Result<String, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
@@ -261,6 +269,15 @@ pub fn register_wallet_with_attestation(
             .decode(&attestation.public_key_b64)
             .map_err(|_| WalletError::InvalidData)?;
         wallet.set_attestation_data(attestation.algorithm, sig_bytes, pk_bytes);
+
+        // Set split-key proof if card public key shares are provided.
+        if !nac_card_public_key_b64.is_empty() && !ttc_card_public_key_b64.is_empty() {
+            let nac_card_pk = B64.decode(&nac_card_public_key_b64)
+                .map_err(|_| WalletError::InvalidData)?;
+            let ttc_card_pk = B64.decode(&ttc_card_public_key_b64)
+                .map_err(|_| WalletError::InvalidData)?;
+            wallet.set_split_key_proof(nac_card_pk, ttc_card_pk);
+        }
 
         if !wallet.initialize_credential().await {
             return Err(WalletError::NetworkError);
@@ -561,6 +578,8 @@ pub fn split_key_complete(
     Ok(KeyInitResult {
         wallet_json: final_json,
         challenge_preimage_b64: B64.encode(&challenge_preimage),
+        nac_card_public_key_b64: B64.encode(&q_card_nac),
+        ttc_card_public_key_b64: B64.encode(&q_card_ttc),
     })
 }
 

@@ -324,18 +324,45 @@ impl BrioletteRegistrar {
         ];
         let attestation_result = self.verify_attestation(&hwid, &hwid_signature, &credential_pks)?;
 
-        // 3. Select the NAC issuer keypair based on attestation strength.
+        // 3. Determine the effective security level.
+        //    Attestation alone caps at Medium.  To reach High, the wallet
+        //    must also provide a valid split-key proof showing a smartcard
+        //    contributed to both credential keys.
+        let mut effective_level = attestation_result.security_level;
+        if effective_level >= SecurityLevel::Medium {
+            if let Some(proof) = &request.split_key_proof {
+                let nac_valid = v0::verify_split_key_proof(
+                    &network_request.public_key,
+                    &proof.nac_card_public_key,
+                );
+                let ttc_valid = v0::verify_split_key_proof(
+                    &transfer_request.public_key,
+                    &proof.ttc_card_public_key,
+                );
+                if nac_valid && ttc_valid {
+                    info!("split-key proof verified — upgrading to High");
+                    effective_level = SecurityLevel::High;
+                } else {
+                    warn!(
+                        "split-key proof invalid (nac={}, ttc={}) — staying at {:?}",
+                        nac_valid, ttc_valid, effective_level
+                    );
+                }
+            }
+        }
+
+        // 4. Select the NAC issuer keypair based on effective security level.
         //    All wallets share the same TTC group so they can transact.
         //    The NAC group determines the wallet's policy tier (ticket
         //    lifetime, etc.) — the clerk looks up policy by NAC GPK.
-        let (nac_sk, nac_gpk) = self.nac_keys_for_level(attestation_result.security_level);
+        let (nac_sk, nac_gpk) = self.nac_keys_for_level(effective_level);
         info!(
-            "issuing NAC credential for security_level={:?}, nac_gpk_len={}",
-            attestation_result.security_level,
+            "issuing NAC credential for effective_level={:?}, nac_gpk_len={}",
+            effective_level,
             nac_gpk.len()
         );
 
-        // 4. Issue a network credential with the nonce of the token public key,
+        // 5. Issue a network credential with the nonce of the token public key,
         //    using the security-level-appropriate NAC issuer.
         let mut network_credential = vec![];
         let mut network_credential_signature = vec![];
@@ -352,7 +379,7 @@ impl BrioletteRegistrar {
             });
         }
 
-        // 5. Issue a token credential with the attestation-derived hardware nonce.
+        // 6. Issue a token credential with the attestation-derived hardware nonce.
         //    TTC is the same for all wallets.
         let mut transfer_credential = vec![];
         let mut transfer_credential_signature = vec![];
@@ -382,7 +409,7 @@ impl BrioletteRegistrar {
             }),
         };
 
-        // 6. Return the new credentials.
+        // 7. Return the new credentials.
         return Ok(reply);
     }
 }
@@ -447,6 +474,7 @@ mod tests {
             transfer_credential: Some(briolette_proto::briolette::registrar::CredentialRequest {
                 public_key: ttc_pk,
             }),
+            split_key_proof: None,
         }
     }
 

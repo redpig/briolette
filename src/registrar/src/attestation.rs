@@ -327,8 +327,10 @@ pub fn verify_android_attestation(
     }
 
     // 9. Determine the security level for the credential.
+    //    Phone-only attestation (TEE or StrongBox) caps at Medium.
+    //    High requires a smartcard split-key proof (verified by registrar).
     let security_level = match key_desc.attestation_security_level {
-        AndroidSecurityLevel::StrongBox => SecurityLevel::High,
+        AndroidSecurityLevel::StrongBox => SecurityLevel::Medium,
         AndroidSecurityLevel::TrustedEnvironment => SecurityLevel::Medium,
         AndroidSecurityLevel::Software => SecurityLevel::Low,
     };
@@ -586,8 +588,10 @@ pub fn verify_ios_attestation(
 
     info!("iOS App Attest verified for app_id={}", expected_app_id);
 
+    // Phone-only attestation caps at Medium.
+    // High requires a smartcard split-key proof (verified by registrar).
     Ok(AttestationResult {
-        security_level: SecurityLevel::High,
+        security_level: SecurityLevel::Medium,
         hw_nonce,
     })
 }

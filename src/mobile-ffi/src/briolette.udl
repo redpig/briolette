@@ -30,7 +30,9 @@ namespace briolette {
     [Throws=WalletError]
     string register_wallet_with_attestation(
         string wallet_json,
-        AttestationData attestation
+        AttestationData attestation,
+        string nac_card_public_key_b64,
+        string ttc_card_public_key_b64
     );
 
     /// Create a new wallet with hardware attestation (legacy one-shot API).
@@ -180,6 +182,12 @@ dictionary KeyInitResult {
     /// Base64-encoded attestation challenge preimage: hw_id || nac_pk || ttc_pk.
     /// SHA-256 hash this to get the attestation challenge.
     string challenge_preimage_b64;
+    /// Base64-encoded card public key share for NAC (split-key only).
+    /// Empty string when not using split keys.
+    string nac_card_public_key_b64;
+    /// Base64-encoded card public key share for TTC (split-key only).
+    /// Empty string when not using split keys.
+    string ttc_card_public_key_b64;
 };
 
 dictionary AttestationData {

@@ -79,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         transfer_credential: Some(CredentialRequest {
             public_key: transfer_req.public_key,
         }),
+        split_key_proof: None,
     });
 
     let response = client.register_call(request).await?;
