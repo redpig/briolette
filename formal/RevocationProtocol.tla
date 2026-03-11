@@ -83,23 +83,17 @@ DetectDoubleSpend(w) ==
     /\ UNCHANGED <<epoch, currentEpoch, revoked, evicted,
                    ticketExpiry, hasValidTicket, txnRejected>>
 
-\* Step 2: Operator publishes new epoch with revocation
-\* Maps to: clerk publishing EpochUpdate with revocation bitfield
-PublishRevocation(w) ==
-    /\ w \in detected
-    /\ currentEpoch < MaxEpoch
-    /\ ~IsRevoked(w, currentEpoch)
-    /\ currentEpoch' = currentEpoch + 1
-    /\ revoked' = [revoked EXCEPT ![currentEpoch + 1] =
-         revoked[currentEpoch] \union {w}]
-    /\ UNCHANGED <<epoch, detected, evicted, ticketExpiry, hasValidTicket, txnRejected>>
-
-\* Operator publishes a new epoch (even without new revocations)
-\* Needed for ticket expiry to eventually trigger
+\* Step 2: Operator publishes new epoch, automatically including all
+\* detected-but-not-yet-revoked wallets in the revocation list.
+\* Maps to: clerk publishing EpochUpdate with revocation bitfield.
+\* In the real system, the operator's epoch-advance process checks for
+\* pending revocations and includes them.
 AdvanceEpoch ==
     /\ currentEpoch < MaxEpoch
+    /\ LET newlyRevoked == {w \in detected : ~IsRevoked(w, currentEpoch)}
+       IN revoked' = [revoked EXCEPT ![currentEpoch + 1] =
+            revoked[currentEpoch] \union newlyRevoked]
     /\ currentEpoch' = currentEpoch + 1
-    /\ revoked' = [revoked EXCEPT ![currentEpoch + 1] = revoked[currentEpoch]]
     /\ UNCHANGED <<epoch, detected, evicted, ticketExpiry, hasValidTicket, txnRejected>>
 
 \* Step 3: Gossip propagates epoch between transacting peers
@@ -186,7 +180,6 @@ Init ==
 
 Next ==
     \/ \E w \in Wallets: DetectDoubleSpend(w)
-    \/ \E w \in Wallets: PublishRevocation(w)
     \/ AdvanceEpoch
     \/ \E w1 \in Wallets, w2 \in Wallets: GossipEpoch(w1, w2)
     \/ \E w \in Wallets: SynchronizeWithClerk(w)

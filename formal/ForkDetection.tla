@@ -53,10 +53,14 @@ vars == <<tokenMap, revocations, submitted, classifications>>
 \* Helper operators
 \* -----------------------------------------------------------------------
 
-\* Is sequence a a prefix of sequence b (element-wise signature match)?
+\* Is sequence a a prefix of sequence b?
+\* Compares both signature AND splitValue (a non-split entry cannot be
+\* a prefix of a split entry at the same position, and vice versa).
+\* This mirrors the real system where split transfers produce distinct
+\* ECDAA signatures from non-split transfers.
 IsPrefix(a, b) ==
     /\ Len(a) <= Len(b)
-    /\ \A i \in 1..Len(a): a[i].sig = b[i].sig
+    /\ \A i \in 1..Len(a): a[i].sig = b[i].sig /\ a[i].splitValue = b[i].splitValue
 
 \* Is sequence a a strict prefix of sequence b?
 IsStrictPrefix(a, b) ==
@@ -67,7 +71,7 @@ IsStrictPrefix(a, b) ==
 \* Returns 0 if no fork (one is prefix of the other)
 ForkIndex(a, b) ==
     LET minLen == IF Len(a) <= Len(b) THEN Len(a) ELSE Len(b)
-        forkPositions == {i \in 1..minLen : a[i].sig # b[i].sig}
+        forkPositions == {i \in 1..minLen : a[i].sig # b[i].sig \/ a[i].splitValue # b[i].splitValue}
     IN IF forkPositions = {} THEN 0
        ELSE CHOOSE i \in forkPositions :
             \A j \in forkPositions : i <= j
@@ -90,9 +94,26 @@ IsValidSplitPair(candHist, candValue, existing) ==
        /\ existing.history[fi].splitValue > 0
        /\ candHist[fi].splitValue + existing.history[fi].splitValue = candValue
 
-\* Check if candidate is a second split
+\* Check if an existing view already has a split partner in the view set
+\* at the same fork point. A split produces exactly 2 children; a third
+\* fork at the same point is a double-spend.
+AlreadyHasSplitPartner(v, views, candValue) ==
+    \E other \in views:
+        /\ other # v
+        /\ LET fi == ForkIndex(other.history, v.history)
+           IN /\ fi > 0
+              /\ fi <= Len(other.history)
+              /\ fi <= Len(v.history)
+              /\ other.history[fi].splitValue > 0
+              /\ v.history[fi].splitValue > 0
+              /\ other.history[fi].splitValue + v.history[fi].splitValue = candValue
+
+\* Check if candidate is a second split (and the first split partner
+\* doesn't already exist — splits are exactly 2-way)
 IsSecondSplit(candHist, candValue, views) ==
-    \E v \in views: IsValidSplitPair(candHist, candValue, v)
+    \E v \in views:
+        /\ IsValidSplitPair(candHist, candValue, v)
+        /\ ~AlreadyHasSplitPartner(v, views, candValue)
 
 \* -----------------------------------------------------------------------
 \* Classification operator — the core decision tree
@@ -160,8 +181,14 @@ Init ==
     /\ submitted = 0
     /\ classifications = <<>>
 
+\* Allow termination when all submissions have been processed
+Terminated ==
+    /\ submitted = MaxSubmissions
+    /\ UNCHANGED vars
+
 Next ==
-    \E tid \in TokenIds, hist \in BSeq(HistoryEntry, MaxHistory), value \in 1..MaxValue:
+    \/ Terminated
+    \/ \E tid \in TokenIds, hist \in BSeq(HistoryEntry, MaxHistory), value \in 1..MaxValue:
         \/ SubmitNewToken(tid, hist, value)
         \/ SubmitExistingToken(tid, hist, value)
 

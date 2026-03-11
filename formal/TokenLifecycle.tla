@@ -82,9 +82,11 @@ Mint(tid, value, recipient) ==
     /\ value \in 1..MaxValue
     /\ recipient \in Wallets
     /\ Cardinality(DOMAIN tokens) < MaxTokens
-    /\ tokens' = [tokens EXCEPT ![tid] =
-         [value |-> value, owner |-> recipient, historyLen |-> 0,
-          expired |-> FALSE, splitChildren |-> {}]]
+    /\ tokens' = [x \in DOMAIN tokens \union {tid} |->
+         IF x = tid
+         THEN [value |-> value, owner |-> recipient, historyLen |-> 0,
+               expired |-> FALSE, splitChildren |-> {}]
+         ELSE tokens[x]]
     /\ mintedTotal' = mintedTotal + value
     /\ walletBalance' = [walletBalance EXCEPT ![recipient] =
          walletBalance[recipient] \union {tid}]
@@ -115,6 +117,7 @@ Split(parentTid, childTid1, childTid2, sender, recipient1, recipient2, val1, val
     /\ tokens[parentTid].owner = sender
     /\ ~tokens[parentTid].expired
     /\ tokens[parentTid].splitChildren = {}
+    /\ tokens[parentTid].historyLen < MaxHistory  \* Children get historyLen + 1
     /\ childTid1 \in SplitTokenIds
     /\ childTid2 \in SplitTokenIds
     /\ childTid1 # childTid2
@@ -166,7 +169,14 @@ Init ==
     /\ mintedTotal = 0
     /\ walletBalance = [w \in Wallets |-> {}]
 
+\* Allow termination when no more actions are possible
+Terminated ==
+    /\ \A tid \in TokenIds: tid \in DOMAIN tokens
+    /\ \A tid \in DOMAIN tokens: tokens[tid].expired \/ tokens[tid].splitChildren # {}
+    /\ UNCHANGED vars
+
 Next ==
+    \/ Terminated
     \/ \E tid \in TokenIds, val \in 1..MaxValue, w \in Wallets:
          Mint(tid, val, w)
     \/ \E tid \in DOMAIN tokens, s \in Wallets, r \in Wallets:

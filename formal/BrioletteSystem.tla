@@ -99,9 +99,11 @@ Mint(tid, value, recipient) ==
     /\ value \in 1..MaxValue
     /\ recipient \in Wallets
     /\ hasValidTicket[recipient]
-    /\ tokens' = [tokens EXCEPT ![tid] =
-         [value |-> value, owner |-> recipient, historyLen |-> 0,
-          expired |-> FALSE, splitChildren |-> {}]]
+    /\ tokens' = [x \in DOMAIN tokens \union {tid} |->
+         IF x = tid
+         THEN [value |-> value, owner |-> recipient, historyLen |-> 0,
+               expired |-> FALSE, splitChildren |-> {}]
+         ELSE tokens[x]]
     /\ mintedTotal' = mintedTotal + value
     /\ walletBalance' = [walletBalance EXCEPT ![recipient] =
          walletBalance[recipient] \union {tid}]
@@ -160,13 +162,13 @@ DetectDoubleSpend(w, tid) ==
 
 \* --- Revocation Lifecycle ---
 
-PublishRevocation(w) ==
-    /\ w \in detected
+\* Epoch advance automatically includes all pending revocations
+AdvanceEpoch ==
     /\ currentEpoch < MaxEpoch
-    /\ ~IsRevoked(w, currentEpoch)
+    /\ LET newlyRevoked == {w \in detected : ~IsRevoked(w, currentEpoch)}
+       IN revoked' = [revoked EXCEPT ![currentEpoch + 1] =
+            revoked[currentEpoch] \union newlyRevoked]
     /\ currentEpoch' = currentEpoch + 1
-    /\ revoked' = [revoked EXCEPT ![currentEpoch + 1] =
-         revoked[currentEpoch] \union {w}]
     /\ UNCHANGED <<tokens, mintedTotal, walletBalance, hasValidTicket,
                    epoch, detected, evicted, doubleSpendLog>>
 
@@ -235,7 +237,7 @@ Next ==
          Transfer(tid, s, r)
     \/ \E w \in Wallets, tid \in AllTokenIds: DoubleSpend(w, tid)
     \/ \E w \in Wallets, tid \in AllTokenIds: DetectDoubleSpend(w, tid)
-    \/ \E w \in Wallets: PublishRevocation(w)
+    \/ AdvanceEpoch
     \/ \E w1 \in Wallets, w2 \in Wallets: GossipOnly(w1, w2)
     \/ \E w \in Wallets: SynchronizeWithClerk(w)
     \/ \E w \in Wallets: TicketExpiry(w)
