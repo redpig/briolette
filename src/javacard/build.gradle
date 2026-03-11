@@ -1,0 +1,67 @@
+// Briolette JavaCard Applet Build Configuration
+//
+// Prerequisites:
+//   - JavaCard SDK 3.0.4+ (set JCDK_HOME environment variable)
+//   - JCMathLib (https://github.com/OpenCryptoProject/JCMathLib)
+//   - Gradle 7+
+//   - JDK 11+ (JavaCard SDK requires it)
+//
+// Build:
+//   gradle build
+//
+// The output CAP file will be in build/javacard/
+// Install to card using GlobalPlatformPro (gp.jar):
+//   java -jar gp.jar --install build/javacard/BrioletteApplet.cap
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        // JavaCard Gradle plugin
+        classpath 'com.github.nickmcdowall:gradle-javacard:3.1.0'
+    }
+}
+
+apply plugin: 'javacard'
+
+javacard {
+    config {
+        jcdk System.getenv('JCDK_HOME') ?: '/opt/jcdk'
+
+        cap {
+            packageName 'com.briolette.javacard'
+            version '1.0'
+            aid '42:72:69:6F:6C:65:74:74:65' // "Briolette" in hex
+            output 'BrioletteApplet.cap'
+
+            applet {
+                className 'com.briolette.javacard.BrioletteApplet'
+                aid '42:72:69:6F:6C:65:74:74:65:01'
+            }
+        }
+    }
+}
+
+// Source configuration
+sourceSets {
+    main {
+        java {
+            srcDirs = ['applet']
+        }
+    }
+}
+
+// Dependencies
+repositories {
+    mavenCentral()
+    // JCMathLib may need to be installed locally
+    mavenLocal()
+}
+
+dependencies {
+    // JCMathLib for big number and EC point operations on BN254
+    // Install from: https://github.com/OpenCryptoProject/JCMathLib
+    // mvn install -f JCMathLib/pom.xml
+    implementation files("${System.getenv('JCMATHLIB_HOME') ?: 'libs'}/JCMathLib.jar")
+}

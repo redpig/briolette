@@ -857,6 +857,15 @@ pub mod split {
         /// Given the challenge c, returns s_card = r_card + c * card_sk.
         fn sign_respond(&mut self, challenge: &[u8]) -> Option<CardSignResponse>;
 
+        /// Phase 1 of blind join: card generates randomness and commits.
+        /// Given base point B, returns U_card = B * r_card (serialized G1 point).
+        /// The card stores r_card internally for join_respond.
+        fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>>;
+
+        /// Phase 2 of blind join: card produces its Schnorr response share.
+        /// Given challenge c, returns s_card = r_card + c * card_sk (serialized scalar).
+        fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>>;
+
         /// Returns the card's secret key share serialized (for testing/debugging only).
         /// A real smart card would NEVER expose this.
         fn secret_key_share(&self) -> Vec<u8>;
@@ -942,23 +951,38 @@ pub mod split {
             })
         }
 
+        fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>> {
+            let b = deserialize_g1(base)?;
+            let r = random_fr();
+            self.r_card = Some(r);
+            Some(serialize_g1(&(b * r)).to_vec())
+        }
+
+        fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>> {
+            let c = deserialize_fr(challenge)?;
+            let r = self.r_card.take()?;
+            let s_card = r + c * self.card_sk;
+            Some(serialize_fr(&s_card).to_vec())
+        }
+
         fn secret_key_share(&self) -> Vec<u8> {
             serialize_fr(&self.card_sk).to_vec()
         }
     }
 
-    /// Generate a split wallet keypair.
+    /// Generate a split wallet keypair using the blind join protocol.
     /// The card generates its share, the host generates its share,
     /// and the combined public key is produced.
     ///
-    /// Returns (host_sk, combined_pk, combined_sk_for_credential_issuance).
-    /// The combined_sk is needed only during credential issuance with the
-    /// current issuer protocol — in a production system, the Join protocol
-    /// would be modified so the issuer never sees the combined sk.
+    /// Uses a split Schnorr proof: s = s_card + s_host where
+    /// s_card = r_card + c * card_sk and s_host = r_host + c * host_sk.
+    /// The combined secret key never exists in one place.
+    ///
+    /// Returns (host_sk, combined_pk). The combined_sk is never produced.
     pub fn generate_split_wallet_keypair(
-        card: &dyn SmartCard,
+        card: &mut dyn SmartCard,
         nonce: &Vec<u8>,
-    ) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    ) -> Option<(Vec<u8>, Vec<u8>)> {
         if nonce.is_empty() {
             return None;
         }
@@ -978,17 +1002,29 @@ pub mod split {
         // Combined public key point: Q = Q_card + Q_host
         let q = q_card + q_host;
 
-        // For the Schnorr proof in the public key, we need the combined sk.
-        // In the current protocol, the host assembles the proof.
-        // We reconstruct the combined sk from both shares for the proof.
-        let card_sk = deserialize_fr(&card.secret_key_share())?;
-        let combined_sk = card_sk + host_sk;
+        // === Blind Schnorr proof (split between card and host) ===
 
-        // Create Schnorr proof of knowledge of combined sk
-        let r = random_fr();
-        let u = b * r;
+        // Phase 1: Both commit
+        let u_card_bytes = card.join_commit(&b_bytes)?;
+        let u_card = deserialize_g1(&u_card_bytes)?;
+
+        let r_host = random_fr();
+        let u_host = b * r_host;
+
+        // Combined commitment
+        let u = u_card + u_host;
+
+        // Challenge (same hash as non-split version)
         let c = schnorr_hash_member(&u, &b, &q, nonce);
-        let s = r + c * combined_sk;
+
+        // Phase 2: Both respond
+        let s_card_bytes = card.join_respond(&serialize_fr(&c))?;
+        let s_card = deserialize_fr(&s_card_bytes)?;
+
+        let s_host = r_host + c * host_sk;
+
+        // Combined response
+        let s = s_card + s_host;
         let n = random_fr();
 
         // Serialize host secret key share
@@ -1001,10 +1037,7 @@ pub mod split {
         pk.extend_from_slice(&serialize_fr(&s));
         pk.extend_from_slice(&serialize_fr(&n));
 
-        // Serialize combined secret key (for credential issuance only)
-        let combined_sk_bytes = serialize_fr(&combined_sk).to_vec();
-
-        Some((host_sk_bytes, pk, combined_sk_bytes))
+        Some((host_sk_bytes, pk))
     }
 
     /// Sign a message using the split-key protocol.
@@ -1176,6 +1209,220 @@ pub mod split {
         }
 
         true
+    }
+
+    /// NFC SmartCard transport layer.
+    ///
+    /// Implements the SmartCard trait by sending ISO 7816 APDUs to a JavaCard
+    /// applet over PC/SC (NFC reader). Feature-gated behind "nfc".
+    #[cfg(feature = "nfc")]
+    pub mod nfc {
+        use super::*;
+
+        /// APDU CLA byte for all Briolette commands.
+        const CLA: u8 = 0x80;
+
+        /// Curve version P1 byte.
+        const P1_BN254: u8 = 0x00;
+
+        /// INS codes matching the JavaCard applet.
+        const INS_GENERATE_KEY: u8 = 0x01;
+        const INS_PUBLIC_KEY_SHARE: u8 = 0x02;
+        const INS_SIGN_COMMIT: u8 = 0x10;
+        const INS_SIGN_COMMIT_BSN: u8 = 0x11;
+        const INS_SIGN_RESPOND: u8 = 0x12;
+        const INS_SIGN_COMMIT_SWAP: u8 = 0x13;
+        const INS_JOIN_COMMIT: u8 = 0x20;
+        const INS_JOIN_RESPOND: u8 = 0x21;
+        const INS_RESET_BLOOM: u8 = 0x30;
+        const INS_GET_STATUS: u8 = 0x40;
+
+        /// G1 point size for BN254 (0x04 || x(32) || y(32)).
+        const G1_BYTES: usize = 65;
+        /// Scalar field element size.
+        const FR_BYTES: usize = 32;
+
+        /// SW bytes indicating success.
+        const SW_SUCCESS: [u8; 2] = [0x90, 0x00];
+
+        /// SmartCard implementation that communicates with a JavaCard applet
+        /// via ISO 7816 APDUs over PC/SC (e.g., ACR122U USB NFC reader).
+        pub struct NfcSmartCard {
+            card: pcsc::Card,
+        }
+
+        impl NfcSmartCard {
+            /// Connect to the first available NFC reader and select the
+            /// Briolette applet.
+            pub fn connect() -> Result<Self, pcsc::Error> {
+                let ctx = pcsc::Context::establish(pcsc::Scope::System)?;
+                let mut readers_buf = vec![0u8; 2048];
+                let readers: Vec<&std::ffi::CStr> =
+                    ctx.list_readers(&mut readers_buf)?.collect();
+
+                if readers.is_empty() {
+                    return Err(pcsc::Error::NoReadersAvailable);
+                }
+
+                // Connect to first reader
+                let card = ctx.connect(
+                    readers[0],
+                    pcsc::ShareMode::Shared,
+                    pcsc::Protocols::ANY,
+                )?;
+
+                Ok(NfcSmartCard { card })
+            }
+
+            /// Connect using a specific PC/SC reader name.
+            pub fn connect_reader(reader_name: &std::ffi::CStr) -> Result<Self, pcsc::Error> {
+                let ctx = pcsc::Context::establish(pcsc::Scope::System)?;
+                let card = ctx.connect(
+                    reader_name,
+                    pcsc::ShareMode::Shared,
+                    pcsc::Protocols::ANY,
+                )?;
+                Ok(NfcSmartCard { card })
+            }
+
+            /// Send an APDU and return the response data (excluding SW bytes).
+            /// Returns None if the card returns a non-success status word.
+            fn send_apdu(&self, ins: u8, p1: u8, data: &[u8]) -> Option<Vec<u8>> {
+                let mut apdu = Vec::with_capacity(5 + data.len() + 1);
+                apdu.push(CLA);
+                apdu.push(ins);
+                apdu.push(p1);
+                apdu.push(0x00); // P2
+                apdu.push(data.len() as u8); // Lc
+                apdu.extend_from_slice(data);
+                apdu.push(0x00); // Le (expect maximum response)
+
+                let mut recv_buf = vec![0u8; 258]; // Max APDU response
+                match self.card.transmit(&apdu, &mut recv_buf) {
+                    Ok(response) => {
+                        if response.len() < 2 {
+                            return None;
+                        }
+                        let sw = &response[response.len() - 2..];
+                        if sw != SW_SUCCESS {
+                            log::warn!(
+                                "APDU INS={:02x} returned SW={:02x}{:02x}",
+                                ins, sw[0], sw[1]
+                            );
+                            return None;
+                        }
+                        Some(response[..response.len() - 2].to_vec())
+                    }
+                    Err(e) => {
+                        log::error!("PC/SC transmit error: {:?}", e);
+                        None
+                    }
+                }
+            }
+
+            /// Send GENERATE_KEY command to initialize the card's secret key.
+            pub fn generate_key(&self) -> bool {
+                self.send_apdu(INS_GENERATE_KEY, P1_BN254, &[]).is_some()
+            }
+
+            /// Reset the bloom filter for a new epoch.
+            pub fn reset_bloom(&self, epoch: u32) -> bool {
+                let data = epoch.to_be_bytes();
+                self.send_apdu(INS_RESET_BLOOM, 0x00, &data).is_some()
+            }
+
+            /// Sign commit with swap mode (skips bloom filter check).
+            pub fn sign_commit_swap(
+                &mut self,
+                s_point: &[u8],
+                basename_base: &[u8],
+            ) -> Option<CardSignCommitment> {
+                let mut data = Vec::with_capacity(s_point.len() + basename_base.len());
+                data.extend_from_slice(s_point);
+                data.extend_from_slice(basename_base);
+                let resp = self.send_apdu(INS_SIGN_COMMIT_SWAP, P1_BN254, &data)?;
+                if resp.len() != G1_BYTES * 3 {
+                    return None;
+                }
+                Some(CardSignCommitment {
+                    u_card: resp[..G1_BYTES].to_vec(),
+                    k_card: Some(resp[G1_BYTES..G1_BYTES * 2].to_vec()),
+                    k_u_card: Some(resp[G1_BYTES * 2..G1_BYTES * 3].to_vec()),
+                })
+            }
+        }
+
+        impl SmartCard for NfcSmartCard {
+            fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
+                self.send_apdu(INS_PUBLIC_KEY_SHARE, P1_BN254, base)
+                    .expect("PUBLIC_KEY_SHARE APDU failed")
+            }
+
+            fn sign_commit(
+                &mut self,
+                s_point: &[u8],
+                basename_base: Option<&[u8]>,
+            ) -> Option<CardSignCommitment> {
+                match basename_base {
+                    None => {
+                        let resp = self.send_apdu(INS_SIGN_COMMIT, P1_BN254, s_point)?;
+                        if resp.len() != G1_BYTES {
+                            return None;
+                        }
+                        Some(CardSignCommitment {
+                            u_card: resp,
+                            k_card: None,
+                            k_u_card: None,
+                        })
+                    }
+                    Some(bsn) => {
+                        let mut data = Vec::with_capacity(s_point.len() + bsn.len());
+                        data.extend_from_slice(s_point);
+                        data.extend_from_slice(bsn);
+                        let resp = self.send_apdu(INS_SIGN_COMMIT_BSN, P1_BN254, &data)?;
+                        if resp.len() != G1_BYTES * 3 {
+                            return None;
+                        }
+                        Some(CardSignCommitment {
+                            u_card: resp[..G1_BYTES].to_vec(),
+                            k_card: Some(resp[G1_BYTES..G1_BYTES * 2].to_vec()),
+                            k_u_card: Some(resp[G1_BYTES * 2..G1_BYTES * 3].to_vec()),
+                        })
+                    }
+                }
+            }
+
+            fn sign_respond(&mut self, challenge: &[u8]) -> Option<CardSignResponse> {
+                let resp = self.send_apdu(INS_SIGN_RESPOND, P1_BN254, challenge)?;
+                if resp.len() != FR_BYTES {
+                    return None;
+                }
+                Some(CardSignResponse { s_card: resp })
+            }
+
+            fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>> {
+                let resp = self.send_apdu(INS_JOIN_COMMIT, P1_BN254, base)?;
+                if resp.len() != G1_BYTES {
+                    return None;
+                }
+                Some(resp)
+            }
+
+            fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>> {
+                let resp = self.send_apdu(INS_JOIN_RESPOND, P1_BN254, challenge)?;
+                if resp.len() != FR_BYTES {
+                    return None;
+                }
+                Some(resp)
+            }
+
+            fn secret_key_share(&self) -> Vec<u8> {
+                unimplemented!(
+                    "secret_key_share is not available on real hardware — \
+                     the card never exports its secret key"
+                )
+            }
+        }
     }
 }
 
@@ -2320,7 +2567,6 @@ mod tests {
             issuer_sk: Vec<u8>,
             group_pk: Vec<u8>,
             host_sk: Vec<u8>,
-            combined_sk: Vec<u8>,
             member_pk: Vec<u8>,
             nonce: Vec<u8>,
             credential: Vec<u8>,
@@ -2339,10 +2585,10 @@ mod tests {
             assert!(generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
 
             let nonce_vec = nonce.to_vec();
-            let card = MockCard::new();
+            let mut card = MockCard::new();
 
-            let (host_sk, member_pk, combined_sk) =
-                split::generate_split_wallet_keypair(&card, &nonce_vec)
+            let (host_sk, member_pk) =
+                split::generate_split_wallet_keypair(&mut card, &nonce_vec)
                     .expect("split keygen failed");
 
             let mut credential = Vec::new();
@@ -2359,7 +2605,6 @@ mod tests {
                 issuer_sk,
                 group_pk,
                 host_sk,
-                combined_sk,
                 member_pk,
                 nonce: nonce_vec,
                 credential,
@@ -2373,7 +2618,6 @@ mod tests {
             let ctx = split_setup();
             assert_eq!(ctx.member_pk.len(), native::WALLET_PUBLIC_KEY_LENGTH);
             assert_eq!(ctx.host_sk.len(), native::WALLET_SECRET_KEY_LENGTH);
-            assert_eq!(ctx.combined_sk.len(), native::WALLET_SECRET_KEY_LENGTH);
         }
 
         #[test]
@@ -2462,12 +2706,18 @@ mod tests {
             let mut ctx = split_setup();
             let message = b"equivalence test".to_vec();
 
+            // Reconstruct combined_sk for equivalence comparison (test-only;
+            // in production the combined key never exists in one place).
+            let card_sk = deserialize_fr(&ctx.card.secret_key_share()).unwrap();
+            let host_sk = deserialize_fr(&ctx.host_sk).unwrap();
+            let combined_sk = serialize_fr(&(card_sk + host_sk)).to_vec();
+
             // Standard sign with combined sk
             let mut std_sig = Vec::new();
             assert!(sign(
                 &message,
                 &ctx.credential,
-                &ctx.combined_sk,
+                &combined_sk,
                 &None,
                 true,
                 &mut std_sig,
@@ -2735,9 +2985,9 @@ mod tests {
 
             // Create second member under same issuer
             let nonce2 = b"member-B".to_vec();
-            let card2 = MockCard::new();
-            let (host_sk2, member_pk2, _combined_sk2) =
-                split::generate_split_wallet_keypair(&card2, &nonce2).unwrap();
+            let mut card2 = MockCard::new();
+            let (host_sk2, member_pk2) =
+                split::generate_split_wallet_keypair(&mut card2, &nonce2).unwrap();
 
             let mut cred2 = Vec::new();
             let mut cred_sig2 = Vec::new();

@@ -816,7 +816,7 @@ impl Wallet for WalletData {
                         (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
                     {
                         let mut card = handle.lock().unwrap();
-                        token.transfer_split(&signed_ticket, &mut **card, hsk.clone())
+                        token.transfer_split(&signed_ticket, &mut **card, hsk.clone(), false)
                     } else {
                         token.transfer(
                             &signed_ticket,
@@ -906,7 +906,7 @@ impl Wallet for WalletData {
                     (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
                 {
                     let mut card = handle.lock().unwrap();
-                    tok.transfer_split(&destination, &mut **card, hsk.clone())
+                    tok.transfer_split(&destination, &mut **card, hsk.clone(), false)
                 } else {
                     tok.transfer(
                         &destination,
@@ -1077,31 +1077,34 @@ impl Wallet for WalletData {
     fn initialize_split_keys(
         &mut self,
         id: &[u8],
-        nac_card: Box<dyn split::SmartCard + Send>,
-        ttc_card: Box<dyn split::SmartCard + Send>,
+        mut nac_card: Box<dyn split::SmartCard + Send>,
+        mut ttc_card: Box<dyn split::SmartCard + Send>,
     ) -> bool {
         self.id = Vec::from(id);
         self.hw_id = digest(id).into_bytes();
 
-        // Generate TTC split keypair
+        // Generate TTC split keypair using blind join protocol.
+        // The combined secret key never exists in one place.
         let ttc_nonce = self.hw_id.clone();
-        let (ttc_host_sk, ttc_pk, ttc_combined_sk) =
-            match split::generate_split_wallet_keypair(&*ttc_card, &ttc_nonce) {
+        let (ttc_host_sk, ttc_pk) =
+            match split::generate_split_wallet_keypair(&mut *ttc_card, &ttc_nonce) {
                 Some(v) => v,
                 None => return false,
             };
         self.transfer_credential.public_key = ttc_pk.clone();
-        self.transfer_credential.secret_key = ttc_combined_sk;
+        // In split-key mode, secret_key is set to a placeholder (host_sk).
+        // The actual signing always uses the split path with card + host_secret_key.
+        self.transfer_credential.secret_key = ttc_host_sk.clone();
         self.transfer_credential.host_secret_key = Some(ttc_host_sk);
 
         // Generate NAC split keypair
-        let (nac_host_sk, nac_pk, nac_combined_sk) =
-            match split::generate_split_wallet_keypair(&*nac_card, &ttc_pk) {
+        let (nac_host_sk, nac_pk) =
+            match split::generate_split_wallet_keypair(&mut *nac_card, &ttc_pk) {
                 Some(v) => v,
                 None => return false,
             };
         self.network_credential.public_key = nac_pk;
-        self.network_credential.secret_key = nac_combined_sk;
+        self.network_credential.secret_key = nac_host_sk.clone();
         self.network_credential.host_secret_key = Some(nac_host_sk);
 
         // Attach the smart cards for runtime signing

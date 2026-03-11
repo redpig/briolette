@@ -294,11 +294,14 @@ pub trait TokenTransfer {
 
     /// Transfer using split-key signing with a smart card.
     /// The credential secret is split between the card and host_secret_key.
+    /// If `is_swap` is true, the card's bloom filter check is bypassed
+    /// (used when sending tokens to a swap server for fresh replacements).
     fn transfer_split(
         &mut self,
         destination: &SignedTicket,
         card: &mut dyn v0::split::SmartCard,
         host_secret_key: Vec<u8>,
+        is_swap: bool,
     ) -> Result<bool, BrioletteErrorCode>;
     // TODO: Pull base signing out of Mint
     // fn base(&mut self, ...)
@@ -387,7 +390,16 @@ impl TokenTransfer for Token {
         destination: &SignedTicket,
         card: &mut dyn v0::split::SmartCard,
         host_secret_key: Vec<u8>,
+        is_swap: bool,
     ) -> Result<bool, BrioletteErrorCode> {
+        // NOTE: The `is_swap` flag is passed through to inform NFC card
+        // implementations to use SIGN_COMMIT_BSN_SWAP (INS 0x13) instead of
+        // SIGN_COMMIT_BSN (INS 0x11), which skips the bloom filter check.
+        // For MockCard and standard signing, this flag has no effect since
+        // the bloom filter is only implemented on the JavaCard applet.
+        // When using NfcSmartCard, the caller should downcast and use
+        // sign_commit_swap() directly via the wallet layer.
+        let _ = is_swap;
         // Grab the last signature to use as the basename and in the tx block.
         let last_sig;
         let committed_credential;

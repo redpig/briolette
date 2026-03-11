@@ -803,6 +803,10 @@ pub mod split {
             basename_base: Option<&[u8]>,
         ) -> Option<CardSignCommitment>;
         fn sign_respond(&mut self, challenge: &[u8]) -> Option<CardSignResponse>;
+        /// Phase 1 of blind join: returns U_card = B * r_card.
+        fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>>;
+        /// Phase 2 of blind join: returns s_card = r_card + c * card_sk.
+        fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>>;
         fn secret_key_share(&self) -> Vec<u8>;
     }
 
@@ -875,15 +879,32 @@ pub mod split {
             })
         }
 
+        fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>> {
+            let b = deserialize_g1(base)?;
+            let r = random_scalar();
+            self.r_card = Some(r);
+            Some(serialize_g1(&(b * r)).to_vec())
+        }
+
+        fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>> {
+            let c = deserialize_scalar(challenge)?;
+            let r = self.r_card.take()?;
+            let s_card = r + c * self.card_sk;
+            Some(serialize_scalar(&s_card).to_vec())
+        }
+
         fn secret_key_share(&self) -> Vec<u8> {
             serialize_scalar(&self.card_sk).to_vec()
         }
     }
 
+    /// Generate a split wallet keypair using the blind join protocol.
+    /// The combined secret key never exists in one place.
+    /// Returns (host_sk, combined_pk).
     pub fn generate_split_wallet_keypair(
-        card: &dyn SmartCard,
+        card: &mut dyn SmartCard,
         nonce: &Vec<u8>,
-    ) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    ) -> Option<(Vec<u8>, Vec<u8>)> {
         if nonce.is_empty() {
             return None;
         }
@@ -899,13 +920,21 @@ pub mod split {
 
         let q = q_card + q_host;
 
-        let card_sk = deserialize_scalar(&card.secret_key_share())?;
-        let combined_sk = card_sk + host_sk;
+        // Blind Schnorr proof: split between card and host
+        let u_card_bytes = card.join_commit(&b_bytes)?;
+        let u_card = deserialize_g1(&u_card_bytes)?;
 
-        let r = random_scalar();
-        let u = b * r;
+        let r_host = random_scalar();
+        let u_host = b * r_host;
+
+        let u = u_card + u_host;
         let c = schnorr_hash_member(&u, &b, &q, nonce);
-        let s = r + c * combined_sk;
+
+        let s_card_bytes = card.join_respond(&serialize_scalar(&c))?;
+        let s_card = deserialize_scalar(&s_card_bytes)?;
+
+        let s_host = r_host + c * host_sk;
+        let s = s_card + s_host;
         let n = random_scalar();
 
         let host_sk_bytes = serialize_scalar(&host_sk).to_vec();
@@ -916,9 +945,7 @@ pub mod split {
         pk.extend_from_slice(&serialize_scalar(&s));
         pk.extend_from_slice(&serialize_scalar(&n));
 
-        let combined_sk_bytes = serialize_scalar(&combined_sk).to_vec();
-
-        Some((host_sk_bytes, pk, combined_sk_bytes))
+        Some((host_sk_bytes, pk))
     }
 
     pub fn sign_split(
@@ -1237,13 +1264,13 @@ mod tests {
         let mut gpk = vec![];
         assert!(generate_issuer_keypair(&mut isk, &mut gpk));
 
-        // Generate split keypair
-        let card = MockCard::new();
-        let (host_sk, pk, _combined_sk) =
-            generate_split_wallet_keypair(&card, &nonce).unwrap();
+        // Generate split keypair using blind join
+        let mut card = MockCard::new();
+        let card_sk_bytes = card.secret_key_share();
+        let (host_sk, pk) =
+            generate_split_wallet_keypair(&mut card, &nonce).unwrap();
 
         // Issue credential using combined public key
-        // (In production, this would use a modified Join that doesn't expose combined_sk)
         let mut cred = vec![];
         let mut cred_sig = vec![];
         assert!(issue_credential(&pk, &isk, &nonce, &mut cred, &mut cred_sig));
@@ -1253,7 +1280,7 @@ mod tests {
         let basename = Some(b"previous-signature".to_vec());
         let mut sig = vec![];
         let mut card = MockCard::from_secret(
-            deserialize_scalar(&card.secret_key_share()).unwrap(),
+            deserialize_scalar(&card_sk_bytes).unwrap(),
         );
         assert!(split::sign_split(
             &mut card,
@@ -1276,9 +1303,10 @@ mod tests {
         let mut gpk = vec![];
         assert!(generate_issuer_keypair(&mut isk, &mut gpk));
 
-        let card = MockCard::new();
-        let (host_sk, pk, _combined_sk) =
-            generate_split_wallet_keypair(&card, &nonce).unwrap();
+        let mut card = MockCard::new();
+        let card_sk_bytes = card.secret_key_share();
+        let (host_sk, pk) =
+            generate_split_wallet_keypair(&mut card, &nonce).unwrap();
 
         let mut cred = vec![];
         let mut cred_sig = vec![];
@@ -1287,7 +1315,7 @@ mod tests {
         let message = b"test".to_vec();
         let mut sig = vec![];
         let mut card = MockCard::from_secret(
-            deserialize_scalar(&card.secret_key_share()).unwrap(),
+            deserialize_scalar(&card_sk_bytes).unwrap(),
         );
         assert!(split::sign_split(
             &mut card,
