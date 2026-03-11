@@ -106,8 +106,49 @@ class IosWalletPersistence : WalletPersistence {
  * The Swift app implements this interface using the UniFFI-generated bindings
  * and sets it on [IosWalletBridge] at startup via [IosWalletBridge.setDelegate].
  */
+/**
+ * iOS attestation provider using DCAppAttestService via the Swift delegate.
+ *
+ * On iOS 14+, this calls the Swift-side App Attest helper. On older versions,
+ * returns null (falls back to Algorithm::NONE).
+ */
+class IosAppAttestProvider : HwAttestationProvider {
+    override val isSupported: Boolean
+        get() = true  // Actual check happens in Swift at generation time
+
+    override suspend fun generate(challenge: ByteArray): HwAttestationData? {
+        val delegate = IosWalletBridge.getDelegate() ?: return null
+        return try {
+            val result = delegate.generateAttestation(challenge.toList().map { it.toInt() })
+            val algo = (result["algorithm"] as? Number)?.toInt() ?: return null
+            val sigB64 = result["signatureB64"] as? String ?: return null
+            val pkB64 = result["publicKeyB64"] as? String ?: return null
+            HwAttestationData(
+                algorithm = algo,
+                signatureB64 = sigB64,
+                publicKeyB64 = pkB64,
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
 interface IosWalletDelegate {
     fun createWallet(name: String, registrarUri: String, clerkUri: String, mintUri: String, validateUri: String): String
+    fun createWalletWithAttestation(
+        name: String,
+        registrarUri: String,
+        clerkUri: String,
+        mintUri: String,
+        validateUri: String,
+        algorithm: Int,
+        signatureB64: String,
+        publicKeyB64: String,
+    ): String {
+        // Default: fall back to non-attested for backward compatibility.
+        return createWallet(name, registrarUri, clerkUri, mintUri, validateUri)
+    }
     fun loadWallet(json: String): Map<String, Any?>
     fun saveWallet(stateJson: String): String
     fun synchronize(stateJson: String, clerkUri: String): Map<String, Any?>
@@ -119,6 +160,10 @@ interface IosWalletDelegate {
     fun getReceivingTicketB64(stateJson: String): String
     fun getBalance(stateJson: String): Map<String, Any?>
     fun getTicketCount(stateJson: String): Int
+    fun generateAttestation(challenge: List<Int>): Map<String, Any?> {
+        // Default: return empty, meaning attestation not supported.
+        return emptyMap()
+    }
 }
 
 /**
@@ -139,6 +184,8 @@ class IosWalletBridge : WalletBridge {
         fun setDelegate(delegate: IosWalletDelegate) {
             this.delegate = delegate
         }
+
+        fun getDelegate(): IosWalletDelegate? = delegate
     }
 
     private fun requireDelegate(): IosWalletDelegate {
@@ -150,6 +197,26 @@ class IosWalletBridge : WalletBridge {
     override suspend fun createWallet(name: String, config: NetworkConfig): WalletState {
         val d = requireDelegate()
         val json = d.createWallet(name, config.registrarUri, config.clerkUri, config.mintUri, config.validateUri)
+        val stateMap = d.loadWallet(json)
+        return mapToWalletState(stateMap, json)
+    }
+
+    override suspend fun createWalletWithAttestation(
+        name: String,
+        config: NetworkConfig,
+        attestation: HwAttestationData,
+    ): WalletState {
+        val d = requireDelegate()
+        val json = d.createWalletWithAttestation(
+            name,
+            config.registrarUri,
+            config.clerkUri,
+            config.mintUri,
+            config.validateUri,
+            attestation.algorithm,
+            attestation.signatureB64,
+            attestation.publicKeyB64,
+        )
         val stateMap = d.loadWallet(json)
         return mapToWalletState(stateMap, json)
     }

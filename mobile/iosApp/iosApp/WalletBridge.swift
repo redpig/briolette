@@ -29,6 +29,35 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
         }
     }
 
+    func createWalletWithAttestation(
+        name: String,
+        registrarUri: String,
+        clerkUri: String,
+        mintUri: String,
+        validateUri: String,
+        algorithm: Int32,
+        signatureB64: String,
+        publicKeyB64: String
+    ) -> String {
+        do {
+            let attestation = briolette.AttestationData(
+                algorithm: algorithm,
+                signatureB64: signatureB64,
+                publicKeyB64: publicKeyB64
+            )
+            return try briolette.createWalletWithAttestation(
+                name: name,
+                registrarUri: registrarUri,
+                clerkUri: clerkUri,
+                mintUri: mintUri,
+                validateUri: validateUri,
+                attestation: attestation
+            )
+        } catch {
+            return "{}"
+        }
+    }
+
     func loadWallet(json: String) -> [String: Any?] {
         do {
             let state = try briolette.loadWallet(json: json)
@@ -141,6 +170,39 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
             return Int32(briolette.getTicketCount(state: state))
         } catch {
             return 0
+        }
+    }
+
+    func generateAttestation(challenge: [KotlinInt]) -> [String: Any?] {
+        // Convert KotlinInt array to Data
+        let bytes = challenge.map { UInt8(truncatingIfNeeded: $0.intValue) }
+        let challengeData = Data(bytes)
+
+        if #available(iOS 14.0, *) {
+            let helper = AppAttestHelper()
+            guard helper.isSupported else {
+                return [:]
+            }
+            // Use a semaphore to bridge async → sync (delegate is synchronous).
+            let semaphore = DispatchSemaphore(value: 0)
+            var result: [String: Any?] = [:]
+            Task {
+                do {
+                    let attestation = try await helper.generateAttestation(challenge: challengeData)
+                    result = [
+                        "algorithm": attestation.algorithm,
+                        "signatureB64": attestation.signatureB64,
+                        "publicKeyB64": attestation.publicKeyB64,
+                    ]
+                } catch {
+                    result = [:]
+                }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return result
+        } else {
+            return [:]
         }
     }
 

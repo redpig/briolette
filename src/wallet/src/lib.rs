@@ -234,6 +234,14 @@ pub struct WalletData {
     // Smart card for TTC split-key signing (runtime only, not serialized)
     #[serde(skip)]
     ttc_card: SmartCardHandle,
+    // Hardware attestation data for registration (runtime only, not serialized).
+    // Set via set_attestation_data() before calling initialize_credential().
+    #[serde(skip)]
+    attestation_algorithm: i32,
+    #[serde(skip)]
+    attestation_signature: Vec<u8>,
+    #[serde(skip)]
+    attestation_public_key: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -374,6 +382,24 @@ impl WalletData {
         })
     }
 
+    /// Set hardware attestation data for use during registration.
+    /// Call this before `initialize_credential()` to provide Android Key
+    /// Attestation or iOS App Attest data.
+    ///
+    /// * `algorithm` - `Algorithm` enum value as i32 (1 = Android, 2 = iOS)
+    /// * `signature` - cert chain (Android) or CBOR attestation object (iOS)
+    /// * `public_key` - attested public key (Android) or key identifier (iOS)
+    pub fn set_attestation_data(
+        &mut self,
+        algorithm: i32,
+        signature: Vec<u8>,
+        public_key: Vec<u8>,
+    ) {
+        self.attestation_algorithm = algorithm;
+        self.attestation_signature = signature;
+        self.attestation_public_key = public_key;
+    }
+
     pub fn load(wallet_file: &Path) -> Result<Self, WalletDataError> {
         let maybe_data = std::fs::read(wallet_file);
         if let Ok(data) = maybe_data {
@@ -492,9 +518,9 @@ impl Wallet for WalletData {
                 security: SecurityLevel::Low.into(),
             }),
             hwid_signature: Some(RegistrarSignature {
-                algorithm: Algorithm::None.into(),
-                signature: vec![],
-                public_key: vec![],
+                algorithm: self.attestation_algorithm,
+                signature: self.attestation_signature.clone(),
+                public_key: self.attestation_public_key.clone(),
             }),
             network_credential: Some(CredentialRequest {
                 public_key: self.network_credential.public_key.clone(),

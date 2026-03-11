@@ -10,6 +10,18 @@ namespace briolette {
         string validate_uri
     );
 
+    /// Create a new wallet with hardware attestation, register with the
+    /// network, and return the serialized wallet state as JSON.
+    [Throws=WalletError]
+    string create_wallet_with_attestation(
+        string name,
+        string registrar_uri,
+        string clerk_uri,
+        string mint_uri,
+        string validate_uri,
+        AttestationData attestation
+    );
+
     /// Load wallet state from a JSON string previously returned by
     /// create_wallet or save_wallet.
     [Throws=WalletError]
@@ -92,6 +104,15 @@ dictionary TransferResult {
     WalletState state;
     /// Base64-encoded tokens to deliver to the recipient.
     sequence<string> tokens_b64;
+};
+
+dictionary AttestationData {
+    /// Algorithm: 0 = NONE, 1 = ANDROID_KM_ATTESTATION, 2 = IOS_APP_ATTEST
+    i32 algorithm;
+    /// Cert chain (Android) or CBOR attestation object (iOS), base64-encoded.
+    string signature_b64;
+    /// Attested public key (Android) or key identifier (iOS), base64-encoded.
+    string public_key_b64;
 };
 
 dictionary ValidationResult {

@@ -97,7 +97,14 @@ fun SetupScreen(
                             mintUri = "http://$serverHost:50053",
                             validateUri = "http://$serverHost:50055",
                         )
-                        repository.createWallet(walletName.ifBlank { "wallet" }, config)
+                        val name = walletName.ifBlank { "wallet" }
+                        // Attempt hardware attestation if available.
+                        val attestation = repository.attestationProvider?.let { provider ->
+                            if (provider.isSupported) {
+                                provider.generate(name.encodeToByteArray())
+                            } else null
+                        }
+                        repository.createWallet(name, config, attestation)
                         onSetupComplete()
                     } catch (_: Exception) {
                         // Error shown via repository.error

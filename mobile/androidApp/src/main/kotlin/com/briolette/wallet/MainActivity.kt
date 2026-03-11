@@ -27,7 +27,8 @@ class MainActivity : ComponentActivity() {
 
         val persistence = AndroidWalletPersistence(applicationContext)
         val bridge = AndroidWalletBridge()
-        val repository = WalletRepository(bridge, persistence)
+        val attestationProvider = AndroidKeyAttestationProvider()
+        val repository = WalletRepository(bridge, persistence, attestationProvider)
         val qrGenerator = AndroidQrCodeGenerator()
 
         setContent {

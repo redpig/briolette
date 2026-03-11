@@ -26,7 +26,8 @@ import platform.UIKit.UIViewController
 fun MainViewController(): UIViewController {
     val persistence = IosWalletPersistence()
     val bridge = IosWalletBridge()
-    val repository = WalletRepository(bridge, persistence)
+    val attestationProvider = IosAppAttestProvider()
+    val repository = WalletRepository(bridge, persistence, attestationProvider)
     val qrGenerator = IosQrCodeGenerator()
 
     return ComposeUIViewController {

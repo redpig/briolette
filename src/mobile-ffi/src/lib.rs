@@ -176,6 +176,66 @@ pub fn create_wallet(
     })
 }
 
+#[derive(Debug, Clone)]
+pub struct AttestationData {
+    pub algorithm: i32,
+    pub signature_b64: String,
+    pub public_key_b64: String,
+}
+
+/// Create a new wallet with hardware attestation data.
+pub fn create_wallet_with_attestation(
+    name: String,
+    registrar_uri: String,
+    clerk_uri: String,
+    mint_uri: String,
+    validate_uri: String,
+    attestation: AttestationData,
+) -> Result<String, WalletError> {
+    let rt = runtime()?;
+    rt.block_on(async {
+        use briolette_wallet::Wallet;
+
+        let hw_id = sha256::digest(name.as_bytes());
+
+        let mut wallet = briolette_wallet::WalletData::new(
+            registrar_uri,
+            clerk_uri,
+            mint_uri,
+            validate_uri,
+        )
+        .map_err(|_| WalletError::InvalidData)?;
+
+        if !wallet.initialize_keys(hw_id.as_bytes()) {
+            return Err(WalletError::NotInitialized);
+        }
+
+        // Decode and set attestation data.
+        let sig_bytes = B64
+            .decode(&attestation.signature_b64)
+            .map_err(|_| WalletError::InvalidData)?;
+        let pk_bytes = B64
+            .decode(&attestation.public_key_b64)
+            .map_err(|_| WalletError::InvalidData)?;
+        wallet.set_attestation_data(attestation.algorithm, sig_bytes, pk_bytes);
+
+        if !wallet.initialize_credential().await {
+            return Err(WalletError::NetworkError);
+        }
+
+        if !wallet.synchronize().await {
+            return Err(WalletError::NetworkError);
+        }
+
+        if !wallet.get_tickets(10).await {
+            return Err(WalletError::NetworkError);
+        }
+
+        serde_json::to_string(&wallet)
+            .map_err(|_| WalletError::SerializationError)
+    })
+}
+
 /// Load a wallet from its JSON representation.
 pub fn load_wallet(json: String) -> Result<WalletState, WalletError> {
     // Validate that the JSON is parseable.

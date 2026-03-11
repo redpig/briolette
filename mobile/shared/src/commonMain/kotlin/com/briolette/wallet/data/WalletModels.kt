@@ -62,6 +62,30 @@ data class NetworkConfig(
 )
 
 /**
+ * Hardware attestation data for registration.
+ *
+ * Android: algorithm=1, signatureB64=length-prefixed DER cert chain, publicKeyB64=attested key
+ * iOS:     algorithm=2, signatureB64=CBOR attestation object, publicKeyB64=key identifier
+ */
+data class HwAttestationData(
+    val algorithm: Int = 0,
+    val signatureB64: String = "",
+    val publicKeyB64: String = "",
+)
+
+/**
+ * Platform-specific hardware attestation provider.
+ * Implemented on Android using KeyStore and on iOS using DCAppAttestService.
+ */
+interface HwAttestationProvider {
+    /** Whether this platform supports hardware attestation. */
+    val isSupported: Boolean
+
+    /** Generate attestation data for the given challenge bytes. Returns null on failure. */
+    suspend fun generate(challenge: ByteArray): HwAttestationData?
+}
+
+/**
  * QR code payload types used in the app.
  */
 sealed class QrPayload {

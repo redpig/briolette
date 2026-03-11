@@ -3,6 +3,7 @@ package com.briolette.wallet
 import com.briolette.wallet.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uniffi.briolette.AttestationData as FfiAttestationData
 import uniffi.briolette.Balance as FfiBalance
 import uniffi.briolette.TransferResult as FfiTransferResult
 import uniffi.briolette.ValidationResult as FfiValidationResult
@@ -26,6 +27,28 @@ class AndroidWalletBridge : WalletBridge {
                 config.clerkUri,
                 config.mintUri,
                 config.validateUri,
+            )
+            uniffi.briolette.loadWallet(json).toKotlin()
+        }
+    }
+
+    override suspend fun createWalletWithAttestation(
+        name: String,
+        config: NetworkConfig,
+        attestation: HwAttestationData,
+    ): WalletState {
+        return withContext(Dispatchers.IO) {
+            val json = uniffi.briolette.createWalletWithAttestation(
+                name,
+                config.registrarUri,
+                config.clerkUri,
+                config.mintUri,
+                config.validateUri,
+                FfiAttestationData(
+                    algorithm = attestation.algorithm,
+                    signatureB64 = attestation.signatureB64,
+                    publicKeyB64 = attestation.publicKeyB64,
+                ),
             )
             uniffi.briolette.loadWallet(json).toKotlin()
         }

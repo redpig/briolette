@@ -13,6 +13,14 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 interface WalletBridge {
     suspend fun createWallet(name: String, config: NetworkConfig): WalletState
+    suspend fun createWalletWithAttestation(
+        name: String,
+        config: NetworkConfig,
+        attestation: HwAttestationData,
+    ): WalletState {
+        // Default: fall back to non-attested creation for platforms that don't support it yet.
+        return createWallet(name, config)
+    }
     suspend fun loadWallet(json: String): WalletState
     suspend fun saveWallet(state: WalletState): String
     suspend fun synchronize(state: WalletState): WalletState
@@ -34,6 +42,7 @@ interface WalletBridge {
 class WalletRepository(
     private val bridge: WalletBridge,
     private val persistence: WalletPersistence,
+    val attestationProvider: HwAttestationProvider? = null,
 ) {
     private val _state = MutableStateFlow(WalletState())
     val state: StateFlow<WalletState> = _state.asStateFlow()
@@ -60,9 +69,17 @@ class WalletRepository(
     }
 
     /** Create a new wallet and register with the network. */
-    suspend fun createWallet(name: String, config: NetworkConfig) {
+    suspend fun createWallet(
+        name: String,
+        config: NetworkConfig,
+        attestation: HwAttestationData? = null,
+    ) {
         withLoading {
-            val newState = bridge.createWallet(name, config)
+            val newState = if (attestation != null) {
+                bridge.createWalletWithAttestation(name, config, attestation)
+            } else {
+                bridge.createWallet(name, config)
+            }
             _state.value = newState
             persistence.save(newState.json)
         }
