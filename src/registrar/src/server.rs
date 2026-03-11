@@ -136,7 +136,7 @@ impl BrioletteRegistrar {
     ) -> Result<RegisterReply, BrioletteError> {
         trace!("register_call: request = {:?}", &request);
         // 1. Validate the hwid signature
-        if request.version != Version::Current.into() {
+        if request.version != i32::from(Version::Current) {
             return Err(BrioletteError {
                 code: BrioletteErrorCode::InvalidVersion.into(),
             });
@@ -156,7 +156,7 @@ impl BrioletteRegistrar {
         let transfer_request = request.transfer_credential.clone().unwrap();
 
         // No verification occurs right now, so we fail if there is any!
-        if hwid_signature.algorithm != Algorithm::None.into() {
+        if hwid_signature.algorithm != i32::from(Algorithm::None) {
             return Err(BrioletteError {
                 code: BrioletteErrorCode::InvalidHwidSignature.into(),
             });

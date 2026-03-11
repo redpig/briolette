@@ -499,7 +499,7 @@ impl BrioletteTokenMap {
                 return Ok(RevocationDataReply { entries: rde });
             }
             tokenmap::revocation_data_request::Select::Group(sg) => {
-                if *sg != tokenmap::SelectGroup::All.into() {
+                if *sg != i32::from(tokenmap::SelectGroup::All) {
                     return Err(BrioletteError {
                         code: BrioletteErrorCode::InvalidMissingFields.into(),
                     });
