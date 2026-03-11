@@ -26,6 +26,7 @@ fun BalanceScreen(
     onNavigateReceive: () -> Unit,
     onNavigateTopUp: () -> Unit,
     onNavigateMyQr: () -> Unit,
+    onNavigateHistory: () -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
     val isLoading by repository.isLoading.collectAsState()
@@ -182,6 +183,17 @@ fun BalanceScreen(
             ) {
                 Text("+ Tickets")
             }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Token inventory
+        OutlinedButton(
+            onClick = onNavigateHistory,
+            enabled = !isLoading,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Token Inventory")
         }
 
         // Loading indicator

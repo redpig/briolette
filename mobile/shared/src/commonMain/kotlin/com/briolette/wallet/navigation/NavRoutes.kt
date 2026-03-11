@@ -13,4 +13,5 @@ object NavRoutes {
     const val RECEIVE_SCAN = "receive_scan"
     const val TOP_UP = "top_up"
     const val TRANSFER_QR = "transfer_qr"
+    const val HISTORY = "history"
 }

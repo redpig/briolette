@@ -14,8 +14,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.briolette.wallet.data.WalletRepository
 import com.briolette.wallet.navigation.NavRoutes
+import com.briolette.wallet.ui.scanner.QrScannerScreen
 import com.briolette.wallet.ui.screens.*
 import com.briolette.wallet.ui.theme.BrioletteTheme
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,9 +45,10 @@ fun WalletApp(
     val navController = rememberNavController()
     val state by repository.state.collectAsState()
 
-    // Scanned data shared between screens
+    // Shared state between screens
     var scannedPayTicket by remember { mutableStateOf<String?>(null) }
     var scannedReceiveTokens by remember { mutableStateOf<List<String>?>(null) }
+    var outgoingTokens by remember { mutableStateOf<List<String>>(emptyList()) }
 
     // Try to load saved wallet on first composition
     LaunchedEffect(Unit) {
@@ -59,6 +63,8 @@ fun WalletApp(
     val startDest = if (state.isInitialized) NavRoutes.BALANCE else NavRoutes.SETUP
 
     NavHost(navController = navController, startDestination = startDest) {
+
+        // ---- Setup ----
         composable(NavRoutes.SETUP) {
             SetupScreen(
                 repository = repository,
@@ -70,6 +76,7 @@ fun WalletApp(
             )
         }
 
+        // ---- Home / Balance ----
         composable(NavRoutes.BALANCE) {
             BalanceScreen(
                 repository = repository,
@@ -83,9 +90,11 @@ fun WalletApp(
                 },
                 onNavigateTopUp = { navController.navigate(NavRoutes.TOP_UP) },
                 onNavigateMyQr = { navController.navigate(NavRoutes.MY_QR) },
+                onNavigateHistory = { navController.navigate(NavRoutes.HISTORY) },
             )
         }
 
+        // ---- My QR (receiving address) ----
         composable(NavRoutes.MY_QR) {
             MyQrScreen(
                 repository = repository,
@@ -94,18 +103,46 @@ fun WalletApp(
             )
         }
 
+        // ---- Pay ----
         composable(NavRoutes.PAY) {
             PayScreen(
                 repository = repository,
                 scannedTicketB64 = scannedPayTicket,
                 onScanQr = { navController.navigate(NavRoutes.PAY_SCAN) },
                 onBack = { navController.popBackStack() },
-                onShowTransferQr = {
+                onShowTransferQr = { tokens ->
+                    outgoingTokens = tokens
+                    navController.navigate(NavRoutes.TRANSFER_QR)
+                },
+            )
+        }
+
+        // ---- Pay: scan recipient's QR code ----
+        composable(NavRoutes.PAY_SCAN) {
+            QrScannerScreen(
+                title = "Scan Recipient",
+                onResult = { result ->
+                    // The scanned QR contains a base64 SignedTicket.
+                    // It may be raw base64 or wrapped in a JSON envelope.
+                    scannedPayTicket = extractTicketFromQr(result)
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        // ---- Transfer QR (show tokens for recipient to scan) ----
+        composable(NavRoutes.TRANSFER_QR) {
+            TransferQrScreen(
+                tokensBase64 = outgoingTokens,
+                qrGenerator = qrGenerator,
+                onDone = {
                     navController.popBackStack(NavRoutes.BALANCE, inclusive = false)
                 },
             )
         }
 
+        // ---- Receive ----
         composable(NavRoutes.RECEIVE) {
             ReceiveScreen(
                 repository = repository,
@@ -115,32 +152,30 @@ fun WalletApp(
             )
         }
 
-        composable(NavRoutes.TOP_UP) {
-            TopUpScreen(
+        // ---- Receive: scan sender's transfer QR ----
+        composable(NavRoutes.RECEIVE_SCAN) {
+            QrScannerScreen(
+                title = "Scan Payment",
+                onResult = { result ->
+                    scannedReceiveTokens = extractTokensFromQr(result)
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        // ---- History / Token Inventory ----
+        composable(NavRoutes.HISTORY) {
+            HistoryScreen(
                 repository = repository,
                 onBack = { navController.popBackStack() },
             )
         }
 
-        // QR Scanner screens — placeholder until CameraX + ML Kit integration
-        composable(NavRoutes.PAY_SCAN) {
-            ScannerPlaceholder(
-                title = "Scan Recipient QR",
-                onResult = { result ->
-                    scannedPayTicket = result
-                    navController.popBackStack()
-                },
-                onBack = { navController.popBackStack() },
-            )
-        }
-
-        composable(NavRoutes.RECEIVE_SCAN) {
-            ScannerPlaceholder(
-                title = "Scan Transfer QR",
-                onResult = { result ->
-                    scannedReceiveTokens = listOf(result)
-                    navController.popBackStack()
-                },
+        // ---- Top Up ----
+        composable(NavRoutes.TOP_UP) {
+            TopUpScreen(
+                repository = repository,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -148,43 +183,42 @@ fun WalletApp(
 }
 
 /**
- * Placeholder for the QR scanner.
+ * Parse a scanned QR code to extract a base64 SignedTicket.
  *
- * In production, replace with CameraX + ML Kit barcode scanning.
- * For development/testing, allows pasting base64 data manually.
+ * Handles two formats:
+ *   - Raw base64 string (from MyQrScreen)
+ *   - JSON envelope: {"type":"ticket","data":"<base64>"}
  */
-@Composable
-private fun ScannerPlaceholder(
-    title: String,
-    onResult: (String) -> Unit,
-    onBack: () -> Unit,
-) {
-    var input by remember { mutableStateOf("") }
+private fun extractTicketFromQr(raw: String): String {
+    return try {
+        val json = JSONObject(raw)
+        json.getString("data")
+    } catch (_: Exception) {
+        // Assume raw base64
+        raw.trim()
+    }
+}
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Camera scanner not yet integrated.\nPaste base64 data below for testing:",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
-            label = { Text("Base64 data") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            TextButton(onClick = onBack) { Text("Cancel") }
-            Spacer(Modifier.weight(1f))
-            Button(onClick = { if (input.isNotBlank()) onResult(input) }) {
-                Text("Use Data")
+/**
+ * Parse a scanned QR code to extract base64-encoded tokens.
+ *
+ * Handles:
+ *   - Single token: {"type":"token","data":"<base64>"}
+ *   - Multi token: {"type":"transfer","tokens":["<b64>","<b64>",...]}
+ *   - Raw base64 (single token fallback)
+ */
+private fun extractTokensFromQr(raw: String): List<String> {
+    return try {
+        val json = JSONObject(raw)
+        when (json.optString("type")) {
+            "token" -> listOf(json.getString("data"))
+            "transfer" -> {
+                val arr = json.getJSONArray("tokens")
+                (0 until arr.length()).map { arr.getString(it) }
             }
+            else -> listOf(raw.trim())
         }
+    } catch (_: Exception) {
+        listOf(raw.trim())
     }
 }
