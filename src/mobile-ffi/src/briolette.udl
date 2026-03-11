@@ -1,0 +1,102 @@
+namespace briolette {
+    /// Create a new wallet, register with the network, and return the
+    /// serialized wallet state as JSON. This is a blocking network call.
+    [Throws=WalletError]
+    string create_wallet(
+        string name,
+        string registrar_uri,
+        string clerk_uri,
+        string mint_uri,
+        string validate_uri
+    );
+
+    /// Load wallet state from a JSON string previously returned by
+    /// create_wallet or save_wallet.
+    [Throws=WalletError]
+    WalletState load_wallet(string json);
+
+    /// Serialize wallet state back to JSON for persistence.
+    [Throws=WalletError]
+    string save_wallet(WalletState state);
+
+    /// Synchronize epoch data from the clerk.
+    [Throws=WalletError]
+    WalletState synchronize(WalletState state, string clerk_uri);
+
+    /// Request receiving tickets from the clerk.
+    [Throws=WalletError]
+    WalletState request_tickets(WalletState state, string clerk_uri, u32 count);
+
+    /// Withdraw (top up) tokens from the mint.
+    [Throws=WalletError]
+    WalletState withdraw(WalletState state, string mint_uri, u32 amount);
+
+    /// Transfer tokens to a recipient identified by their ticket (base64).
+    [Throws=WalletError]
+    TransferResult transfer_tokens(
+        WalletState state,
+        string recipient_ticket_b64,
+        u32 amount
+    );
+
+    /// Import received tokens (base64-encoded) into the wallet.
+    [Throws=WalletError]
+    WalletState receive_tokens(WalletState state, sequence<string> tokens_b64);
+
+    /// Validate all held tokens with the network.
+    [Throws=WalletError]
+    ValidationResult validate_tokens(WalletState state, string validate_uri);
+
+    /// Get a receiving ticket as base64 for display in a QR code.
+    [Throws=WalletError]
+    string get_receiving_ticket_b64(WalletState state);
+
+    /// Compute the wallet balance.
+    Balance get_balance(WalletState state);
+
+    /// Get the number of available tickets.
+    u32 get_ticket_count(WalletState state);
+};
+
+[Error]
+enum WalletError {
+    "NotInitialized",
+    "NetworkError",
+    "InsufficientFunds",
+    "NoTicketsAvailable",
+    "InvalidData",
+    "SerializationError",
+    "ValidationFailed",
+};
+
+dictionary WalletState {
+    /// Opaque JSON blob of the full wallet data. Callers should persist
+    /// this and pass it back on subsequent calls.
+    string json;
+
+    /// Cached summary for quick UI display without parsing.
+    Balance balance;
+    u32 ticket_count;
+    string wallet_name;
+};
+
+dictionary Balance {
+    i32 whole;
+    i32 fractional;
+    string currency;
+    u32 token_count;
+};
+
+dictionary TransferResult {
+    /// Updated wallet state after transfer.
+    WalletState state;
+    /// Base64-encoded tokens to deliver to the recipient.
+    sequence<string> tokens_b64;
+};
+
+dictionary ValidationResult {
+    WalletState state;
+    boolean all_valid;
+    u32 valid_count;
+    u32 invalid_count;
+};
