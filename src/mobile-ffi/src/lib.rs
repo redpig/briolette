@@ -337,6 +337,233 @@ pub fn create_wallet_with_attestation(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Split-key + attestation multi-step protocol
+// ---------------------------------------------------------------------------
+//
+// For wallets using NFC smart cards (split-key mode), key generation requires
+// interactive NFC communication. The card-derived combined public keys flow
+// into the attestation challenge, cryptographically binding the attestation
+// to both the phone hardware AND the specific NFC card.
+//
+// Protocol:
+//
+// Step 1: split_key_start(name, config)
+//   → Returns base point B_ttc. App sends to TTC card:
+//     PUBLIC_KEY_SHARE(B_ttc) → q_card_ttc, JOIN_COMMIT(B_ttc) → u_card_ttc
+//
+// Step 2a: split_key_after_ttc_commit(state, q_card_ttc, u_card_ttc)
+//   → Returns c_ttc (send to TTC card: JOIN_RESPOND(c_ttc) → s_card_ttc)
+//     and B_nac (send to NAC card: PUBLIC_KEY_SHARE, JOIN_COMMIT)
+//
+// Step 2b: split_key_after_nac_commit(state, q_card_nac, u_card_nac)
+//   → Returns c_nac (send to NAC card: JOIN_RESPOND(c_nac) → s_card_nac)
+//
+// Step 3: split_key_complete(state, s_card_ttc, s_card_nac)
+//   → Returns KeyInitResult with challenge_preimage_b64 bound to
+//     card-derived combined public keys
+//
+// Step 4: register_wallet_with_attestation(wallet_json, attestation)
+//   → Same as non-split path
+
+/// Result of split_key_start.
+#[derive(Debug, Clone)]
+pub struct SplitKeyStep1Result {
+    pub state_json: String,
+    /// Base64 G1 point for TTC card PUBLIC_KEY_SHARE + JOIN_COMMIT.
+    pub b_ttc_b64: String,
+}
+
+/// Result of split_key_after_ttc_commit.
+#[derive(Debug, Clone)]
+pub struct SplitKeyStep2aResult {
+    pub state_json: String,
+    /// Challenge for TTC card JOIN_RESPOND.
+    pub c_ttc_b64: String,
+    /// Base64 G1 point for NAC card PUBLIC_KEY_SHARE + JOIN_COMMIT.
+    pub b_nac_b64: String,
+}
+
+/// Result of split_key_after_nac_commit.
+#[derive(Debug, Clone)]
+pub struct SplitKeyStep2bResult {
+    pub state_json: String,
+    /// Challenge for NAC card JOIN_RESPOND.
+    pub c_nac_b64: String,
+}
+
+/// Step 1: Initialize wallet and compute TTC base point.
+pub fn split_key_start(
+    name: String,
+    registrar_uri: String,
+    clerk_uri: String,
+    mint_uri: String,
+    validate_uri: String,
+) -> Result<SplitKeyStep1Result, WalletError> {
+    let hw_id = sha256::digest(name.as_bytes());
+
+    let wallet = briolette_wallet::WalletData::new(
+        registrar_uri, clerk_uri, mint_uri, validate_uri,
+    ).map_err(|_| WalletError::InvalidData)?;
+
+    let hw_id_bytes = hw_id.into_bytes();
+    let b_ttc = briolette_crypto::v0::split::split_base_point(&hw_id_bytes);
+
+    let state = serde_json::json!({
+        "wallet": serde_json::to_string(&wallet).map_err(|_| WalletError::SerializationError)?,
+        "hw_id": B64.encode(&hw_id_bytes),
+    });
+
+    Ok(SplitKeyStep1Result {
+        state_json: state.to_string(),
+        b_ttc_b64: B64.encode(&b_ttc),
+    })
+}
+
+/// Step 2a: After TTC card responses, compute TTC challenge and NAC base point.
+pub fn split_key_after_ttc_commit(
+    state_json: String,
+    q_card_ttc_b64: String,
+    u_card_ttc_b64: String,
+) -> Result<SplitKeyStep2aResult, WalletError> {
+    let state: serde_json::Value = serde_json::from_str(&state_json)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    let hw_id = B64.decode(state["hw_id"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let q_card_ttc = B64.decode(&q_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
+    let u_card_ttc = B64.decode(&u_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
+
+    let (host_sk_ttc, host_r_ttc, c_ttc, q_ttc_combined) =
+        briolette_crypto::v0::split::split_join_host_commit_and_challenge(
+            &hw_id, &q_card_ttc, &u_card_ttc,
+        ).ok_or(WalletError::InvalidData)?;
+
+    let b_nac = briolette_crypto::v0::split::split_base_point(&q_ttc_combined);
+
+    let updated_state = serde_json::json!({
+        "wallet": state["wallet"],
+        "hw_id": state["hw_id"],
+        "host_sk_ttc": B64.encode(&host_sk_ttc),
+        "host_r_ttc": B64.encode(&host_r_ttc),
+        "q_card_ttc": q_card_ttc_b64,
+        "u_card_ttc": u_card_ttc_b64,
+        "c_ttc": B64.encode(&c_ttc),
+        "q_ttc_combined": B64.encode(&q_ttc_combined),
+    });
+
+    Ok(SplitKeyStep2aResult {
+        state_json: updated_state.to_string(),
+        c_ttc_b64: B64.encode(&c_ttc),
+        b_nac_b64: B64.encode(&b_nac),
+    })
+}
+
+/// Step 2b: After NAC card responses, compute NAC challenge.
+pub fn split_key_after_nac_commit(
+    state_json: String,
+    q_card_nac_b64: String,
+    u_card_nac_b64: String,
+) -> Result<SplitKeyStep2bResult, WalletError> {
+    let state: serde_json::Value = serde_json::from_str(&state_json)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    let q_ttc_combined = B64.decode(
+        state["q_ttc_combined"].as_str().ok_or(WalletError::InvalidData)?
+    ).map_err(|_| WalletError::InvalidData)?;
+    let q_card_nac = B64.decode(&q_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
+    let u_card_nac = B64.decode(&u_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
+
+    let (host_sk_nac, host_r_nac, c_nac, _) =
+        briolette_crypto::v0::split::split_join_host_commit_and_challenge(
+            &q_ttc_combined, &q_card_nac, &u_card_nac,
+        ).ok_or(WalletError::InvalidData)?;
+
+    let mut updated_state: serde_json::Value = serde_json::from_str(&state_json)
+        .map_err(|_| WalletError::SerializationError)?;
+    updated_state["host_sk_nac"] = serde_json::Value::String(B64.encode(&host_sk_nac));
+    updated_state["host_r_nac"] = serde_json::Value::String(B64.encode(&host_r_nac));
+    updated_state["q_card_nac"] = serde_json::Value::String(q_card_nac_b64);
+    updated_state["u_card_nac"] = serde_json::Value::String(u_card_nac_b64);
+    updated_state["c_nac"] = serde_json::Value::String(B64.encode(&c_nac));
+
+    Ok(SplitKeyStep2bResult {
+        state_json: updated_state.to_string(),
+        c_nac_b64: B64.encode(&c_nac),
+    })
+}
+
+/// Step 3: Combine card responses into split-key wallet.
+/// The challenge_preimage_b64 in the result is bound to the card-derived
+/// combined public keys (hw_id || nac_pk || ttc_pk where nac_pk and ttc_pk
+/// contain the card's public key share contributions).
+pub fn split_key_complete(
+    state_json: String,
+    s_card_ttc_b64: String,
+    s_card_nac_b64: String,
+) -> Result<KeyInitResult, WalletError> {
+    let state: serde_json::Value = serde_json::from_str(&state_json)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    let wallet_json_str = state["wallet"].as_str().ok_or(WalletError::InvalidData)?;
+    let mut wallet: briolette_wallet::WalletData =
+        serde_json::from_str(wallet_json_str)
+            .map_err(|_| WalletError::SerializationError)?;
+
+    // Decode all intermediates
+    let hw_id = B64.decode(state["hw_id"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let host_sk_ttc = B64.decode(state["host_sk_ttc"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let host_r_ttc = B64.decode(state["host_r_ttc"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let q_card_ttc = B64.decode(state["q_card_ttc"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let u_card_ttc = B64.decode(state["u_card_ttc"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let c_ttc = B64.decode(state["c_ttc"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let s_card_ttc = B64.decode(&s_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
+    let q_ttc_combined = B64.decode(state["q_ttc_combined"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+
+    let host_sk_nac = B64.decode(state["host_sk_nac"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let host_r_nac = B64.decode(state["host_r_nac"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let q_card_nac = B64.decode(state["q_card_nac"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let u_card_nac = B64.decode(state["u_card_nac"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let c_nac = B64.decode(state["c_nac"].as_str().ok_or(WalletError::InvalidData)?)
+        .map_err(|_| WalletError::InvalidData)?;
+    let s_card_nac = B64.decode(&s_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
+
+    // Finalize TTC key
+    let ttc_pk = briolette_crypto::v0::split::split_join_finalize(
+        &hw_id, &q_card_ttc, &u_card_ttc, &host_sk_ttc, &host_r_ttc,
+        &c_ttc, &s_card_ttc,
+    ).ok_or(WalletError::InvalidData)?;
+
+    // Finalize NAC key
+    let nac_pk = briolette_crypto::v0::split::split_join_finalize(
+        &q_ttc_combined, &q_card_nac, &u_card_nac, &host_sk_nac, &host_r_nac,
+        &c_nac, &s_card_nac,
+    ).ok_or(WalletError::InvalidData)?;
+
+    // Set the wallet's split keys
+    wallet.set_split_keys(hw_id, nac_pk, host_sk_nac, ttc_pk, host_sk_ttc);
+
+    let challenge_preimage = wallet.attestation_challenge_preimage();
+    let final_json = serde_json::to_string(&wallet)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    Ok(KeyInitResult {
+        wallet_json: final_json,
+        challenge_preimage_b64: B64.encode(&challenge_preimage),
+    })
+}
+
 /// Load a wallet from its JSON representation.
 pub fn load_wallet(json: String) -> Result<WalletState, WalletError> {
     // Validate that the JSON is parseable.
@@ -820,5 +1047,124 @@ mod tests {
         };
         let result = receive_tokens(state, vec!["not-base64!!!".to_string()]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn split_key_protocol_produces_card_bound_challenge() {
+        // Simulate the full split-key + attestation protocol using a MockCard.
+        use briolette_crypto::v0::split::{MockCard, SmartCard};
+
+        // Step 1: Start
+        let step1 = split_key_start(
+            "card-test".to_string(),
+            "http://[::1]:50051".to_string(),
+            "http://[::1]:50052".to_string(),
+            "http://[::1]:50053".to_string(),
+            "http://[::1]:50055".to_string(),
+        ).expect("step1 failed");
+
+        let b_ttc = B64.decode(&step1.b_ttc_b64).unwrap();
+        assert!(!b_ttc.is_empty(), "TTC base point should not be empty");
+
+        // Simulate TTC card: PUBLIC_KEY_SHARE + JOIN_COMMIT
+        let mut ttc_card = MockCard::new();
+        let q_card_ttc = ttc_card.public_key_share(&b_ttc);
+        let u_card_ttc = ttc_card.join_commit(&b_ttc).unwrap();
+
+        // Step 2a: After TTC commit
+        let step2a = split_key_after_ttc_commit(
+            step1.state_json,
+            B64.encode(&q_card_ttc),
+            B64.encode(&u_card_ttc),
+        ).expect("step2a failed");
+
+        // TTC card: JOIN_RESPOND
+        let c_ttc = B64.decode(&step2a.c_ttc_b64).unwrap();
+        let s_card_ttc = ttc_card.join_respond(&c_ttc).unwrap();
+
+        // Simulate NAC card: PUBLIC_KEY_SHARE + JOIN_COMMIT
+        let b_nac = B64.decode(&step2a.b_nac_b64).unwrap();
+        let mut nac_card = MockCard::new();
+        let q_card_nac = nac_card.public_key_share(&b_nac);
+        let u_card_nac = nac_card.join_commit(&b_nac).unwrap();
+
+        // Step 2b: After NAC commit
+        let step2b = split_key_after_nac_commit(
+            step2a.state_json,
+            B64.encode(&q_card_nac),
+            B64.encode(&u_card_nac),
+        ).expect("step2b failed");
+
+        // NAC card: JOIN_RESPOND
+        let c_nac = B64.decode(&step2b.c_nac_b64).unwrap();
+        let s_card_nac = nac_card.join_respond(&c_nac).unwrap();
+
+        // Step 3: Complete
+        let result = split_key_complete(
+            step2b.state_json,
+            B64.encode(&s_card_ttc),
+            B64.encode(&s_card_nac),
+        ).expect("split_key_complete failed");
+
+        assert!(!result.wallet_json.is_empty());
+        assert!(!result.challenge_preimage_b64.is_empty());
+
+        // Verify the challenge preimage contains the hw_id and credential PKs
+        let preimage = B64.decode(&result.challenge_preimage_b64).unwrap();
+        // hw_id is SHA-256("card-test") as hex string bytes
+        let hw_id = sha256::digest("card-test".as_bytes()).into_bytes();
+        assert!(preimage.starts_with(&hw_id),
+            "Challenge preimage must start with hw_id");
+        assert!(preimage.len() > hw_id.len(),
+            "Challenge preimage must include credential public keys");
+
+        // Verify a second run with a different card produces a different challenge
+        let mut ttc_card2 = MockCard::new();
+        let q_card_ttc2 = ttc_card2.public_key_share(&b_ttc);
+        let u_card_ttc2 = ttc_card2.join_commit(&b_ttc).unwrap();
+
+        let step1_again = split_key_start(
+            "card-test".to_string(),
+            "http://[::1]:50051".to_string(),
+            "http://[::1]:50052".to_string(),
+            "http://[::1]:50053".to_string(),
+            "http://[::1]:50055".to_string(),
+        ).unwrap();
+
+        let step2a_again = split_key_after_ttc_commit(
+            step1_again.state_json,
+            B64.encode(&q_card_ttc2),
+            B64.encode(&u_card_ttc2),
+        ).unwrap();
+
+        let c_ttc2 = B64.decode(&step2a_again.c_ttc_b64).unwrap();
+        let s_card_ttc2 = ttc_card2.join_respond(&c_ttc2).unwrap();
+
+        let b_nac2 = B64.decode(&step2a_again.b_nac_b64).unwrap();
+        let mut nac_card2 = MockCard::new();
+        let q_card_nac2 = nac_card2.public_key_share(&b_nac2);
+        let u_card_nac2 = nac_card2.join_commit(&b_nac2).unwrap();
+
+        let step2b_again = split_key_after_nac_commit(
+            step2a_again.state_json,
+            B64.encode(&q_card_nac2),
+            B64.encode(&u_card_nac2),
+        ).unwrap();
+
+        let c_nac2 = B64.decode(&step2b_again.c_nac_b64).unwrap();
+        let s_card_nac2 = nac_card2.join_respond(&c_nac2).unwrap();
+
+        let result2 = split_key_complete(
+            step2b_again.state_json,
+            B64.encode(&s_card_ttc2),
+            B64.encode(&s_card_nac2),
+        ).unwrap();
+
+        // Different cards → different combined PKs → different challenge preimage
+        assert_ne!(
+            result.challenge_preimage_b64,
+            result2.challenge_preimage_b64,
+            "Different NFC cards must produce different attestation challenges"
+        );
     }
 }

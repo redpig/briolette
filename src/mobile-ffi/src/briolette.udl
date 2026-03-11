@@ -87,6 +87,34 @@ namespace briolette {
     [Throws=WalletError]
     string get_receiving_ticket_b64(WalletState state);
 
+    // ---- Split-key + attestation protocol (NFC card) ----
+
+    /// Split-key Step 1: compute TTC base point for NFC card.
+    [Throws=WalletError]
+    SplitKeyStep1Result split_key_start(
+        string name, string registrar_uri, string clerk_uri,
+        string mint_uri, string validate_uri
+    );
+
+    /// Split-key Step 2a: after TTC card responds, compute TTC challenge + NAC base.
+    [Throws=WalletError]
+    SplitKeyStep2aResult split_key_after_ttc_commit(
+        string state_json, string q_card_ttc_b64, string u_card_ttc_b64
+    );
+
+    /// Split-key Step 2b: after NAC card responds, compute NAC challenge.
+    [Throws=WalletError]
+    SplitKeyStep2bResult split_key_after_nac_commit(
+        string state_json, string q_card_nac_b64, string u_card_nac_b64
+    );
+
+    /// Split-key Step 3: finalize keys, get attestation challenge preimage
+    /// bound to card-derived combined public keys.
+    [Throws=WalletError]
+    KeyInitResult split_key_complete(
+        string state_json, string s_card_ttc_b64, string s_card_nac_b64
+    );
+
     /// Compute the wallet balance.
     Balance get_balance(WalletState state);
 
@@ -128,6 +156,22 @@ dictionary TransferResult {
     WalletState state;
     /// Base64-encoded tokens to deliver to the recipient.
     sequence<string> tokens_b64;
+};
+
+dictionary SplitKeyStep1Result {
+    string state_json;
+    string b_ttc_b64;
+};
+
+dictionary SplitKeyStep2aResult {
+    string state_json;
+    string c_ttc_b64;
+    string b_nac_b64;
+};
+
+dictionary SplitKeyStep2bResult {
+    string state_json;
+    string c_nac_b64;
 };
 
 dictionary KeyInitResult {

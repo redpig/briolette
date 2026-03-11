@@ -1159,6 +1159,93 @@ pub mod split {
         Some((host_sk_bytes, pk))
     }
 
+    /// Compute the base point B = hash_to_g1(nonce) for split key generation.
+    /// Returns the serialized G1 point (65 bytes).
+    pub fn split_base_point(nonce: &[u8]) -> Vec<u8> {
+        let b = hash_to_g1(nonce);
+        serialize_g1(&b).to_vec()
+    }
+
+    /// Host-side Phase 1+Challenge of the blind join protocol.
+    ///
+    /// Given the card's public key share Q_card and commitment U_card,
+    /// generates the host's share and computes the Schnorr challenge.
+    ///
+    /// Returns: (host_sk, host_r, challenge, q_combined) all as serialized bytes.
+    pub fn split_join_host_commit_and_challenge(
+        nonce: &[u8],
+        q_card_bytes: &[u8],
+        u_card_bytes: &[u8],
+    ) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        let b = hash_to_g1(nonce);
+        let q_card = deserialize_g1(q_card_bytes)?;
+        let u_card = deserialize_g1(u_card_bytes)?;
+
+        // Host generates its share
+        let host_sk = random_fr();
+        let q_host = b * host_sk;
+        let q = q_card + q_host;
+
+        // Host commits
+        let r_host = random_fr();
+        let u_host = b * r_host;
+        let u = u_card + u_host;
+
+        // Challenge
+        let c = schnorr_hash_member(&u, &b, &q, nonce);
+
+        // Serialize the combined public key as raw G1 (for use as NAC nonce)
+        let q_combined_bytes = serialize_g1(&q).to_vec();
+
+        Some((
+            serialize_fr(&host_sk).to_vec(),
+            serialize_fr(&r_host).to_vec(),
+            serialize_fr(&c).to_vec(),
+            q_combined_bytes,
+        ))
+    }
+
+    /// Finalize the split blind join protocol.
+    ///
+    /// Given all intermediate values and the card's Schnorr response,
+    /// produces the combined public key (Q, c, s, n).
+    ///
+    /// Returns the serialized combined public key.
+    pub fn split_join_finalize(
+        nonce: &[u8],
+        q_card_bytes: &[u8],
+        u_card_bytes: &[u8],
+        host_sk_bytes: &[u8],
+        host_r_bytes: &[u8],
+        c_bytes: &[u8],
+        s_card_bytes: &[u8],
+    ) -> Option<Vec<u8>> {
+        let b = hash_to_g1(nonce);
+        let q_card = deserialize_g1(q_card_bytes)?;
+        let host_sk = deserialize_fr(host_sk_bytes)?;
+        let q_host = b * host_sk;
+        let q = q_card + q_host;
+
+        let host_r = deserialize_fr(host_r_bytes)?;
+        let c = deserialize_fr(c_bytes)?;
+        let s_card = deserialize_fr(s_card_bytes)?;
+
+        // Host's response
+        let s_host = host_r + c * host_sk;
+        // Combined response
+        let s = s_card + s_host;
+        let n = random_fr();
+
+        // Serialize combined public key
+        let mut pk = Vec::with_capacity(native::WALLET_PUBLIC_KEY_LENGTH);
+        pk.extend_from_slice(&serialize_g1(&q));
+        pk.extend_from_slice(&serialize_fr(&c));
+        pk.extend_from_slice(&serialize_fr(&s));
+        pk.extend_from_slice(&serialize_fr(&n));
+
+        Some(pk)
+    }
+
     /// Sign a message using the split-key protocol.
     /// The card performs G1 scalar multiplications; the host combines shares.
     /// The resulting signature is identical in format to `sign()` and

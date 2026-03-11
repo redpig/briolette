@@ -396,6 +396,30 @@ impl WalletData {
         preimage
     }
 
+    /// Set split-key credentials directly (for use from FFI multi-step protocol).
+    ///
+    /// After the mobile app has completed the interactive NFC protocol and
+    /// Rust has finalized the combined public keys, this method stores
+    /// the results in the wallet. The combined public keys contain the
+    /// card's contribution, so the attestation challenge preimage will
+    /// be cryptographically bound to the specific NFC card.
+    pub fn set_split_keys(
+        &mut self,
+        hw_id: Vec<u8>,
+        nac_pk: Vec<u8>,
+        nac_host_sk: Vec<u8>,
+        ttc_pk: Vec<u8>,
+        ttc_host_sk: Vec<u8>,
+    ) {
+        self.hw_id = hw_id;
+        self.network_credential.public_key = nac_pk;
+        self.network_credential.secret_key = nac_host_sk.clone();
+        self.network_credential.host_secret_key = Some(nac_host_sk);
+        self.transfer_credential.public_key = ttc_pk;
+        self.transfer_credential.secret_key = ttc_host_sk.clone();
+        self.transfer_credential.host_secret_key = Some(ttc_host_sk);
+    }
+
     /// Set hardware attestation data for use during registration.
     /// Call this before `initialize_credential()` to provide Android Key
     /// Attestation or iOS App Attest data.
