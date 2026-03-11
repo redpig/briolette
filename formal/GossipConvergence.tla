@@ -80,7 +80,14 @@ Init ==
     /\ epoch = [w \in Wallets |-> 0]
     /\ currentEpoch = 0
 
+\* Allow termination when all wallets have converged at MaxEpoch
+Terminated ==
+    /\ AllHonestConverged
+    /\ currentEpoch = MaxEpoch
+    /\ UNCHANGED vars
+
 Next ==
+    \/ Terminated
     \/ PublishEpoch
     \/ \E w1 \in Wallets, w2 \in Wallets:
          /\ w1 # w2
