@@ -16,6 +16,10 @@ pub mod server;
 pub mod ethereum;
 pub mod deposit_processor;
 pub mod key_registry;
+pub mod l1;
 
 #[cfg(feature = "alloy")]
 pub mod alloy_client;
+
+pub mod bitcoin;
+pub mod bitcoin_deposit_processor;
