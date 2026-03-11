@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "briolette-wallet-cli"
+path = "src/cli.rs"
+
 [dependencies]
 briolette-crypto = { path = "../crypto", version = "*" }
 # For local storage serialization.
@@ -21,6 +25,7 @@ rand = "0.8.5"
 sha2 = "0.10.6"
 p256 = "0.12.0"
 briolette-proto = { path = "../proto", version = "*" }
+stderrlog = "0.5.4"
 chrono = "0.4.23"
 futures-util = { version = "0.3.26", features = ["tokio-io"] }
 tokio-stream = { version = "0.1.12", features = ["net"] }

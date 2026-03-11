@@ -236,9 +236,9 @@ pub struct TicketEntry {
 pub struct TokenEntry {
     pub token: Vec<u8>, // most minimal Token.
     credential: Vec<u8>,
-    whole_value: i32,
-    fractional_value: i32,
-    value_code: i32,
+    pub whole_value: i32,
+    pub fractional_value: i32,
+    pub value_code: i32,
     // TODO add mint pk to demo different token authority for same value code.
 }
 
