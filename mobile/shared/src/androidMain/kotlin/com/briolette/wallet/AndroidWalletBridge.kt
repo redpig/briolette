@@ -4,6 +4,7 @@ import com.briolette.wallet.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.briolette.AttestationData as FfiAttestationData
+import uniffi.briolette.KeyInitResult as FfiKeyInitResult
 import uniffi.briolette.Balance as FfiBalance
 import uniffi.briolette.TransferResult as FfiTransferResult
 import uniffi.briolette.ValidationResult as FfiValidationResult
@@ -44,6 +45,39 @@ class AndroidWalletBridge : WalletBridge {
                 config.clerkUri,
                 config.mintUri,
                 config.validateUri,
+                FfiAttestationData(
+                    algorithm = attestation.algorithm,
+                    signatureB64 = attestation.signatureB64,
+                    publicKeyB64 = attestation.publicKeyB64,
+                ),
+            )
+            uniffi.briolette.loadWallet(json).toKotlin()
+        }
+    }
+
+    override suspend fun initWalletKeys(name: String, config: NetworkConfig): KeyInitResult {
+        return withContext(Dispatchers.IO) {
+            val result: FfiKeyInitResult = uniffi.briolette.initWalletKeys(
+                name,
+                config.registrarUri,
+                config.clerkUri,
+                config.mintUri,
+                config.validateUri,
+            )
+            KeyInitResult(
+                walletJson = result.walletJson,
+                challengePreimageB64 = result.challengePreimageB64,
+            )
+        }
+    }
+
+    override suspend fun registerWalletWithAttestation(
+        walletJson: String,
+        attestation: HwAttestationData,
+    ): WalletState {
+        return withContext(Dispatchers.IO) {
+            val json = uniffi.briolette.registerWalletWithAttestation(
+                walletJson,
                 FfiAttestationData(
                     algorithm = attestation.algorithm,
                     signatureB64 = attestation.signatureB64,

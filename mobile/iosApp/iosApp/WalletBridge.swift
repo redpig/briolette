@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import shared  // KMP shared framework
 
 /// Swift implementation of the KMP `IosWalletDelegate` protocol.
@@ -173,22 +174,24 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
         }
     }
 
-    func generateAttestation(challenge: [KotlinInt]) -> [String: Any?] {
-        // Convert KotlinInt array to Data
-        let bytes = challenge.map { UInt8(truncatingIfNeeded: $0.intValue) }
-        let challengeData = Data(bytes)
+    func generateAttestationWithPreimage(preimageB64: String) -> [String: Any?] {
+        // Decode the base64 preimage and SHA-256 hash it for the challenge.
+        guard let preimageData = Data(base64Encoded: preimageB64) else {
+            return [:]
+        }
+        let challengeData = SHA256.hash(data: preimageData)
+        let challenge = Data(challengeData)
 
         if #available(iOS 14.0, *) {
             let helper = AppAttestHelper()
             guard helper.isSupported else {
                 return [:]
             }
-            // Use a semaphore to bridge async → sync (delegate is synchronous).
             let semaphore = DispatchSemaphore(value: 0)
             var result: [String: Any?] = [:]
             Task {
                 do {
-                    let attestation = try await helper.generateAttestation(challenge: challengeData)
+                    let attestation = try await helper.generateAttestation(challenge: challenge)
                     result = [
                         "algorithm": attestation.algorithm,
                         "signatureB64": attestation.signatureB64,
@@ -203,6 +206,51 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
             return result
         } else {
             return [:]
+        }
+    }
+
+    func initWalletKeys(
+        name: String,
+        registrarUri: String,
+        clerkUri: String,
+        mintUri: String,
+        validateUri: String
+    ) -> [String: Any?] {
+        do {
+            let result = try briolette.initWalletKeys(
+                name: name,
+                registrarUri: registrarUri,
+                clerkUri: clerkUri,
+                mintUri: mintUri,
+                validateUri: validateUri
+            )
+            return [
+                "walletJson": result.walletJson,
+                "challengePreimageB64": result.challengePreimageB64,
+            ]
+        } catch {
+            return [:]
+        }
+    }
+
+    func registerWalletWithAttestation(
+        walletJson: String,
+        algorithm: Int32,
+        signatureB64: String,
+        publicKeyB64: String
+    ) -> String {
+        do {
+            let attestation = briolette.AttestationData(
+                algorithm: algorithm,
+                signatureB64: signatureB64,
+                publicKeyB64: publicKeyB64
+            )
+            return try briolette.registerWalletWithAttestation(
+                walletJson: walletJson,
+                attestation: attestation
+            )
+        } catch {
+            return "{}"
         }
     }
 

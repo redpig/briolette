@@ -382,6 +382,20 @@ impl WalletData {
         })
     }
 
+    /// Return the attestation challenge preimage for cryptographic binding.
+    ///
+    /// The challenge is `hw_id || nac_pk || ttc_pk`. The mobile app should
+    /// hash this (SHA-256) and use it as the attestation challenge when
+    /// generating Android Key Attestation or iOS App Attest data.
+    ///
+    /// Must be called after `initialize_keys()`.
+    pub fn attestation_challenge_preimage(&self) -> Vec<u8> {
+        let mut preimage = self.hw_id.clone();
+        preimage.extend_from_slice(&self.network_credential.public_key);
+        preimage.extend_from_slice(&self.transfer_credential.public_key);
+        preimage
+    }
+
     /// Set hardware attestation data for use during registration.
     /// Call this before `initialize_credential()` to provide Android Key
     /// Attestation or iOS App Attest data.

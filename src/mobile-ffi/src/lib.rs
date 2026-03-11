@@ -176,6 +176,15 @@ pub fn create_wallet(
     })
 }
 
+/// Result of `init_wallet_keys` — contains the serialized wallet and the
+/// attestation challenge preimage that must be hashed and used as the
+/// attestation challenge for cryptographic binding.
+#[derive(Debug, Clone)]
+pub struct KeyInitResult {
+    pub wallet_json: String,
+    pub challenge_preimage_b64: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct AttestationData {
     pub algorithm: i32,
@@ -183,7 +192,99 @@ pub struct AttestationData {
     pub public_key_b64: String,
 }
 
-/// Create a new wallet with hardware attestation data.
+/// Initialize wallet keys and return the attestation challenge preimage.
+///
+/// Phase 1 of 2-phase attested registration. The returned base64 value is
+/// `hw_id || nac_pk || ttc_pk` — the mobile app must SHA-256 hash this and
+/// use the hash as the attestation challenge when generating Android Key
+/// Attestation or iOS App Attest data. This cryptographically binds the
+/// hardware attestation to the specific ECDAA credential public keys,
+/// preventing attestation replay attacks.
+///
+/// The returned `wallet_json` must be passed to `register_wallet_with_attestation`
+/// along with the attestation data to complete registration.
+pub fn init_wallet_keys(
+    name: String,
+    registrar_uri: String,
+    clerk_uri: String,
+    mint_uri: String,
+    validate_uri: String,
+) -> Result<KeyInitResult, WalletError> {
+    use briolette_wallet::Wallet;
+    let hw_id = sha256::digest(name.as_bytes());
+
+    let mut wallet = briolette_wallet::WalletData::new(
+        registrar_uri,
+        clerk_uri,
+        mint_uri,
+        validate_uri,
+    )
+    .map_err(|_| WalletError::InvalidData)?;
+
+    if !wallet.initialize_keys(hw_id.as_bytes()) {
+        return Err(WalletError::NotInitialized);
+    }
+
+    let challenge_preimage = wallet.attestation_challenge_preimage();
+    let wallet_json = serde_json::to_string(&wallet)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    Ok(KeyInitResult {
+        wallet_json,
+        challenge_preimage_b64: B64.encode(&challenge_preimage),
+    })
+}
+
+/// Complete attested wallet registration.
+///
+/// Phase 2 of 2-phase attested registration. Takes the wallet JSON from
+/// `init_wallet_keys` and the attestation data generated using the
+/// challenge preimage. Registers with the network, syncs epoch, and
+/// fetches initial tickets.
+pub fn register_wallet_with_attestation(
+    wallet_json: String,
+    attestation: AttestationData,
+) -> Result<String, WalletError> {
+    let rt = runtime()?;
+    rt.block_on(async {
+        use briolette_wallet::Wallet;
+
+        let mut wallet: briolette_wallet::WalletData =
+            serde_json::from_str(&wallet_json)
+                .map_err(|_| WalletError::SerializationError)?;
+
+        // Decode and set attestation data.
+        let sig_bytes = B64
+            .decode(&attestation.signature_b64)
+            .map_err(|_| WalletError::InvalidData)?;
+        let pk_bytes = B64
+            .decode(&attestation.public_key_b64)
+            .map_err(|_| WalletError::InvalidData)?;
+        wallet.set_attestation_data(attestation.algorithm, sig_bytes, pk_bytes);
+
+        if !wallet.initialize_credential().await {
+            return Err(WalletError::NetworkError);
+        }
+
+        if !wallet.synchronize().await {
+            return Err(WalletError::NetworkError);
+        }
+
+        if !wallet.get_tickets(10).await {
+            return Err(WalletError::NetworkError);
+        }
+
+        serde_json::to_string(&wallet)
+            .map_err(|_| WalletError::SerializationError)
+    })
+}
+
+/// Create a new wallet with hardware attestation data (legacy one-shot API).
+///
+/// NOTE: This function accepts pre-generated attestation data. For proper
+/// cryptographic binding, use the 2-phase API: `init_wallet_keys` followed
+/// by `register_wallet_with_attestation`, which allows the attestation
+/// challenge to include the ECDAA public keys.
 pub fn create_wallet_with_attestation(
     name: String,
     registrar_uri: String,

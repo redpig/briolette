@@ -11,6 +11,14 @@ import kotlinx.coroutines.flow.asStateFlow
  * Kotlin/Swift bindings. This interface allows the common UI layer to remain
  * platform-agnostic.
  */
+/**
+ * Result of 2-phase key initialization.
+ */
+data class KeyInitResult(
+    val walletJson: String,
+    val challengePreimageB64: String,
+)
+
 interface WalletBridge {
     suspend fun createWallet(name: String, config: NetworkConfig): WalletState
     suspend fun createWalletWithAttestation(
@@ -21,6 +29,20 @@ interface WalletBridge {
         // Default: fall back to non-attested creation for platforms that don't support it yet.
         return createWallet(name, config)
     }
+
+    /** Phase 1: init keys, get attestation challenge preimage. */
+    suspend fun initWalletKeys(name: String, config: NetworkConfig): KeyInitResult {
+        throw UnsupportedOperationException("2-phase registration not supported")
+    }
+
+    /** Phase 2: complete registration with cryptographically-bound attestation. */
+    suspend fun registerWalletWithAttestation(
+        walletJson: String,
+        attestation: HwAttestationData,
+    ): WalletState {
+        throw UnsupportedOperationException("2-phase registration not supported")
+    }
+
     suspend fun loadWallet(json: String): WalletState
     suspend fun saveWallet(state: WalletState): String
     suspend fun synchronize(state: WalletState): WalletState
@@ -68,15 +90,31 @@ class WalletRepository(
         }
     }
 
-    /** Create a new wallet and register with the network. */
+    /** Create a new wallet and register with the network.
+     *
+     * Uses 2-phase cryptographically-bound attestation when a provider is
+     * available: init keys → get challenge with ECDAA pks → attest → register.
+     * Falls back to unattested registration otherwise.
+     */
     suspend fun createWallet(
         name: String,
         config: NetworkConfig,
-        attestation: HwAttestationData? = null,
     ) {
         withLoading {
-            val newState = if (attestation != null) {
-                bridge.createWalletWithAttestation(name, config, attestation)
+            val provider = attestationProvider
+            val newState = if (provider != null && provider.isSupported) {
+                // 2-phase cryptographically-bound attestation:
+                // 1. Init keys → get challenge preimage (hw_id || nac_pk || ttc_pk)
+                val keyInit = bridge.initWalletKeys(name, config)
+                // 2. Provider decodes + SHA-256 hashes preimage, generates attestation
+                val attestation = provider.generate(keyInit.challengePreimageB64)
+                if (attestation != null) {
+                    // 3. Complete registration with bound attestation
+                    bridge.registerWalletWithAttestation(keyInit.walletJson, attestation)
+                } else {
+                    // Attestation failed; fall back to unattested
+                    bridge.createWallet(name, config)
+                }
             } else {
                 bridge.createWallet(name, config)
             }

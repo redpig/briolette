@@ -141,10 +141,15 @@ impl BrioletteRegistrar {
 
     /// Verify the hardware attestation based on the algorithm type.
     /// Returns the hardware nonce to use for credential issuance.
+    ///
+    /// `credential_public_keys` are the ECDAA NAC and TTC public keys from
+    /// the registration request. They must be cryptographically bound in the
+    /// attestation challenge to prevent attestation replay attacks.
     fn verify_attestation(
         &self,
         hwid: &briolette_proto::briolette::registrar::HardwareId,
         sig: &briolette_proto::briolette::registrar::Signature,
+        credential_public_keys: &[&[u8]],
     ) -> Result<Vec<u8>, BrioletteError> {
         let algorithm = match sig.algorithm {
             x if x == Algorithm::None as i32 => Algorithm::None,
@@ -169,6 +174,7 @@ impl BrioletteRegistrar {
                     hwid,
                     sig,
                     &self.android_trusted_roots,
+                    credential_public_keys,
                 ) {
                     Ok(result) => {
                         info!(
@@ -192,6 +198,7 @@ impl BrioletteRegistrar {
                     sig,
                     &self.ios_app_id,
                     &self.ios_trusted_roots,
+                    credential_public_keys,
                 ) {
                     Ok(result) => {
                         info!(
@@ -239,7 +246,13 @@ impl BrioletteRegistrar {
         let transfer_request = request.transfer_credential.clone().unwrap();
 
         // 2. Verify hardware attestation (Android Key Attestation, iOS App Attest, or NONE).
-        let hw_nonce = self.verify_attestation(&hwid, &hwid_signature)?;
+        //    Pass credential public keys for cryptographic binding verification —
+        //    the attestation challenge must commit to these keys to prevent replay.
+        let credential_pks: Vec<&[u8]> = vec![
+            &network_request.public_key,
+            &transfer_request.public_key,
+        ];
+        let hw_nonce = self.verify_attestation(&hwid, &hwid_signature, &credential_pks)?;
 
         // 3. Issue a network credential with the nonce of the token public key.
         let mut network_credential = vec![];

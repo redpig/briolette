@@ -98,13 +98,9 @@ fun SetupScreen(
                             validateUri = "http://$serverHost:50055",
                         )
                         val name = walletName.ifBlank { "wallet" }
-                        // Attempt hardware attestation if available.
-                        val attestation = repository.attestationProvider?.let { provider ->
-                            if (provider.isSupported) {
-                                provider.generate(name.encodeToByteArray())
-                            } else null
-                        }
-                        repository.createWallet(name, config, attestation)
+                        // Repository handles 2-phase attested registration
+                        // (init keys → attest with ECDAA-bound challenge → register)
+                        repository.createWallet(name, config)
                         onSetupComplete()
                     } catch (_: Exception) {
                         // Error shown via repository.error

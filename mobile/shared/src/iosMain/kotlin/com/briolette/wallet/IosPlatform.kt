@@ -116,10 +116,12 @@ class IosAppAttestProvider : HwAttestationProvider {
     override val isSupported: Boolean
         get() = true  // Actual check happens in Swift at generation time
 
-    override suspend fun generate(challenge: ByteArray): HwAttestationData? {
+    override suspend fun generate(challengePreimageB64: String): HwAttestationData? {
         val delegate = IosWalletBridge.getDelegate() ?: return null
         return try {
-            val result = delegate.generateAttestation(challenge.toList().map { it.toInt() })
+            // Pass the base64 preimage to Swift; it will decode, SHA-256 hash,
+            // and use as the App Attest challenge.
+            val result = delegate.generateAttestationWithPreimage(challengePreimageB64)
             val algo = (result["algorithm"] as? Number)?.toInt() ?: return null
             val sigB64 = result["signatureB64"] as? String ?: return null
             val pkB64 = result["publicKeyB64"] as? String ?: return null
@@ -160,9 +162,26 @@ interface IosWalletDelegate {
     fun getReceivingTicketB64(stateJson: String): String
     fun getBalance(stateJson: String): Map<String, Any?>
     fun getTicketCount(stateJson: String): Int
-    fun generateAttestation(challenge: List<Int>): Map<String, Any?> {
+    fun generateAttestationWithPreimage(preimageB64: String): Map<String, Any?> {
         // Default: return empty, meaning attestation not supported.
         return emptyMap()
+    }
+    fun initWalletKeys(
+        name: String,
+        registrarUri: String,
+        clerkUri: String,
+        mintUri: String,
+        validateUri: String,
+    ): Map<String, Any?> {
+        return emptyMap()
+    }
+    fun registerWalletWithAttestation(
+        walletJson: String,
+        algorithm: Int,
+        signatureB64: String,
+        publicKeyB64: String,
+    ): String {
+        return "{}"
     }
 }
 
@@ -213,6 +232,32 @@ class IosWalletBridge : WalletBridge {
             config.clerkUri,
             config.mintUri,
             config.validateUri,
+            attestation.algorithm,
+            attestation.signatureB64,
+            attestation.publicKeyB64,
+        )
+        val stateMap = d.loadWallet(json)
+        return mapToWalletState(stateMap, json)
+    }
+
+    override suspend fun initWalletKeys(name: String, config: NetworkConfig): KeyInitResult {
+        val d = requireDelegate()
+        val result = d.initWalletKeys(
+            name, config.registrarUri, config.clerkUri, config.mintUri, config.validateUri,
+        )
+        return KeyInitResult(
+            walletJson = result["walletJson"] as? String ?: "{}",
+            challengePreimageB64 = result["challengePreimageB64"] as? String ?: "",
+        )
+    }
+
+    override suspend fun registerWalletWithAttestation(
+        walletJson: String,
+        attestation: HwAttestationData,
+    ): WalletState {
+        val d = requireDelegate()
+        val json = d.registerWalletWithAttestation(
+            walletJson,
             attestation.algorithm,
             attestation.signatureB64,
             attestation.publicKeyB64,

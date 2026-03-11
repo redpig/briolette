@@ -95,13 +95,21 @@ object AndroidKeyAttestation {
 
 /**
  * [HwAttestationProvider] implementation using Android KeyStore Key Attestation.
+ *
+ * Decodes the base64 challenge preimage (hw_id || nac_pk || ttc_pk),
+ * SHA-256 hashes it to get the actual attestation challenge, then generates
+ * Android Key Attestation with that challenge. This cryptographically binds
+ * the hardware attestation to the specific ECDAA credential public keys.
  */
 class AndroidKeyAttestationProvider : HwAttestationProvider {
     override val isSupported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
 
-    override suspend fun generate(challenge: ByteArray): HwAttestationData? {
+    override suspend fun generate(challengePreimageB64: String): HwAttestationData? {
         return try {
+            val preimage = Base64.decode(challengePreimageB64, Base64.NO_WRAP)
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val challenge = digest.digest(preimage)
             AndroidKeyAttestation.generate(challenge)
         } catch (e: Exception) {
             null

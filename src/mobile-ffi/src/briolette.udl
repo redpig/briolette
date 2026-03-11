@@ -10,8 +10,32 @@ namespace briolette {
         string validate_uri
     );
 
-    /// Create a new wallet with hardware attestation, register with the
-    /// network, and return the serialized wallet state as JSON.
+    /// Phase 1: Initialize wallet keys and return the attestation challenge
+    /// preimage. The preimage is `hw_id || nac_pk || ttc_pk` (base64).
+    /// The mobile app must SHA-256 hash this and use the hash as the
+    /// attestation challenge. This cryptographically binds the hardware
+    /// attestation to the ECDAA credential keys.
+    [Throws=WalletError]
+    KeyInitResult init_wallet_keys(
+        string name,
+        string registrar_uri,
+        string clerk_uri,
+        string mint_uri,
+        string validate_uri
+    );
+
+    /// Phase 2: Complete registration with cryptographically-bound attestation.
+    /// Takes wallet JSON from init_wallet_keys and attestation generated
+    /// using the challenge preimage.
+    [Throws=WalletError]
+    string register_wallet_with_attestation(
+        string wallet_json,
+        AttestationData attestation
+    );
+
+    /// Create a new wallet with hardware attestation (legacy one-shot API).
+    /// For proper cryptographic binding, prefer init_wallet_keys +
+    /// register_wallet_with_attestation.
     [Throws=WalletError]
     string create_wallet_with_attestation(
         string name,
@@ -104,6 +128,14 @@ dictionary TransferResult {
     WalletState state;
     /// Base64-encoded tokens to deliver to the recipient.
     sequence<string> tokens_b64;
+};
+
+dictionary KeyInitResult {
+    /// Serialized wallet JSON with initialized keys (not yet registered).
+    string wallet_json;
+    /// Base64-encoded attestation challenge preimage: hw_id || nac_pk || ttc_pk.
+    /// SHA-256 hash this to get the attestation challenge.
+    string challenge_preimage_b64;
 };
 
 dictionary AttestationData {

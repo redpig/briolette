@@ -219,6 +219,8 @@ fn parse_android_key_description(ext_value: &[u8]) -> Result<AndroidKeyDescripti
 /// * `hwid` - The hardware ID from the registration request
 /// * `sig` - The Signature containing the cert chain and attested public key
 /// * `trusted_roots` - DER-encoded trusted Google root certificates
+/// * `credential_public_keys` - ECDAA public keys (NAC, TTC) that must be
+///   bound in the attestation challenge for cryptographic binding
 ///
 /// # Returns
 /// * `AttestationResult` with security level and hardware nonce on success
@@ -226,6 +228,7 @@ pub fn verify_android_attestation(
     hwid: &HardwareId,
     sig: &Signature,
     trusted_roots: &[Vec<u8>],
+    credential_public_keys: &[&[u8]],
 ) -> Result<AttestationResult, AttestationError> {
     // 1. Parse the certificate chain from the signature field.
     let cert_chain_der = parse_cert_chain(&sig.signature)?;
@@ -300,13 +303,19 @@ pub fn verify_android_attestation(
     // 6. Parse the KeyDescription from the extension value.
     let key_desc = parse_android_key_description(key_desc_ext.extn_value.as_bytes())?;
 
-    // 7. Verify the attestation challenge matches SHA-256(hw_id).
-    let expected_challenge = Sha256::digest(&hwid.hw_id);
+    // 7. Verify the attestation challenge includes cryptographic binding to
+    //    both the hw_id and the ECDAA credential public keys.
+    //    challenge = SHA-256(hw_id || nac_pk || ttc_pk)
+    //    This prevents an attacker from reusing a valid attestation from device A
+    //    with ECDAA keys generated on device B.
+    let mut challenge_preimage = hwid.hw_id.clone();
+    for pk in credential_public_keys {
+        challenge_preimage.extend_from_slice(pk);
+    }
+    let expected_challenge = Sha256::digest(&challenge_preimage);
     if key_desc.attestation_challenge != expected_challenge.as_slice() {
         error!(
-            "Android attestation challenge mismatch: expected {:?}, got {:?}",
-            expected_challenge.as_slice(),
-            key_desc.attestation_challenge
+            "Android attestation challenge mismatch: ECDAA keys not bound to attestation"
         );
         return Err(AttestationError::ChallengeMismatch);
     }
@@ -417,6 +426,8 @@ fn verify_cert_signature(
 /// * `sig` - The Signature containing the CBOR attestation object
 /// * `expected_app_id` - The expected App ID (team_id.bundle_id)
 /// * `trusted_roots` - DER-encoded Apple App Attest root certificates
+/// * `credential_public_keys` - ECDAA public keys (NAC, TTC) that must be
+///   bound in the attestation nonce for cryptographic binding
 ///
 /// # Returns
 /// * `AttestationResult` on success
@@ -425,6 +436,7 @@ pub fn verify_ios_attestation(
     sig: &Signature,
     expected_app_id: &str,
     trusted_roots: &[Vec<u8>],
+    credential_public_keys: &[&[u8]],
 ) -> Result<AttestationResult, AttestationError> {
     // 1. Parse the CBOR attestation object.
     let cbor_value: ciborium::Value = ciborium::from_reader(&sig.signature[..])
@@ -494,10 +506,18 @@ pub fn verify_ios_attestation(
     }
 
     // 6. Verify the nonce in the attestation.
-    // The nonce is SHA-256(authData || SHA-256(hw_id || public_key))
-    let client_data_hash = Sha256::digest(
-        &[hwid.hw_id.as_slice(), sig.public_key.as_slice()].concat(),
-    );
+    // The nonce is SHA-256(authData || clientDataHash) where
+    // clientDataHash = SHA-256(hw_id || key_id || nac_pk || ttc_pk)
+    // This cryptographically binds the attestation to the ECDAA credential
+    // public keys, preventing an attacker from reusing attestation from
+    // device A with ECDAA keys generated on device B.
+    let mut client_data_preimage = Vec::new();
+    client_data_preimage.extend_from_slice(&hwid.hw_id);
+    client_data_preimage.extend_from_slice(&sig.public_key);
+    for pk in credential_public_keys {
+        client_data_preimage.extend_from_slice(pk);
+    }
+    let client_data_hash = Sha256::digest(&client_data_preimage);
     let expected_nonce = Sha256::digest(
         &[auth_data.as_slice(), client_data_hash.as_slice()].concat(),
     );

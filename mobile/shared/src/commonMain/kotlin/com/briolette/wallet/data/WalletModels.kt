@@ -81,8 +81,17 @@ interface HwAttestationProvider {
     /** Whether this platform supports hardware attestation. */
     val isSupported: Boolean
 
-    /** Generate attestation data for the given challenge bytes. Returns null on failure. */
-    suspend fun generate(challenge: ByteArray): HwAttestationData?
+    /**
+     * Generate attestation data using the attestation challenge preimage.
+     *
+     * The `challengePreimageB64` is the base64-encoded preimage
+     * `hw_id || nac_pk || ttc_pk`. The provider must SHA-256 hash this
+     * to get the actual attestation challenge, which cryptographically
+     * binds the hardware attestation to the ECDAA credential public keys.
+     *
+     * Returns null on failure.
+     */
+    suspend fun generate(challengePreimageB64: String): HwAttestationData?
 }
 
 /**
