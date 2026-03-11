@@ -33,8 +33,8 @@ use briolette_proto::briolette::validate::validate_client::ValidateClient;
 use briolette_proto::briolette::validate::ValidateTokensRequest;
 use briolette_proto::briolette::Version;
 use briolette_proto::vec_utils;
+use briolette_proto::BrioletteClientHelper;
 use chrono::Utc;
-use std::sync::{Arc, Mutex};
 
 use log::*;
 use p256::{
@@ -46,6 +46,7 @@ use rand::Rng;
 use sha2::{Digest, Sha256};
 
 use async_trait::async_trait;
+use http::uri::Uri;
 use prost::Message;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -53,6 +54,7 @@ use sha256::digest;
 use std::collections::HashSet;
 use std::convert::From;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 // This is prototype code so we are going full async. As seen in the testing,
 // much of the logic is synchronous. Later, we'll come back through and extract
@@ -82,7 +84,7 @@ pub trait Wallet: Clone + Serialize + DeserializeOwned + Send {
     // This verifies unheld tokens, not in-wallet tokens which are always verified.
     // TODO: Add a validation helper.
     // TODO: Move the Receiver proto handling in here.
-    fn verify_tokens(&mut self, tokens: &Vec<token::Token>) -> bool;
+    fn verify_tokens(&self, tokens: &Vec<token::Token>) -> bool;
 
     // "Withdraws" money from the mint.
     async fn withdraw(&mut self, amount: u32) -> bool;
@@ -92,13 +94,15 @@ pub trait Wallet: Clone + Serialize + DeserializeOwned + Send {
     // |recipient| is a serialized SignedTicket.
     fn transfer(&mut self, amount: u32, recipient: Vec<u8>) -> bool;
 
-    // Migrate tokens bound to expired tickets to valid tickets.
-    // Returns the number of tokens successfully migrated.
-    fn self_transfer_expired(&mut self) -> usize;
-
     // Validate currently held tokens. Later this will enable recovery, but for
     // now it assures they are legitimate.
     async fn validate(&self) -> bool;
+    // Validates tokens which are not held.
+    async fn validate_tokens(&self, tokens: &Vec<token::Token>) -> bool;
+
+    // Migrate tokens bound to expired tickets to valid tickets.
+    // Returns the number of tokens successfully migrated.
+    fn self_transfer_expired(&mut self) -> usize;
 
     /// Initialize keys using split-key mode with smart cards.
     /// The secret key is split between a smart card and the host.
@@ -109,34 +113,6 @@ pub trait Wallet: Clone + Serialize + DeserializeOwned + Send {
         nac_card: Box<dyn split::SmartCard + Send>,
         ttc_card: Box<dyn split::SmartCard + Send>,
     ) -> bool;
-}
-
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
-pub struct Credential {
-    issuer_uri: String,
-    public_key: Vec<u8>,
-    secret_key: Vec<u8>,
-    group_public_key: Option<Vec<u8>>,
-    credential: Option<Vec<u8>>,
-    // Issuing cred signature.
-    credential_signature: Option<Vec<u8>>,
-    // Host's share of the secret key for split-key signing.
-    // When set, indicates this credential uses split-key mode.
-    #[serde(default)]
-    host_secret_key: Option<Vec<u8>>,
-}
-
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
-pub struct Epoch {
-    #[serde(skip)]
-    pub epoch_update: Option<EpochUpdate>,
-    eu_serialized: Vec<u8>,
-    pub epoch: u64,
-    group_bitfield: Vec<u8>,
-    ttc_group_public_keys: Vec<Vec<u8>>,
-    epoch_signing_keys: Vec<Vec<u8>>,
-    ticket_signing_keys: Vec<Vec<u8>>,
-    mint_signing_keys: Vec<Vec<u8>>,
 }
 
 /// Wrapper for a split::SmartCard trait object that can be shared across
@@ -173,6 +149,35 @@ impl std::fmt::Debug for SmartCardHandle {
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
+pub struct Credential {
+    #[serde(with = "http_serde::uri")]
+    issuer_uri: Uri,
+    public_key: Vec<u8>,
+    secret_key: Vec<u8>,
+    group_public_key: Option<Vec<u8>>,
+    credential: Option<Vec<u8>>,
+    // Issuing cred signature.
+    credential_signature: Option<Vec<u8>>,
+    // Host's share of the secret key for split-key signing.
+    // When set, indicates this credential uses split-key mode.
+    #[serde(default)]
+    host_secret_key: Option<Vec<u8>>,
+}
+
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
+pub struct Epoch {
+    #[serde(skip)]
+    pub epoch_update: Option<EpochUpdate>,
+    eu_serialized: Vec<u8>,
+    pub epoch: u64,
+    group_bitfield: Vec<u8>,
+    ttc_group_public_keys: Vec<Vec<u8>>,
+    epoch_signing_keys: Vec<Vec<u8>>,
+    ticket_signing_keys: Vec<Vec<u8>>,
+    mint_signing_keys: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
 pub struct WalletData {
     id: Vec<u8>,
     hw_id: Vec<u8>,
@@ -195,11 +200,14 @@ pub struct WalletData {
     // (e.g., most operators will have at least two issuers active to enable rotations.)
     transfer_credential: Credential,
     // Ticket server URI e.g., "http://[::1]:50052"
-    clerk_uri: String,
+    #[serde(with = "http_serde::uri")]
+    clerk_uri: Uri,
     // Ticket server URI e.g., "http://[::1]:50053"
-    mint_uri: String,
+    #[serde(with = "http_serde::uri")]
+    mint_uri: Uri,
     // Validate server URI e.g., "http://[::1]:50055"
-    validate_uri: String,
+    #[serde(with = "http_serde::uri")]
+    validate_uri: Uri,
     // Epoch data
     pub epoch: Epoch,
     // Tickets
@@ -237,7 +245,7 @@ pub struct TokenEntry {
     pub token: Vec<u8>, // most minimal Token.
     credential: Vec<u8>,
     pub whole_value: i32,
-    pub fractional_value: i32,
+    pub fractional_value: f32,
     pub value_code: i32,
     // TODO add mint pk to demo different token authority for same value code.
 }
@@ -281,7 +289,7 @@ impl From<token::Token> for TokenEntry {
                 .value
                 .as_ref()
                 .unwrap()
-                .fractional,
+                .fractional as f32,
             value_code: item
                 .descriptor
                 .as_ref()
@@ -310,17 +318,41 @@ impl From<TicketEntry> for token::SignedTicket {
     }
 }
 
+impl From<TokenEntry> for token::Token {
+    fn from(item: TokenEntry) -> Self {
+        token::Token::decode(item.token.as_slice()).unwrap()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct WalletDataError<'a>(&'a str);
+impl std::error::Error for WalletDataError<'_> {}
+impl std::fmt::Display for WalletDataError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WalletDataError {}", self.0)
+    }
+}
 
 impl WalletData {
     pub fn new(
-        issuer_uri: String,
-        clerk_uri: String,
-        mint_uri: String,
-        validate_uri: String,
-    ) -> Self {
-        WalletData {
+        issuer_uri_s: String,
+        clerk_uri_s: String,
+        mint_uri_s: String,
+        validate_uri_s: String,
+    ) -> Result<Self, WalletDataError<'static>> {
+        let issuer_uri: Uri = issuer_uri_s
+            .parse()
+            .map_err(|_| WalletDataError("cannot parse Uri"))?;
+        let clerk_uri: Uri = clerk_uri_s
+            .parse()
+            .map_err(|_| WalletDataError("cannot parse Uri"))?;
+        let mint_uri: Uri = mint_uri_s
+            .parse()
+            .map_err(|_| WalletDataError("cannot parse Uri"))?;
+        let validate_uri: Uri = validate_uri_s
+            .parse()
+            .map_err(|_| WalletDataError("cannot parse Uri"))?;
+        Ok(WalletData {
             clerk_uri,
             mint_uri,
             validate_uri,
@@ -333,7 +365,7 @@ impl WalletData {
                 ..Default::default()
             },
             ..Default::default()
-        }
+        })
     }
 
     pub fn load(wallet_file: &Path) -> Result<Self, WalletDataError> {
@@ -437,50 +469,7 @@ impl Wallet for WalletData {
         return ret;
     }
 
-    fn initialize_split_keys(
-        &mut self,
-        id: &[u8],
-        nac_card: Box<dyn split::SmartCard + Send>,
-        ttc_card: Box<dyn split::SmartCard + Send>,
-    ) -> bool {
-        self.id = Vec::from(id);
-        self.hw_id = digest(id).into_bytes();
-
-        // Generate TTC split keypair
-        let ttc_nonce = self.hw_id.clone();
-        let (ttc_host_sk, ttc_pk, ttc_combined_sk) =
-            match split::generate_split_wallet_keypair(&*ttc_card, &ttc_nonce) {
-                Some(v) => v,
-                None => return false,
-            };
-        self.transfer_credential.public_key = ttc_pk.clone();
-        // The combined sk is needed for credential issuance with the current protocol.
-        self.transfer_credential.secret_key = ttc_combined_sk;
-        self.transfer_credential.host_secret_key = Some(ttc_host_sk);
-
-        // Generate NAC split keypair (using TTC public key as nonce, matching standard flow)
-        let (nac_host_sk, nac_pk, nac_combined_sk) =
-            match split::generate_split_wallet_keypair(&*nac_card, &ttc_pk) {
-                Some(v) => v,
-                None => return false,
-            };
-        self.network_credential.public_key = nac_pk;
-        self.network_credential.secret_key = nac_combined_sk;
-        self.network_credential.host_secret_key = Some(nac_host_sk);
-
-        // Attach the smart cards for runtime signing
-        self.attach_smart_cards(nac_card, ttc_card);
-
-        true
-    }
-
     async fn initialize_credential(&mut self) -> bool {
-        if self.transfer_credential.issuer_uri.len() == 0
-            || self.network_credential.issuer_uri.len() == 0
-        {
-            eprintln!("issuer_uri must be set before calling initialize_credential");
-            return false;
-        }
         if self.transfer_credential.secret_key.len() == 0
             || self.network_credential.secret_key.len() == 0
         {
@@ -508,7 +497,7 @@ impl Wallet for WalletData {
                 public_key: self.transfer_credential.public_key.clone(),
             }),
         });
-        match RegistrarClient::connect(self.network_credential.issuer_uri.clone()).await {
+        match RegistrarClient::multiconnect(&self.network_credential.issuer_uri).await {
             Ok(mut client) => {
                 let response = client.register_call(request).await;
                 //println!("RESPONSE={:?}", response);
@@ -587,7 +576,7 @@ impl Wallet for WalletData {
             requests: Some(requests),
             nac_signature: signature,
         };
-        if let Ok(mut client) = ClerkClient::connect(self.clerk_uri.clone()).await {
+        if let Ok(mut client) = ClerkClient::multiconnect(&self.clerk_uri).await {
             match client.get_tickets(request).await {
                 Ok(response) => {
                     println!("get_tickets response={:?}", response);
@@ -648,7 +637,7 @@ impl Wallet for WalletData {
                     return true;
                 }
                 Err(e) => {
-                    eprintln!("get_tickets() failed: {:?}", e);
+                    eprintln!("RPC[wallet->clerk] get_tickets(): failed: {:?}", e);
                     return false;
                 }
             }
@@ -656,7 +645,7 @@ impl Wallet for WalletData {
         return false;
     }
 
-    fn verify_tokens(&mut self, tokens: &Vec<token::Token>) -> bool {
+    fn verify_tokens(&self, tokens: &Vec<token::Token>) -> bool {
         for token in tokens.iter() {
             if let Err(e) = token.verify(
                 self.transfer_credential.group_public_key.as_ref().unwrap(),
@@ -666,17 +655,10 @@ impl Wallet for WalletData {
                 error!("invalid token: {:?}", e);
                 return false;
             }
-            // Replay protection: reject tokens we've already seen in this epoch.
-            // Key = base signature + history length (identifies a specific token version).
-            if let Some(ref base) = token.base {
-                let mut replay_key = base.signature.clone();
-                replay_key.extend_from_slice(&(token.history.len() as u32).to_le_bytes());
-                if !self.seen_tokens.insert(replay_key) {
-                    error!("replay detected: token already seen in this epoch");
-                    return false;
-                }
-            }
         }
+        // TODO: Pulled validate out to simplify handling of the
+        //       wallet data in receiver. These structures all need to
+        //       be cleaned up.
         return true;
     }
     fn gossip_synchronize(&mut self, update: &EpochUpdate) -> bool {
@@ -739,7 +721,7 @@ impl Wallet for WalletData {
             version: Version::Current.into(),
             known_epoch: self.epoch.epoch,
         });
-        match ClerkClient::connect(self.clerk_uri.clone()).await {
+        match ClerkClient::multiconnect(&self.clerk_uri).await {
             Ok(mut client) => {
                 let response = client.get_epoch(request).await;
                 //println!("get_epoch response={:?}", response);
@@ -784,7 +766,7 @@ impl Wallet for WalletData {
             ticket: Some(ticket.clone().into()),
         });
 
-        match MintClient::connect(self.mint_uri.clone()).await {
+        match MintClient::multiconnect(&self.mint_uri).await {
             Ok(mut client) => {
                 let response = client.get_tokens(request).await;
                 //println!("get_epoch response={:?}", response);
@@ -857,7 +839,6 @@ impl Wallet for WalletData {
         let now = Utc::now().timestamp() as u64;
 
         // Find the best valid destination ticket: shortest-lived first
-        // (preserving the elastic lifetime spending order).
         let valid_ticket_idx = self
             .tickets
             .iter()
@@ -911,7 +892,6 @@ impl Wallet for WalletData {
         }
 
         // Transfer each expired-ticket token to the valid destination.
-        // Process in reverse order so indices stay valid as we remove.
         let mut migrated = 0usize;
         for &idx in expired_indices.iter().rev() {
             let token_entry = self.tokens.remove(idx);
@@ -929,13 +909,11 @@ impl Wallet for WalletData {
                 };
                 match result {
                     Ok(_) => {
-                        // Re-insert as a new TokenEntry bound to the valid ticket
                         self.tokens.push(tok.into());
                         migrated += 1;
                     }
                     Err(e) => {
                         error!("self_transfer_expired: failed to sign transfer: {:?}", e);
-                        // Put it back
                         self.tokens.insert(idx, token_entry);
                     }
                 }
@@ -954,21 +932,53 @@ impl Wallet for WalletData {
         migrated
     }
 
-    async fn validate(&self) -> bool {
-        if self.tokens.len() == 0 {
+    fn initialize_split_keys(
+        &mut self,
+        id: &[u8],
+        nac_card: Box<dyn split::SmartCard + Send>,
+        ttc_card: Box<dyn split::SmartCard + Send>,
+    ) -> bool {
+        self.id = Vec::from(id);
+        self.hw_id = digest(id).into_bytes();
+
+        // Generate TTC split keypair
+        let ttc_nonce = self.hw_id.clone();
+        let (ttc_host_sk, ttc_pk, ttc_combined_sk) =
+            match split::generate_split_wallet_keypair(&*ttc_card, &ttc_nonce) {
+                Some(v) => v,
+                None => return false,
+            };
+        self.transfer_credential.public_key = ttc_pk.clone();
+        self.transfer_credential.secret_key = ttc_combined_sk;
+        self.transfer_credential.host_secret_key = Some(ttc_host_sk);
+
+        // Generate NAC split keypair
+        let (nac_host_sk, nac_pk, nac_combined_sk) =
+            match split::generate_split_wallet_keypair(&*nac_card, &ttc_pk) {
+                Some(v) => v,
+                None => return false,
+            };
+        self.network_credential.public_key = nac_pk;
+        self.network_credential.secret_key = nac_combined_sk;
+        self.network_credential.host_secret_key = Some(nac_host_sk);
+
+        // Attach the smart cards for runtime signing
+        self.attach_smart_cards(nac_card, ttc_card);
+
+        true
+    }
+
+    async fn validate_tokens(&self, tokens: &Vec<token::Token>) -> bool {
+        if tokens.len() == 0 {
             error!("No tokens to validate");
             return false;
         }
         let request = tonic::Request::new(ValidateTokensRequest {
             version: Version::Current.into(),
-            tokens: self
-                .tokens
-                .iter()
-                .map(|t| token::Token::decode(t.token.as_slice()).unwrap())
-                .collect(),
+            tokens: tokens.clone(),
         });
 
-        match ValidateClient::connect(self.validate_uri.clone()).await {
+        match ValidateClient::multiconnect(&self.validate_uri).await {
             Ok(mut client) => {
                 let response = client.validate_tokens(request).await;
                 trace!("validate response = {:?}", response);
@@ -995,39 +1005,47 @@ impl Wallet for WalletData {
         }
         return false;
     }
+
+    async fn validate(&self) -> bool {
+        if self.tokens.len() == 0 {
+            error!("No tokens to validate");
+            return false;
+        }
+        let tokens: Vec<token::Token> = self
+            .tokens
+            .iter()
+            .map(|t| token::Token::decode(t.token.as_slice()).unwrap())
+            .collect();
+        return self.validate_tokens(&tokens).await;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use briolette_clerk::server::BrioletteClerk;
     use briolette_mint::server::BrioletteMint;
     use briolette_proto::briolette::clerk::clerk_server::ClerkServer;
     use briolette_proto::briolette::mint::mint_server::MintServer;
     use briolette_proto::briolette::registrar::registrar_server::RegistrarServer;
     use briolette_proto::briolette::tokenmap::token_map_server::TokenMapServer;
     use briolette_proto::briolette::validate::validate_server::ValidateServer;
-    use briolette_crypto::v0::split::SmartCard as _;
     use briolette_proto::briolette::ErrorCode as BrioletteErrorCode;
-    use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
-    use briolette_proto::briolette::tokenmap::{
-        revocation_data_request, RevocationDataRequest, SelectGroup,
-    };
+    use briolette_proto::briolette::{ServiceMapInterface, ServiceName};
+    use briolette_registrar::server::BrioletteRegistrar;
     use briolette_tokenmap::server::BrioletteTokenMap;
     use briolette_validate::server::BrioletteValidate;
-    use briolette_clerk::server::BrioletteClerk;
-    use briolette_registrar::server::BrioletteRegistrar;
-    use glob::glob;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::net::TcpListener;
-    use tokio::sync::oneshot;
+    use tempdir::TempDir;
+    use tokio::net::UnixListener;
+    use tokio_stream::wrappers::UnixListenerStream;
 
-    static TOKENMAP_RUNNING: AtomicUsize = AtomicUsize::new(0);
+    use tokio::sync::oneshot;
 
     #[test]
     pub fn setup_logger() {
         stderrlog::new()
             .quiet(false)
-            .verbosity(1)
+            .verbosity(0)
             .timestamp(stderrlog::Timestamp::Millisecond)
             .init()
             .unwrap();
@@ -1067,95 +1085,139 @@ mod tests {
     pub fn initialize_keys_basic() {
         let mut wd = WalletData::default();
         assert_eq!(wd.initialize_keys(b"test-id"), true);
-    } //tokio::test(flavor = "multi_thread")]
+    }
 
-    async fn setup_tokenmap() -> String {
-        let db_id = TOKENMAP_RUNNING.fetch_add(1, Ordering::SeqCst);
+    async fn setup_tokenmap(tmp: &TempDir) -> Result<Uri, ()> {
+        let socket = tmp.path().join("tokenmap.socket");
+        let client_path = format!(
+            "socket://localhost{}",
+            socket.clone().into_os_string().into_string().unwrap()
+        )
+        .to_string();
+        tokio::fs::create_dir_all(socket.as_path().parent().unwrap())
+            .await
+            .unwrap();
+
         let (tx, rx) = oneshot::channel::<u16>();
 
         tokio::spawn(async move {
-            println!("Launching test tokenmap...");
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            tx.send(addr.port()).unwrap();
+            println!("Launching test tokenmap at {:?}...", socket);
+            let uds = UnixListener::bind(socket).unwrap();
+            let uds_stream = UnixListenerStream::new(uds);
 
-            let dbfile = format!("tokenmap.{}.db", db_id).to_string();
+            tx.send(1).unwrap();
+            let dbfile = format!(":memory:").to_string();
             let tokenmap = BrioletteTokenMap::new(&dbfile).await.unwrap();
 
             match tonic::transport::Server::builder()
                 .add_service(TokenMapServer::new(tokenmap))
-                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .serve_with_incoming(uds_stream)
                 .await
             {
                 Ok(_) => {
-                    eprintln!("tokenmap server started");
+                    info!("tokenmap server started");
                     // TODO: can we put file clean up here and use Drop to signal shutdown?
                 }
                 Err(x) => {
-                    eprintln!("tokenmap server failed to start: {:?}", x);
+                    error!("tokenmap server failed to start: {:?}", x);
                 }
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://127.0.0.1:{}", v),
-            Err(_) => println!("didn't receive the port"),
+            Ok(_) => {
+                return Ok(Uri::try_from(client_path).unwrap());
+            }
+            Err(e) => {
+                error!("server setup failed: {:?}", e);
+            }
         }
-        assert!(false);
-        return "".to_string();
+        Err(())
     }
 
-    async fn setup_registrar(_tokenmap_uri: String) -> String {
+    async fn setup_registrar(tmp: &TempDir) -> Result<Uri, ()> {
         // Setup a registrar server
+        let socket = tmp.path().join("registrar.socket");
+        let client_path = format!(
+            "socket://localhost{}",
+            socket.clone().into_os_string().into_string().unwrap()
+        )
+        .to_string();
+        tokio::fs::create_dir_all(socket.as_path().parent().unwrap())
+            .await
+            .unwrap();
+
         let (tx, rx) = oneshot::channel::<u16>();
         tokio::spawn(async move {
-            println!("Launching test registrar...");
-            // THese are generated by registrar binaries.
-            let nsk = Path::new("../registrar/data/net_issuer.sk");
-            let ngpk = Path::new("../registrar/data/net_issuer.gpk");
-            let tsk = Path::new("../registrar/data/ttc_issuer.sk");
-            let tgpk = Path::new("../registrar/data/ttc_issuer.gpk");
-            let registrar = BrioletteRegistrar::new(nsk, ngpk, tsk, tgpk);
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            tx.send(addr.port()).unwrap();
+            trace!("Launching test registrar...");
+            // These are generated by registrar binaries.
+            // All paths are relative to the current crate not the workspace.
+            let nsk = Path::new("../../data/registrar/nac_issuer.sk");
+            let ngpk = Path::new("../../data/registrar/nac_issuer.gpk");
+            let tsk = Path::new("../../data/registrar/ttc_issuer.sk");
+            let tgpk = Path::new("../../data/registrar/ttc_issuer.gpk");
+            let registrar = BrioletteRegistrar::new(true, nsk, ngpk, tsk, tgpk);
+
+            println!("Launching test registrar at {:?}...", socket);
+            let uds = UnixListener::bind(socket).unwrap();
+            let uds_stream = UnixListenerStream::new(uds);
+            tx.send(1).unwrap();
 
             match tonic::transport::Server::builder()
                 .add_service(RegistrarServer::new(registrar))
-                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .serve_with_incoming(uds_stream)
                 .await
             {
                 Ok(_) => {
-                    eprintln!("registar server started");
+                    info!("registrar server started");
                 }
                 Err(x) => {
-                    eprintln!("registrar server failed to start: {:?}", x);
+                    error!("registrar server failed to start: {:?}", x);
                 }
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://127.0.0.1:{}", v),
-            Err(_) => println!("didn't receive the port"),
+            Ok(_) => return Ok(Uri::try_from(client_path).unwrap()),
+            Err(e) => {
+                error!("server setup failed: {:?}", e);
+            }
         }
-        assert!(false);
-        return "".to_string();
+        Err(())
     }
 
-    async fn setup_clerk(tokenmap_uri: String) -> String {
+    async fn setup_clerk(tmp: &TempDir, tokenmap_uri_ref: &Uri) -> Result<Uri, ()> {
         // Setup a clerk server
+        let socket = tmp.path().join("clerk.socket");
+        let client_path = format!(
+            "socket://localhost{}",
+            socket.clone().into_os_string().into_string().unwrap()
+        )
+        .to_string();
+        tokio::fs::create_dir_all(socket.as_path().parent().unwrap())
+            .await
+            .unwrap();
         let (tx, rx) = oneshot::channel::<u16>();
+        let tokenmap_uri = tokenmap_uri_ref.clone();
         tokio::spawn(async move {
             println!("Launching test clerk...");
-            println!("Ensure ette-clerk-server has generated clerk.state before running.");
-            // The ette-clerk-server must be called with registrar data above.
-            let mut clerk = BrioletteClerk::load(Path::new("../clerk/data/clerk.state")).unwrap();
-            clerk.tokenmap_uri = tokenmap_uri;
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            tx.send(addr.port()).unwrap();
+            // TODO(redpig) make integration tests hermetic short of replacing with fakes.
+            println!("Ensure briolette-clerk-server has generated clerk.state before running.");
+            // The briolette-clerk-server must be called with registrar data above.
+            let mut clerk =
+                BrioletteClerk::load(Path::new("../../data/clerk/clerk.state")).unwrap();
+            clerk.tokenmap_uri = tokenmap_uri.clone();
+            info!(
+                "overriding clerk state tokenmap URI with {:?}",
+                clerk.tokenmap_uri
+            );
+            println!("Launching test registrar at {:?}...", socket);
+            let uds = UnixListener::bind(socket).unwrap();
+            let uds_stream = UnixListenerStream::new(uds);
+
+            tx.send(1).unwrap();
 
             match tonic::transport::Server::builder()
                 .add_service(ClerkServer::new(clerk))
-                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .serve_with_incoming(uds_stream)
                 .await
             {
                 Ok(_) => {
@@ -1167,98 +1229,139 @@ mod tests {
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://127.0.0.1:{}", v),
+            Ok(_) => return Ok(Uri::try_from(client_path).unwrap()),
             Err(_) => println!("didn't receive the port"),
         }
-        assert!(false);
-        return "".to_string();
+        Err(())
     }
 
-    async fn setup_mint(tokenmap_uri: String) -> String {
+    async fn setup_mint(tmp: &TempDir, tokenmap_uri: Uri) -> Result<Uri, ()> {
         // Setup a registrar server
+        let socket = tmp.path().join("mint.socket");
+        let client_path = format!(
+            "socket://localhost{}",
+            socket.clone().into_os_string().into_string().unwrap()
+        )
+        .to_string();
+        tokio::fs::create_dir_all(socket.as_path().parent().unwrap())
+            .await
+            .unwrap();
         let (tx, rx) = oneshot::channel::<u16>();
         tokio::spawn(async move {
             println!("Launching test registrar...");
             // These are generated by mint server binaries.
-            let msk = std::fs::read(Path::new("../mint/data/mint.sk"))
-                .expect("mint/data/mint.sk not populated yet");
-            let ttc_gpk = std::fs::read("../registrar/data/wallet.ttc.gpk")
-                .expect("registrar/data/wallet.ttc.gpk not populated yet");
-            let ticket_pk =
-                std::fs::read("../clerk/data/ticket.pk").expect("clerk/data not populated yet");
+            let msk = std::fs::read(Path::new("../../data/mint/mint.sk"))
+                .expect("../../data/mint/mint.sk not populated yet");
+            let ttc_gpk = std::fs::read("../../data/wallet/ttc.gpk")
+                .expect("../../data/wallet/ttc.gpk not populated yet");
+            let ticket_pk = std::fs::read("../../data/clerk/ticket.pk")
+                .expect("../../data/clerk not populated yet");
             let mint = BrioletteMint::new(msk, ttc_gpk, vec![ticket_pk], tokenmap_uri.to_string())
                 .unwrap();
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            tx.send(addr.port()).unwrap();
+            info!("Launching test mint at {:?}...", socket);
+            let uds = UnixListener::bind(socket).unwrap();
+            let uds_stream = UnixListenerStream::new(uds);
+            tx.send(1).unwrap();
 
             // serve_with_shutdown and a oneshot works in theory, it doesn't
             // release the port in a useful timeframe. Need to move over to
             // serve_with_incoming()
             match tonic::transport::Server::builder()
                 .add_service(MintServer::new(mint))
-                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .serve_with_incoming(uds_stream)
                 .await
             {
                 Ok(_) => {
-                    eprintln!("registar server started");
+                    info!("mint server started");
                 }
                 Err(x) => {
-                    eprintln!("registrar server failed to start: {:?}", x);
+                    info!("mint server failed to start: {:?}", x);
                 }
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://127.0.0.1:{}", v),
-            Err(_) => println!("didn't receive the port"),
+            Ok(_) => return Ok(Uri::try_from(client_path).unwrap()),
+            Err(e) => {
+                error!("server setup failed: {:?}", e);
+            }
         }
-        assert!(false);
-        return "".to_string();
+        Err(())
     }
 
-    async fn setup_validate(clerk_uri: String, tokenmap_uri: String) -> String {
+    async fn setup_validate(tmp: &TempDir, clerk_uri: Uri, tokenmap_uri: Uri) -> Result<Uri, ()> {
         // Setup a validate server
+        let socket = tmp.path().join("validate.socket");
+        let client_path = format!(
+            "socket://localhost{}",
+            socket.clone().into_os_string().into_string().unwrap()
+        )
+        .to_string();
+        tokio::fs::create_dir_all(socket.as_path().parent().unwrap())
+            .await
+            .unwrap();
+
         let (tx, rx) = oneshot::channel::<u16>();
         tokio::spawn(async move {
             println!("Launching test validate...");
             // These are generated by validate server binaries.
-            let epoch_pk =
-                std::fs::read("../clerk/data/epoch.pk").expect("clerk/data not populated yet");
-            let validate = BrioletteValidate::new(clerk_uri, tokenmap_uri, epoch_pk)
-                .await
-                .unwrap();
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            tx.send(addr.port()).unwrap();
+            let epoch_pk = std::fs::read("../../data/clerk/epoch.pk")
+                .expect("../../data/clerk not populated yet");
+            let mut epoch_update =
+                BrioletteValidate::fetch_epoch_update(&clerk_uri.to_string(), &epoch_pk).await;
+            assert_eq!(epoch_update.is_ok(), true);
+
+            // While the Tokenmap URI resides in here, we just doctor it since the Validator
+            // is not re-checking the EU.
+            let eu = epoch_update.as_mut().unwrap();
+            let eed = eu.extended_data.as_mut().unwrap();
+            eed.service_map.remove_all(ServiceName::Tokenmap);
+            eed.service_map
+                .add(ServiceName::Tokenmap, &tokenmap_uri.to_string());
+            let known_tms = eed.service_map.get(ServiceName::Tokenmap);
+            eu.extended_data = Some(eed.clone());
+
+            println!(
+                "Configuring validation against test tokenmap: {}",
+                tokenmap_uri
+            );
+            println!("Known tokenmaps: {:?}", known_tms);
+
+            let validate = BrioletteValidate::new(&eu).await.unwrap();
+            info!("Launching test mint at {:?}...", socket);
+            let uds = UnixListener::bind(socket).unwrap();
+            let uds_stream = UnixListenerStream::new(uds);
+            tx.send(1).unwrap();
 
             // serve_with_shutdown and a oneshot works in theory, it doesn't
             // release the port in a useful timeframe. Need to move over to
             // serve_with_incoming()
             match tonic::transport::Server::builder()
                 .add_service(ValidateServer::new(validate))
-                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .serve_with_incoming(uds_stream)
                 .await
             {
                 Ok(_) => {
-                    eprintln!("registar server started");
+                    info!("registrar server started");
                 }
                 Err(x) => {
-                    eprintln!("registrar server failed to start: {:?}", x);
+                    error!("registrar server failed to start: {:?}", x);
                 }
             }
         });
         match rx.await {
-            Ok(v) => return format!("http://127.0.0.1:{}", v),
-            Err(_) => println!("didn't receive the port"),
+            Ok(_) => return Ok(Uri::try_from(client_path).unwrap()),
+            Err(e) => {
+                error!("server setup failed: {:?}", e);
+            }
         }
-        assert!(false);
-        return "".to_string();
+        Err(())
     }
 
     #[tokio::test]
     async fn initialize_credential_basic() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let _tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
         let mut wd = WalletData::default();
         wd.network_credential.issuer_uri = registrar_uri.clone();
         wd.transfer_credential.issuer_uri = registrar_uri.clone();
@@ -1271,19 +1374,21 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn fetch_epoch_from_clerk() {
-        // FIXME: This test depends on clerk having a valid EpochUpdate in data/clerk.state.
-        let tokenmap_uri = setup_tokenmap().await;
+        // FIXME: This test depends on clerk having a valid EpochUpdate in ../../data/clerk.state.
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
         let mut wd = WalletData::default();
-        wd.clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
+        wd.clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
         assert_eq!(wd.synchronize().await, true);
         teardown();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn get_tickets_ok() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
         let mut wd = WalletData::default();
         wd.clerk_uri = clerk_uri.clone();
         wd.network_credential.issuer_uri = registrar_uri.clone();
@@ -1298,10 +1403,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn withdraw_ok() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
         let mut wd = WalletData::default();
         wd.clerk_uri = clerk_uri.clone();
         wd.network_credential.issuer_uri = registrar_uri.clone();
@@ -1320,10 +1426,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn withdraw_tickets_norecovery() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
         let mut wd = WalletData::default();
         wd.clerk_uri = clerk_uri.clone();
         wd.network_credential.issuer_uri = registrar_uri.clone();
@@ -1344,10 +1451,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn withdraw_tickets_local_modification() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
         let mut wd = WalletData::default();
         wd.clerk_uri = clerk_uri.clone();
         wd.network_credential.issuer_uri = registrar_uri.clone();
@@ -1368,10 +1476,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn withdraw_tickets_corrupt_sig() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
         let mut wd = WalletData::default();
         wd.clerk_uri = clerk_uri.clone();
         wd.network_credential.issuer_uri = registrar_uri.clone();
@@ -1394,10 +1503,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn withdraw_and_transfer() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
         let mut wd = WalletData::default();
         wd.clerk_uri = clerk_uri.clone();
         wd.network_credential.issuer_uri = registrar_uri.clone();
@@ -1417,9 +1527,10 @@ mod tests {
         assert_eq!(wd.transfer(2, destination_addr), true);
         assert_eq!(wd.pending_tokens.len(), 2);
         let t = token::Token::decode(wd.pending_tokens[0].as_slice()).unwrap();
-        // A token with a token base and transfer is ~987-989 bytes
-        // depending on the crypto backend's serialization.
-        assert!(wd.pending_tokens[0].len() >= 985 && wd.pending_tokens[0].len() <= 995);
+        // A token with a token base and transfer is 987-989 bytes.
+        info!("token len: {}", wd.pending_tokens[0].len());
+        assert!(wd.pending_tokens[0].len() >= 987);
+        assert!(wd.pending_tokens[0].len() <= 990);
         assert_eq!(
             Ok(true),
             t.verify(
@@ -1435,10 +1546,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn withdraw_and_transfer_and_transfer() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
         let mut wd = WalletData::default();
         wd.clerk_uri = clerk_uri.clone();
         wd.network_credential.issuer_uri = registrar_uri.clone();
@@ -1584,12 +1696,21 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn withdraw_and_transfer_and_validate_and_double_spend() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let validate_uri = setup_validate(clerk_uri.clone(), tokenmap_uri.clone()).await;
-        let mut wd = WalletData::new(registrar_uri, clerk_uri, mint_uri, validate_uri);
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
+        let validate_uri = setup_validate(&tmp, clerk_uri.clone(), tokenmap_uri.clone())
+            .await
+            .unwrap();
+        let mut wd = WalletData::new(
+            registrar_uri.to_string(),
+            clerk_uri.to_string(),
+            mint_uri.to_string(),
+            validate_uri.to_string(),
+        )
+        .unwrap();
         assert_eq!(wd.initialize_keys(b"test-id2"), true);
         assert_eq!(wd.initialize_credential().await, true);
         assert_eq!(wd.synchronize().await, true);
@@ -1630,911 +1751,7 @@ mod tests {
         teardown();
     }
 
-    /// Full eviction flow test proving that:
-    /// 1. Double-spend is detected by the tokenmap (fork detection invariant)
-    /// 2. RevocationData is created with linkable pseudonyms (basename linkability invariant)
-    /// 3. The pseudonyms from both spends match (identity revelation)
-    ///
-    /// This is the integration test for the Eviction Completeness Bound (see
-    /// docs/security_model.md): once a double-spend token reaches the validate
-    /// server, detection and revocation record creation happen in O(1).
-    #[tokio::test(flavor = "multi_thread")]
-    async fn double_spend_creates_revocation_data() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let validate_uri = setup_validate(clerk_uri.clone(), tokenmap_uri.clone()).await;
-        let mut wd = WalletData::new(
-            registrar_uri,
-            clerk_uri,
-            mint_uri,
-            validate_uri,
-        );
-        assert_eq!(wd.initialize_keys(b"revocation-test"), true);
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_eq!(wd.synchronize().await, true);
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.withdraw(5).await, true);
-        assert_eq!(wd.tokens.len(), 5);
-
-        // Transfer all tokens to recipient A
-        let dest_a: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
-        assert_eq!(wd.transfer(5, dest_a.encode_to_vec()), true);
-        assert_eq!(wd.pending_tokens.len(), 5);
-
-        // Save the tokens as received, then "return" them to the wallet
-        let mut original_tokens: Vec<token::Token> = vec![];
-        while let Some(tok) = wd.pending_tokens.pop() {
-            let t = token::Token::decode(tok.as_slice()).unwrap();
-            original_tokens.push(t.clone());
-            wd.tokens.push(t.into());
-        }
-
-        // Validate the first set — this establishes the token in the tokenmap
-        assert_eq!(wd.validate().await, true);
-
-        // Now double-spend: clear history on one token and re-transfer
-        let mut ds_token = original_tokens.pop().unwrap();
-        ds_token.history.clear();
-        wd.tokens.push(ds_token.into());
-        let dest_b: token::SignedTicket = wd.tickets[1].clone().into();
-        assert_eq!(wd.transfer(1, dest_b.encode_to_vec()), true);
-
-        // Move double-spent token back to wallet for validation
-        while let Some(tok) = wd.pending_tokens.pop() {
-            wd.tokens
-                .push(token::Token::decode(tok.as_slice()).unwrap().into());
-        }
-
-        // Validate should detect the double spend
-        assert_eq!(wd.validate().await, false);
-
-        // Query the tokenmap for revocation data
-        let mut tm_client = TokenMapClient::connect(tokenmap_uri.clone())
-            .await
-            .expect("failed to connect to tokenmap");
-        let revocation_request = tonic::Request::new(RevocationDataRequest {
-            select: Some(revocation_data_request::Select::Group(
-                SelectGroup::All.into(),
-            )),
-        });
-        let revocation_reply = tm_client
-            .revocation_data(revocation_request)
-            .await
-            .expect("revocation_data RPC failed");
-        let entries = revocation_reply.into_inner().entries;
-
-        // RevocationData must exist — this proves fork detection triggered revocation
-        assert!(
-            !entries.is_empty(),
-            "RevocationData must be created when double-spend is detected"
-        );
-
-        let rd = entries[0].data.as_ref().unwrap();
-        // The revocation must record a TTC linkable signature (the pseudonym)
-        assert!(
-            rd.ttc.is_some(),
-            "RevocationData must contain a TTC linkable signature for identity revelation"
-        );
-        // The revocation must identify the abuse type
-        assert_eq!(
-            rd.abuse,
-            briolette_proto::briolette::tokenmap::AbuseType::DoubleSpend as i32,
-            "Abuse type must be DoubleSpend"
-        );
-
-        teardown();
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn split_key_initialize_and_get_tickets() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mut wd = WalletData::default();
-        wd.clerk_uri = clerk_uri.clone();
-        wd.network_credential.issuer_uri = registrar_uri.clone();
-        wd.transfer_credential.issuer_uri = registrar_uri.clone();
-
-        // Use split-key initialization with mock smart cards
-        let nac_card = Box::new(split::MockCard::new());
-        let ttc_card = Box::new(split::MockCard::new());
-        assert_eq!(
-            wd.initialize_split_keys(b"split-test-id", nac_card, ttc_card),
-            true
-        );
-        assert!(wd.is_split_key_mode());
-        assert!(wd.network_credential.host_secret_key.is_some());
-        assert!(wd.transfer_credential.host_secret_key.is_some());
-
-        // Credential issuance uses the combined_sk, same as standard mode
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_ne!(wd.network_credential.credential, None);
-        assert_ne!(wd.transfer_credential.credential, None);
-
-        // Epoch sync
-        assert_eq!(wd.synchronize().await, true);
-
-        // get_tickets now signs with sign_split internally
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.tickets.len(), 5);
-
-        teardown();
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn split_key_withdraw_and_transfer() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let mut wd = WalletData::default();
-        wd.clerk_uri = clerk_uri.clone();
-        wd.network_credential.issuer_uri = registrar_uri.clone();
-        wd.transfer_credential.issuer_uri = registrar_uri.clone();
-        wd.mint_uri = mint_uri.clone();
-
-        let nac_card = Box::new(split::MockCard::new());
-        let ttc_card = Box::new(split::MockCard::new());
-        assert_eq!(
-            wd.initialize_split_keys(b"split-test-id2", nac_card, ttc_card),
-            true
-        );
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_eq!(wd.synchronize().await, true);
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.withdraw(10).await, true);
-        assert_eq!(wd.tokens.len(), 10);
-        assert_eq!(wd.tickets.len(), 4);
-
-        // Transfer uses split signing for TTC credential
-        let destination: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
-        let destination_addr = destination.encode_to_vec();
-        assert_eq!(wd.transfer(2, destination_addr), true);
-        assert_eq!(wd.pending_tokens.len(), 2);
-
-        // Verify the split-signed transfer is accepted by standard verification
-        let t = token::Token::decode(wd.pending_tokens[0].as_slice()).unwrap();
-        assert_eq!(
-            Ok(true),
-            t.verify(
-                wd.transfer_credential.group_public_key.as_ref().unwrap(),
-                &wd.epoch.mint_signing_keys,
-                &wd.epoch.ticket_signing_keys
-            )
-        );
-
-        teardown();
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn split_key_multi_hop_transfer() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let mut wd = WalletData::default();
-        wd.clerk_uri = clerk_uri.clone();
-        wd.network_credential.issuer_uri = registrar_uri.clone();
-        wd.transfer_credential.issuer_uri = registrar_uri.clone();
-        wd.mint_uri = mint_uri.clone();
-
-        let nac_card = Box::new(split::MockCard::new());
-        let ttc_card = Box::new(split::MockCard::new());
-        assert_eq!(
-            wd.initialize_split_keys(b"split-test-id3", nac_card, ttc_card),
-            true
-        );
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_eq!(wd.synchronize().await, true);
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.withdraw(10).await, true);
-
-        // First transfer
-        let dest1: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
-        assert_eq!(wd.transfer(2, dest1.encode_to_vec()), true);
-        let t = token::Token::decode(wd.pending_tokens.pop().unwrap().as_slice()).unwrap();
-        wd.tokens.push(t.into());
-
-        // Second transfer of same token (multi-hop)
-        let dest2: token::SignedTicket = wd.tickets[1].clone().into();
-        assert_eq!(wd.transfer(1, dest2.encode_to_vec()), true);
-
-        // Verify multi-hop split-signed token
-        let t2 = token::Token::decode(wd.pending_tokens.last().unwrap().as_slice()).unwrap();
-        assert_eq!(t2.history.len(), 2);
-        assert_eq!(
-            Ok(true),
-            t2.verify(
-                wd.transfer_credential.group_public_key.as_ref().unwrap(),
-                &wd.epoch.mint_signing_keys,
-                &wd.epoch.ticket_signing_keys
-            )
-        );
-
-        teardown();
-    }
-
-    // ========================================================================
-    // Security tests: Broken/malicious card or host cannot sign
-    // ========================================================================
-
-    /// A malicious card that uses a different secret key than the one used
-    /// during key generation. Simulates a compromised or swapped card.
-    struct WrongKeyCard {
-        inner: split::MockCard,
-    }
-
-    impl WrongKeyCard {
-        fn new() -> Self {
-            // Create a card with a completely independent random key
-            WrongKeyCard {
-                inner: split::MockCard::new(),
-            }
-        }
-    }
-
-    impl split::SmartCard for WrongKeyCard {
-        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
-            self.inner.public_key_share(base)
-        }
-        fn sign_commit(
-            &mut self,
-            s_point: &[u8],
-            basename_base: Option<&[u8]>,
-        ) -> Option<split::CardSignCommitment> {
-            self.inner.sign_commit(s_point, basename_base)
-        }
-        fn sign_respond(&mut self, challenge: &[u8]) -> Option<split::CardSignResponse> {
-            self.inner.sign_respond(challenge)
-        }
-        fn secret_key_share(&self) -> Vec<u8> {
-            self.inner.secret_key_share()
-        }
-    }
-
-    /// A card that returns garbage commitments (corrupted U point).
-    struct CorruptCommitCard {
-        inner: split::MockCard,
-    }
-
-    impl CorruptCommitCard {
-        fn new() -> Self {
-            CorruptCommitCard {
-                inner: split::MockCard::new(),
-            }
-        }
-    }
-
-    impl split::SmartCard for CorruptCommitCard {
-        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
-            self.inner.public_key_share(base)
-        }
-        fn sign_commit(
-            &mut self,
-            s_point: &[u8],
-            basename_base: Option<&[u8]>,
-        ) -> Option<split::CardSignCommitment> {
-            let mut commit = self.inner.sign_commit(s_point, basename_base)?;
-            // Corrupt the U_card point by flipping bytes
-            if commit.u_card.len() > 2 {
-                commit.u_card[1] ^= 0xFF;
-                commit.u_card[2] ^= 0xFF;
-            }
-            Some(commit)
-        }
-        fn sign_respond(&mut self, challenge: &[u8]) -> Option<split::CardSignResponse> {
-            self.inner.sign_respond(challenge)
-        }
-        fn secret_key_share(&self) -> Vec<u8> {
-            self.inner.secret_key_share()
-        }
-    }
-
-    /// A card that returns a garbage response scalar.
-    struct CorruptResponseCard {
-        inner: split::MockCard,
-    }
-
-    impl CorruptResponseCard {
-        fn new() -> Self {
-            CorruptResponseCard {
-                inner: split::MockCard::new(),
-            }
-        }
-    }
-
-    impl split::SmartCard for CorruptResponseCard {
-        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
-            self.inner.public_key_share(base)
-        }
-        fn sign_commit(
-            &mut self,
-            s_point: &[u8],
-            basename_base: Option<&[u8]>,
-        ) -> Option<split::CardSignCommitment> {
-            self.inner.sign_commit(s_point, basename_base)
-        }
-        fn sign_respond(&mut self, challenge: &[u8]) -> Option<split::CardSignResponse> {
-            let mut resp = self.inner.sign_respond(challenge)?;
-            // Corrupt the s_card scalar by flipping bytes
-            if resp.s_card.len() > 2 {
-                resp.s_card[0] ^= 0xFF;
-                resp.s_card[1] ^= 0xFF;
-            }
-            Some(resp)
-        }
-        fn secret_key_share(&self) -> Vec<u8> {
-            self.inner.secret_key_share()
-        }
-    }
-
-    /// A card that refuses to respond (returns None from sign_respond).
-    struct RefusingCard {
-        inner: split::MockCard,
-    }
-
-    impl RefusingCard {
-        fn new() -> Self {
-            RefusingCard {
-                inner: split::MockCard::new(),
-            }
-        }
-    }
-
-    impl split::SmartCard for RefusingCard {
-        fn public_key_share(&self, base: &[u8]) -> Vec<u8> {
-            self.inner.public_key_share(base)
-        }
-        fn sign_commit(
-            &mut self,
-            s_point: &[u8],
-            basename_base: Option<&[u8]>,
-        ) -> Option<split::CardSignCommitment> {
-            self.inner.sign_commit(s_point, basename_base)
-        }
-        fn sign_respond(&mut self, _challenge: &[u8]) -> Option<split::CardSignResponse> {
-            // Refuse to respond — simulates card removal or failure
-            None
-        }
-        fn secret_key_share(&self) -> Vec<u8> {
-            self.inner.secret_key_share()
-        }
-    }
-
-    /// Helper: set up a split-key credential at the crypto level.
-    /// Returns (group_pk, host_sk, credential, card) ready for signing tests.
-    fn setup_split_credential() -> (Vec<u8>, Vec<u8>, Vec<u8>, split::MockCard) {
-        let mut issuer_sk = Vec::new();
-        let mut group_pk = Vec::new();
-        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
-
-        let nonce = b"security-test-nonce".to_vec();
-        let card = split::MockCard::new();
-
-        let (host_sk, member_pk, _combined_sk) =
-            split::generate_split_wallet_keypair(&card, &nonce)
-                .expect("split keygen failed");
-
-        let mut credential = Vec::new();
-        let mut credential_sig = Vec::new();
-        assert!(v0::issue_credential(
-            &member_pk,
-            &issuer_sk,
-            &nonce,
-            &mut credential,
-            &mut credential_sig,
-        ));
-
-        (group_pk, host_sk, credential, card)
-    }
-
-    #[test]
-    fn split_wrong_card_produces_invalid_signature() {
-        // A card with a different secret key than the one used at keygen
-        // should produce signatures that fail verification.
-        let (group_pk, host_sk, credential, _original_card) = setup_split_credential();
-
-        let mut wrong_card = WrongKeyCard::new();
-        let message = b"test message".to_vec();
-        let basename = Some(b"test-basename".to_vec());
-        let mut sig = Vec::new();
-
-        let signed = split::sign_split(
-            &mut wrong_card,
-            &host_sk,
-            &message,
-            &credential,
-            &basename,
-            true,
-            &mut sig,
-        );
-        // sign_split may succeed (it doesn't check correctness), but verify must fail
-        if signed {
-            assert!(
-                !v0::verify(&group_pk, &basename, &None, &sig, &message),
-                "signature from wrong card must not verify"
-            );
-        }
-    }
-
-    #[test]
-    fn split_wrong_host_key_produces_invalid_signature() {
-        // The host using a different secret key share should produce
-        // signatures that fail verification.
-        let (group_pk, _host_sk, credential, mut card) = setup_split_credential();
-
-        // Generate a completely different host key
-        let mut wrong_host_sk = vec![0u8; 32];
-        wrong_host_sk[0] = 0x42;
-        wrong_host_sk[1] = 0x13;
-        wrong_host_sk[31] = 0x07;
-
-        let message = b"test message".to_vec();
-        let basename = Some(b"test-basename".to_vec());
-        let mut sig = Vec::new();
-
-        let signed = split::sign_split(
-            &mut card,
-            &wrong_host_sk,
-            &message,
-            &credential,
-            &basename,
-            true,
-            &mut sig,
-        );
-        if signed {
-            assert!(
-                !v0::verify(&group_pk, &basename, &None, &sig, &message),
-                "signature with wrong host key must not verify"
-            );
-        }
-    }
-
-    #[test]
-    fn split_corrupt_card_commitment_produces_invalid_signature() {
-        // A card that corrupts its commitment point U_card should
-        // produce signatures that fail verification.
-        let (group_pk, host_sk, credential, _original_card) = setup_split_credential();
-
-        let mut corrupt_card = CorruptCommitCard::new();
-        let message = b"test message".to_vec();
-        let mut sig = Vec::new();
-
-        // sign_split will likely fail because the corrupted point can't be deserialized
-        let signed = split::sign_split(
-            &mut corrupt_card,
-            &host_sk,
-            &message,
-            &credential,
-            &None,
-            true,
-            &mut sig,
-        );
-        if signed {
-            assert!(
-                !v0::verify(&group_pk, &None, &None, &sig, &message),
-                "signature from card with corrupt commitment must not verify"
-            );
-        }
-    }
-
-    #[test]
-    fn split_corrupt_card_response_produces_invalid_signature() {
-        // A card that corrupts its response scalar s_card should
-        // produce signatures that fail verification.
-        let (group_pk, host_sk, credential, _original_card) = setup_split_credential();
-
-        let mut corrupt_card = CorruptResponseCard::new();
-        let message = b"test message".to_vec();
-        let basename = Some(b"test-basename".to_vec());
-        let mut sig = Vec::new();
-
-        let signed = split::sign_split(
-            &mut corrupt_card,
-            &host_sk,
-            &message,
-            &credential,
-            &basename,
-            true,
-            &mut sig,
-        );
-        if signed {
-            assert!(
-                !v0::verify(&group_pk, &basename, &None, &sig, &message),
-                "signature from card with corrupt response must not verify"
-            );
-        }
-    }
-
-    #[test]
-    fn split_refusing_card_cannot_sign() {
-        // A card that refuses to respond to the challenge
-        // must cause sign_split to fail.
-        let (_group_pk, host_sk, credential, _original_card) = setup_split_credential();
-
-        let mut refusing_card = RefusingCard::new();
-        let message = b"test message".to_vec();
-        let mut sig = Vec::new();
-
-        let signed = split::sign_split(
-            &mut refusing_card,
-            &host_sk,
-            &message,
-            &credential,
-            &None,
-            true,
-            &mut sig,
-        );
-        assert!(!signed, "sign_split must fail when card refuses to respond");
-    }
-
-    #[test]
-    fn split_host_alone_cannot_sign() {
-        // The host alone (without any card involvement) cannot produce
-        // a valid signature using only its host_sk share.
-        let (group_pk, host_sk, credential, _card) = setup_split_credential();
-
-        let message = b"test message".to_vec();
-        let basename = Some(b"test-basename".to_vec());
-        let mut sig = Vec::new();
-
-        // Try to use standard sign() with just the host's share
-        let signed = v0::sign(
-            &message,
-            &credential,
-            &host_sk,
-            &basename,
-            true,
-            &mut sig,
-        );
-        if signed {
-            assert!(
-                !v0::verify(&group_pk, &basename, &None, &sig, &message),
-                "host key share alone must not produce valid signature"
-            );
-        }
-    }
-
-    #[test]
-    fn split_card_alone_cannot_sign() {
-        // The card's secret key share alone cannot produce
-        // a valid signature using standard sign().
-        let (group_pk, _host_sk, credential, card) = setup_split_credential();
-
-        let card_sk = card.secret_key_share();
-        let message = b"test message".to_vec();
-        let basename = Some(b"test-basename".to_vec());
-        let mut sig = Vec::new();
-
-        // Try to use standard sign() with just the card's share
-        let signed = v0::sign(
-            &message,
-            &credential,
-            &card_sk,
-            &basename,
-            true,
-            &mut sig,
-        );
-        if signed {
-            assert!(
-                !v0::verify(&group_pk, &basename, &None, &sig, &message),
-                "card key share alone must not produce valid signature"
-            );
-        }
-    }
-
-    #[test]
-    fn split_correct_card_and_host_produce_valid_signature() {
-        // Sanity check: correct card + host produce a valid signature.
-        let (group_pk, host_sk, credential, mut card) = setup_split_credential();
-
-        let message = b"test message".to_vec();
-        let basename = Some(b"test-basename".to_vec());
-        let mut sig = Vec::new();
-
-        assert!(split::sign_split(
-            &mut card,
-            &host_sk,
-            &message,
-            &credential,
-            &basename,
-            true,
-            &mut sig,
-        ));
-        assert!(
-            v0::verify(&group_pk, &basename, &None, &sig, &message),
-            "correct split signature must verify"
-        );
-    }
-
-    /// Test that a token with an expired historical ticket still verifies,
-    /// as long as the current holder's ticket is valid.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn verify_token_with_expired_historical_ticket() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let mut wd = WalletData::default();
-        wd.clerk_uri = clerk_uri.clone();
-        wd.network_credential.issuer_uri = registrar_uri.clone();
-        wd.transfer_credential.issuer_uri = registrar_uri.clone();
-        wd.mint_uri = mint_uri.clone();
-        assert_eq!(wd.initialize_keys(b"hist-expire-test"), true);
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_eq!(wd.synchronize().await, true);
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.withdraw(1).await, true);
-        assert_eq!(wd.tokens.len(), 1);
-
-        // Transfer to first ticket (creates history entry with ticket A)
-        let dest_a: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
-        assert_eq!(wd.transfer(1, dest_a.encode_to_vec()), true);
-        let tok_bytes = wd.pending_tokens.pop().unwrap();
-        let mut tok = token::Token::decode(tok_bytes.as_slice()).unwrap();
-
-        // Transfer again to a second ticket (creates history entry with ticket B)
-        wd.tokens.push(tok.clone().into());
-        let dest_b: token::SignedTicket = wd.tickets[1].clone().into();
-        assert_eq!(wd.transfer(1, dest_b.encode_to_vec()), true);
-        let tok_bytes2 = wd.pending_tokens.pop().unwrap();
-        tok = token::Token::decode(tok_bytes2.as_slice()).unwrap();
-
-        // Now make the FIRST history entry's ticket look expired by setting
-        // created_on far in the past with a short lifetime
-        tok.history[0]
-            .transfer
-            .as_mut()
-            .unwrap()
-            .recipient
-            .as_mut()
-            .unwrap()
-            .ticket
-            .as_mut()
-            .unwrap()
-            .tags
-            .as_mut()
-            .unwrap()
-            .created_on = 1000000; // Way in the past
-        tok.history[0]
-            .transfer
-            .as_mut()
-            .unwrap()
-            .recipient
-            .as_mut()
-            .unwrap()
-            .ticket
-            .as_mut()
-            .unwrap()
-            .tags
-            .as_mut()
-            .unwrap()
-            .lifetime = 1; // Minimal lifetime
-
-        // Historical ticket is expired, but since we use verify_historical()
-        // for history entries (no expiration check), the ticket signature check
-        // will fail because we modified the tags. This proves verify_historical
-        // still checks signatures — it just doesn't check expiration.
-        // The modified tags will cause a signature mismatch.
-        assert_ne!(
-            Ok(true),
-            tok.verify(
-                wd.transfer_credential.group_public_key.as_ref().unwrap(),
-                &wd.epoch.mint_signing_keys,
-                &wd.epoch.ticket_signing_keys
-            )
-        );
-
-        // Now test with an UNMODIFIED token — the historical ticket should pass
-        // verification even though it may be close to expiration.
-        let clean_tok = token::Token::decode(tok_bytes2.as_slice()).unwrap();
-        assert_eq!(
-            Ok(true),
-            clean_tok.verify(
-                wd.transfer_credential.group_public_key.as_ref().unwrap(),
-                &wd.epoch.mint_signing_keys,
-                &wd.epoch.ticket_signing_keys
-            )
-        );
-
-        teardown();
-    }
-
-    /// Test that a token where the current holder's ticket is expired fails
-    /// verification. Velocity control is preserved.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn verify_token_with_expired_current_ticket_fails() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let mut wd = WalletData::default();
-        wd.clerk_uri = clerk_uri.clone();
-        wd.network_credential.issuer_uri = registrar_uri.clone();
-        wd.transfer_credential.issuer_uri = registrar_uri.clone();
-        wd.mint_uri = mint_uri.clone();
-        assert_eq!(wd.initialize_keys(b"curr-expire-test"), true);
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_eq!(wd.synchronize().await, true);
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.withdraw(1).await, true);
-
-        // Create a ticket with expired tags for destination
-        let mut expired_ticket: token::SignedTicket =
-            wd.tickets.last().unwrap().clone().into();
-        expired_ticket
-            .ticket
-            .as_mut()
-            .unwrap()
-            .tags
-            .as_mut()
-            .unwrap()
-            .created_on = 1000000;
-        expired_ticket
-            .ticket
-            .as_mut()
-            .unwrap()
-            .tags
-            .as_mut()
-            .unwrap()
-            .lifetime = 1;
-
-        // Transfer to the expired-looking ticket
-        assert_eq!(wd.transfer(1, expired_ticket.encode_to_vec()), true);
-        let tok_bytes = wd.pending_tokens.pop().unwrap();
-        let tok = token::Token::decode(tok_bytes.as_slice()).unwrap();
-
-        // Verification should fail because the current holder's ticket
-        // has been doctored to look expired (signature will mismatch since
-        // we modified the tags). This confirms that verify() is called on
-        // the current holder's ticket, not just verify_historical().
-        assert_ne!(
-            Ok(true),
-            tok.verify(
-                wd.transfer_credential.group_public_key.as_ref().unwrap(),
-                &wd.epoch.mint_signing_keys,
-                &wd.epoch.ticket_signing_keys
-            )
-        );
-
-        teardown();
-    }
-
-    /// Test that self_transfer_expired migrates tokens from expired tickets
-    /// to valid ones.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn self_transfer_from_expired_to_valid_ticket() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let mut wd = WalletData::default();
-        wd.clerk_uri = clerk_uri.clone();
-        wd.network_credential.issuer_uri = registrar_uri.clone();
-        wd.transfer_credential.issuer_uri = registrar_uri.clone();
-        wd.mint_uri = mint_uri.clone();
-        assert_eq!(wd.initialize_keys(b"self-xfer-test"), true);
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_eq!(wd.synchronize().await, true);
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.withdraw(3).await, true);
-        assert_eq!(wd.tokens.len(), 3);
-
-        // Transfer all tokens to a ticket (creates history entries)
-        let dest: token::SignedTicket = wd.tickets.last().unwrap().clone().into();
-        assert_eq!(wd.transfer(3, dest.encode_to_vec()), true);
-
-        // Move pending tokens back, but modify each token's last recipient
-        // ticket to look expired (simulating time passing).
-        while let Some(tok_bytes) = wd.pending_tokens.pop() {
-            let mut tok = token::Token::decode(tok_bytes.as_slice()).unwrap();
-            // Make the last history entry's ticket look expired
-            tok.history
-                .last_mut()
-                .unwrap()
-                .transfer
-                .as_mut()
-                .unwrap()
-                .recipient
-                .as_mut()
-                .unwrap()
-                .ticket
-                .as_mut()
-                .unwrap()
-                .tags
-                .as_mut()
-                .unwrap()
-                .created_on = 1000000; // Way in the past
-            tok.history
-                .last_mut()
-                .unwrap()
-                .transfer
-                .as_mut()
-                .unwrap()
-                .recipient
-                .as_mut()
-                .unwrap()
-                .ticket
-                .as_mut()
-                .unwrap()
-                .tags
-                .as_mut()
-                .unwrap()
-                .lifetime = 1;
-            wd.tokens.push(tok.into());
-        }
-        assert_eq!(wd.tokens.len(), 3);
-
-        // Verify we have valid tickets remaining
-        let now = Utc::now().timestamp() as u64;
-        let valid_count = wd
-            .tickets
-            .iter()
-            .filter(|t| {
-                let st: token::SignedTicket = (*t).clone().into();
-                st.expires_on() > now
-            })
-            .count();
-        assert!(valid_count > 0, "must have at least one valid ticket");
-
-        // Run self_transfer_expired — should migrate all 3 tokens
-        let migrated = wd.self_transfer_expired();
-        assert_eq!(migrated, 3, "all 3 tokens should be migrated");
-        assert_eq!(wd.tokens.len(), 3, "token count unchanged after migration");
-
-        // The migrated tokens should have an additional history entry
-        for token_entry in &wd.tokens {
-            let tok = token::Token::decode(token_entry.token.as_slice()).unwrap();
-            // Originally: base -> transfer to dest (1 history entry)
-            // After migration: -> self-transfer to valid ticket (2 history entries)
-            assert_eq!(
-                tok.history.len(),
-                2,
-                "migrated tokens should have 2 history entries"
-            );
-        }
-
-        teardown();
-    }
-
-    /// Test that self_transfer_expired returns 0 when no tokens are expired.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn self_transfer_no_expired_tokens() {
-        let tokenmap_uri = setup_tokenmap().await;
-        let registrar_uri = setup_registrar(tokenmap_uri.clone()).await;
-        let clerk_uri = setup_clerk(tokenmap_uri.clone()).await;
-        let mint_uri = setup_mint(tokenmap_uri.clone()).await;
-        let mut wd = WalletData::default();
-        wd.clerk_uri = clerk_uri.clone();
-        wd.network_credential.issuer_uri = registrar_uri.clone();
-        wd.transfer_credential.issuer_uri = registrar_uri.clone();
-        wd.mint_uri = mint_uri.clone();
-        assert_eq!(wd.initialize_keys(b"no-expire-test"), true);
-        assert_eq!(wd.initialize_credential().await, true);
-        assert_eq!(wd.synchronize().await, true);
-        assert_eq!(wd.get_tickets(5).await, true);
-        assert_eq!(wd.withdraw(2).await, true);
-
-        // All tickets are fresh — no expired tokens
-        let migrated = wd.self_transfer_expired();
-        assert_eq!(migrated, 0, "no tokens should be migrated when none are expired");
-
-        teardown();
-    }
-
     pub fn teardown() {
-        let remaining = TOKENMAP_RUNNING.fetch_sub(1, Ordering::SeqCst);
-        if remaining != 0 {
-            return;
-        }
-        // This is best effort hacky. Clean it up later, (TODO)
-        for entry in glob("tokenmap.*.db").expect("Failed to read glob pattern") {
-            match entry {
-                Ok(path) => std::fs::remove_file(path).unwrap(),
-                Err(e) => println!("{:?}", e),
-            }
-        }
+        // Should be handled buy TempDir
     }
 }

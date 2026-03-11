@@ -19,33 +19,16 @@
 # Workspace root is one directory up from src/
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-build() {
-	echo "Building workspace . . ."
-	cargo build --manifest-path "${WORKSPACE_ROOT}/Cargo.toml"
-}
-
-clean() {
-	cargo clean --manifest-path "${WORKSPACE_ROOT}/Cargo.toml"
-	clear_data
-}
-
 clear_data() {
-for dir in $(ls -F | grep /); do
-	pushd $dir &> /dev/null
-	(rm data/* || true) &>/dev/null
-	popd &> /dev/null
-done
+  find data/ -type f \! -name .gitkeep -exec rm \{\} \;
 }
 
 run_cmd_at() {
-	name="$1"
-	t="$2"
-	pushd "$name"
-	echo "Starting $t in $name..."
-	"${WORKSPACE_ROOT}/target/debug/briolette-${name}-${t}" &
-	popd
-	sleep 1
-
+        name="$1"
+        t="$2"
+        echo "Starting $t in $name..."
+        cargo run --bin briolette-${name}-${t} &
+        sleep 1
 }
 
 run_server() {
@@ -67,10 +50,13 @@ start_servers() {
 	run_cmd_at clerk generate-epoch
 	sleep 5
 
-	run_server validate
-	run_server receiver
+        run_server validate
+        run_server swapper
+        run_server receiver
 
-	run_client receiver
+        run_client receiver
+
+	# run_client swapper
 }
 
 kill_bg() {

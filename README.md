@@ -40,11 +40,16 @@ Further research on the underlying crypto approach under way to improve on
 ECDAA.
 
 See the [theory of operation](docs/design/theory_of_operation.md) for a more
-detailed description of how the system operates.
+detailed description of how the system services operates as well as a
+[discussion of trust](docs/design/architecture/credentials/credentials.md) and
+how it is established.
 
 See the [design concepts](docs/design/concepts.md) for a more detailed discussion
 of the underlying design objectives and how the proof of concept attempts to meet
 them.
+
+We are also beginning to work on [design explainers](docs/design/explainers) as a
+means of helping make the design more approachable!
 
 ## Building
 
@@ -54,22 +59,23 @@ Your system will need to have the [Rust](https://www.rust-lang.org/) programming
 
 Additionally, see
 [xaptum/ecdaa](https://github.com/xaptum/ecdaa/blob/master/doc/BUILDING.md) for
-any system requirements for building AMCL or ECDAA, such as libtss2.
+any system requirements for building AMCL or ECDAA, such as cmake.
+
+Diagram generation depends on [PlantUML](https://plantuml.com/).
 
 
 ### Building
 
-The easiest way to build is to use the utils.sh bash helper:
+The easiest way to build is to use cargo from the root directory (where this file is):
 
-    cd src
-    source utils.sh
-    build_external
-    build
+  cargo build
+
 
 ## Running
 
-If you are using utils.sh, simply run
+Simply run:
 
+    source src/utils.sh
     start_servers
 
 

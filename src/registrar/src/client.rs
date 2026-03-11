@@ -18,9 +18,12 @@ use briolette_proto::briolette::registrar::{
     Algorithm, CredentialRequest, HardwareId, RegisterRequest, SecurityLevel, Signature,
 };
 use briolette_proto::briolette::Version;
+use briolette_proto::BrioletteClientHelper;
+
 use sha256::digest;
 use std::path::Path;
 use tokio;
+use tonic::transport::Uri;
 
 #[derive(Clone, Default)]
 struct KeyRequest {
@@ -30,7 +33,7 @@ struct KeyRequest {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = RegistrarClient::connect("http://127.0.0.1:50051").await?;
+    let mut client = RegistrarClient::multiconnect(&Uri::try_from("http://[::1]:50051")?).await?;
 
     let mut network_req = KeyRequest::default();
     let mut transfer_req = KeyRequest::default();
@@ -83,14 +86,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Write out the credentials to disk.
     let msg = response.into_inner();
     if let Some(nac_cred) = msg.network_credential {
-        std::fs::write(&Path::new("data/wallet.nac.cred"), nac_cred.credential).unwrap();
-        std::fs::write(&Path::new("data/wallet.nac.gpk"), nac_cred.group_public_key).unwrap();
-        std::fs::write(&Path::new("data/wallet.nac.sk"), network_req.secret_key).unwrap();
+        std::fs::write(&Path::new("data/wallet/nac.cred"), nac_cred.credential).unwrap();
+        std::fs::write(&Path::new("data/wallet/nac.gpk"), nac_cred.group_public_key).unwrap();
+        std::fs::write(&Path::new("data/wallet/nac.sk"), network_req.secret_key).unwrap();
     }
     if let Some(ttc_cred) = msg.transfer_credential {
-        std::fs::write(&Path::new("data/wallet.ttc.cred"), ttc_cred.credential).unwrap();
-        std::fs::write(&Path::new("data/wallet.ttc.gpk"), ttc_cred.group_public_key).unwrap();
-        std::fs::write(&Path::new("data/wallet.ttc.sk"), transfer_req.secret_key).unwrap();
+        std::fs::write(&Path::new("data/wallet/ttc.cred"), ttc_cred.credential).unwrap();
+        std::fs::write(&Path::new("data/wallet/ttc.gpk"), ttc_cred.group_public_key).unwrap();
+        std::fs::write(&Path::new("data/wallet/ttc.sk"), transfer_req.secret_key).unwrap();
     }
 
     Ok(())

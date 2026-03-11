@@ -207,7 +207,7 @@ async fn cmd_init(config: &Config) -> Result<(), String> {
         config.clerk_uri.clone(),
         config.mint_uri.clone(),
         config.validate_uri.clone(),
-    );
+    ).map_err(|e| format!("Failed to create wallet: {:?}", e))?;
 
     // Generate keys
     let hw_id = format!("briolette-wallet-{}", config.name);

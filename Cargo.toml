@@ -1,19 +1,10 @@
 [workspace]
+members = ["src/*/"]
+exclude = ["src/simulation"]
 resolver = "2"
-members = [
-    "src/crypto",
-    "src/proto",
-    "src/clerk",
-    "src/mint",
-    "src/receiver",
-    "src/registrar",
-    "src/tokenmap",
-    "src/validate",
-    "src/wallet",
-    "src/service_auth",
-    "src/bridge",
-    "src/simulation/absim",
-    "src/simulation/briolettesim",
-    "src/simulation/levy_distr",
-    "src/simulation/rand_flight",
-]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["The Briolette Authors"]
+description = "an experimental framework for researching direct-exchange digital currency designs"
+documentation = "https://github.com/google/briolette"
