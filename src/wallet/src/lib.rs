@@ -16,7 +16,8 @@ use briolette_crypto::v0;
 use briolette_crypto::v0::split;
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
 use briolette_proto::briolette::clerk::{
-    EpochRequest, EpochUpdate, EpochVerify, GetTicketsRequest, TicketRequest, TicketRequests,
+    EpochRequest, EpochUpdate, EpochVerify, GetTicketsRequest, RefreshTicketsRequest,
+    TicketRequest, TicketRequests,
 };
 use briolette_proto::briolette::mint::mint_client::MintClient;
 use briolette_proto::briolette::mint::GetTokensRequest;
@@ -103,6 +104,11 @@ pub trait Wallet: Clone + Serialize + DeserializeOwned + Send {
     // Migrate tokens bound to expired tickets to valid tickets.
     // Returns the number of tokens successfully migrated.
     fn self_transfer_expired(&mut self) -> usize;
+
+    // Refresh specific tickets at the clerk, preserving the same credential
+    // (payment pseudonym) but getting a fresh lifetime.  Returns the number
+    // of tickets successfully refreshed.
+    async fn refresh_tickets(&mut self, ticket_indices: &[usize]) -> usize;
 
     /// Initialize keys using split-key mode with smart cards.
     /// The secret key is split between a smart card and the host.
@@ -930,6 +936,142 @@ impl Wallet for WalletData {
             );
         }
         migrated
+    }
+
+    async fn refresh_tickets(&mut self, ticket_indices: &[usize]) -> usize {
+        if self.network_credential.credential.is_none() {
+            error!("refresh_tickets: wallet must have valid credentials");
+            return 0;
+        }
+        if ticket_indices.is_empty() {
+            return 0;
+        }
+
+        // Collect the SignedTickets to refresh.
+        let mut signed_tickets: Vec<token::SignedTicket> = Vec::new();
+        for &idx in ticket_indices {
+            if idx >= self.tickets.len() {
+                error!("refresh_tickets: ticket index {} out of range", idx);
+                return 0;
+            }
+            let entry = &self.tickets[idx];
+            let ticket = match token::Ticket::decode(entry.ticket.as_slice()) {
+                Ok(t) => t,
+                Err(e) => {
+                    error!("refresh_tickets: failed to decode ticket {}: {:?}", idx, e);
+                    return 0;
+                }
+            };
+            signed_tickets.push(token::SignedTicket {
+                ticket: Some(ticket),
+                signature: entry.signature.clone(),
+            });
+        }
+
+        // Serialize the tickets and sign with NAC using epoch basename.
+        let mut tickets_msg = Vec::new();
+        for st in &signed_tickets {
+            tickets_msg.extend_from_slice(&st.encode_to_vec());
+        }
+        let basename = Some(self.epoch.epoch.to_le_bytes().to_vec());
+        let mut signature = vec![];
+        if !WalletData::sign_or_split(
+            &self.nac_card,
+            &self.network_credential.host_secret_key,
+            &tickets_msg,
+            &self.network_credential.credential.clone().unwrap(),
+            &self.network_credential.secret_key,
+            &basename,
+            true,
+            &mut signature,
+        ) {
+            error!("refresh_tickets: failed to sign refresh request");
+            return 0;
+        }
+
+        let request = RefreshTicketsRequest {
+            version: Version::Current.into(),
+            known_epoch: self.epoch.epoch,
+            nac_public_key: self.network_credential.group_public_key.clone().unwrap(),
+            ttc_public_key: self.transfer_credential.group_public_key.clone().unwrap(),
+            tickets: signed_tickets,
+            nac_signature: signature,
+        };
+
+        let mut refreshed = 0usize;
+        if let Ok(mut client) = ClerkClient::multiconnect(&self.clerk_uri).await {
+            match client.refresh_tickets(request).await {
+                Ok(response) => {
+                    let msg = response.into_inner();
+                    // Verify signing key is trusted.
+                    let mut vk: Option<Vec<u8>> = None;
+                    for key in &self.epoch.ticket_signing_keys {
+                        if vec_utils::vec_equal(key, &msg.signing_key) {
+                            vk = Some(key.clone());
+                        }
+                    }
+                    if vk.is_none() {
+                        error!("refresh_tickets: clerk presented unknown signing key");
+                        return 0;
+                    }
+                    let ticket_pk =
+                        PublicKey::from_public_key_der(vk.unwrap().as_slice()).unwrap();
+                    let ticket_vk: VerifyingKey = ticket_pk.into();
+
+                    // Replace tickets in-place.  The response tickets are in the same
+                    // order as the request.
+                    for (i, signed_ticket) in msg.tickets.iter().enumerate() {
+                        if i >= ticket_indices.len() {
+                            break;
+                        }
+                        let idx = ticket_indices[i];
+                        let mut sig = signed_ticket.signature.clone();
+                        sig.pop(); // Drop RecoveryId
+
+                        if let Some(ticket) = signed_ticket.ticket.clone() {
+                            let serialized = ticket.encode_to_vec();
+                            match Signature::try_from(sig.as_slice()) {
+                                Ok(signature) => {
+                                    if let Err(e) =
+                                        ticket_vk.verify(serialized.as_slice(), &signature)
+                                    {
+                                        error!(
+                                            "refresh_tickets: ticket {} sig verify failed: {:?}",
+                                            idx, e
+                                        );
+                                        continue;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "refresh_tickets: ticket {} invalid sig: {:?}",
+                                        idx, e
+                                    );
+                                    continue;
+                                }
+                            }
+                            // Update the ticket entry in-place.
+                            let entry = &mut self.tickets[idx];
+                            entry.ticket = serialized;
+                            // Credential stays the same.
+                            if let Some(tags) = ticket.tags {
+                                entry.created_on = tags.created_on;
+                                entry.lifetime = tags.lifetime;
+                            }
+                            entry.signature = signed_ticket.signature.clone();
+                            refreshed += 1;
+                        }
+                    }
+                    if refreshed > 0 {
+                        info!("refresh_tickets: refreshed {} tickets", refreshed);
+                    }
+                }
+                Err(e) => {
+                    error!("refresh_tickets: RPC failed: {:?}", e);
+                }
+            }
+        }
+        refreshed
     }
 
     fn initialize_split_keys(

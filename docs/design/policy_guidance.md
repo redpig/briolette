@@ -488,6 +488,94 @@ to *receive* tokens (via surviving long-lived tickets) but not to
 *spend* tokens already held on expired tickets. Both directions are
 needed for partition resilience.
 
+## Ticket Refresh: Persistent Identities Without Long-Lived Tickets
+
+### Problem
+
+Long-lived tickets (30-90 epochs) enable persistent payment identities
+(e.g., Venmo-style "pay @alice") but widen the worst-case eviction window
+to `T_life_long` epochs. This is an inherent tension: identity persistence
+requires some form of long-lived binding, but eviction speed requires
+short ticket lifetimes.
+
+### Solution: RefreshTickets RPC
+
+Rather than issuing long-lived tickets, the clerk now supports refreshing
+existing tickets via `RefreshTickets`.  This preserves the **same credential**
+(and thus the same payment pseudonym) while issuing a **fresh lifetime**.
+
+The result: persistent identities with medium-lived eviction bounds.
+
+| Property | Long ticket (90 epochs) | Medium + refresh (7 epochs) |
+|----------|------------------------|----------------------------|
+| Eviction worst-case | `D + 92` epochs | `D + 9` epochs |
+| Identity persistence | 90 epochs max | Indefinite (refreshable) |
+| Abuse window | Attacker hoards 90-epoch tickets | Limited to 7 epochs |
+| Clerk dependency | Once per 90 epochs | Once per 7 epochs |
+
+### Protocol
+
+1. Wallet identifies tickets approaching expiration (within 2 epochs).
+2. Wallet sends `RefreshTicketsRequest` to clerk with:
+   - The existing `SignedTicket`(s) to refresh
+   - NAC signature over the ticket list (basename = current epoch)
+3. Clerk verifies:
+   - NAC signature (same linkability as `GetTickets`)
+   - Original ticket signature (was issued by this clerk)
+   - Credential belongs to the claimed TTC group
+   - Ticket group is not revoked in the current epoch
+4. Clerk issues new `SignedTicket` with the **same credential** and
+   **same group** but fresh `created_on` and `lifetime`.
+5. Wallet replaces the old ticket entry with the refreshed one.
+
+### Security Properties
+
+- **Revocation still works**: If the credential's group has been revoked
+  between the original issuance and the refresh request, the clerk
+  rejects the refresh.  The attacker cannot extend tickets past revocation.
+
+- **NAC linkability preserved**: The refresh request uses the same
+  NAC basename-linked signature as `GetTickets`, so the clerk can
+  enforce per-NAC budget limits across both fresh and refreshed tickets.
+
+- **No privacy regression**: The refreshed ticket contains the same
+  credential, so it is no more linkable than the original.  Peers who
+  already know the credential learn nothing new.
+
+- **Eviction bound unchanged for normal operation**: Since wallets
+  spend shortest-lived tickets first, normal eviction is still bounded
+  by `T_life_short`.  Only the persistent-identity tickets get refreshed.
+
+### Interaction with Elastic Lifetimes
+
+With refresh, the elastic ticket distribution can be simplified:
+
+| Ticket Class | Lifetime | Purpose |
+|-------------|----------|---------|
+| Short | 1-3 epochs | Normal transactions, fast revocation |
+| Medium | 7-14 epochs | All other use cases, including persistent IDs |
+
+Long-lived tickets (30-90 epochs) become optional.  Wallets that want
+persistent identities use medium tickets and refresh them before expiry.
+The worst-case eviction window shrinks from `D + 92` to `D + 16` epochs.
+
+Operators who still want partition resilience beyond 14 epochs can
+retain long-lived tickets, but the typical deployment no longer needs
+them for identity persistence.
+
+### CLI Usage
+
+```bash
+# Auto-refresh tickets expiring within 2 epochs (default)
+briolette-wallet-cli refresh --name alice
+
+# Refresh tickets expiring within 5 epochs
+briolette-wallet-cli refresh --name alice --threshold 5
+
+# Refresh specific ticket indices
+briolette-wallet-cli refresh --name alice --index 0,3,7
+```
+
 ## Open Design Questions
 
 1. **Ticket lifetime in epoch data**: Should the clerk's ticket lifetime

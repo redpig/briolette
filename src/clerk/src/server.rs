@@ -14,7 +14,7 @@
 
 use briolette_proto::briolette::clerk::{
     AddEpochReply, EpochReply, EpochRequest, EpochUpdate, EpochVerify, GetTicketsReply,
-    GetTicketsRequest,
+    GetTicketsRequest, RefreshTicketsReply, RefreshTicketsRequest,
 };
 use briolette_proto::briolette::token::{SignedTicket, Ticket, TicketData};
 use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
@@ -30,7 +30,7 @@ use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey};
 use briolette_crypto::v0;
 use ecdsa::RecoveryId;
 use log::*;
-use p256::ecdsa::{signature::RandomizedSigner, Signature, SigningKey, VerifyingKey};
+use p256::ecdsa::{signature::RandomizedSigner, signature::Verifier, Signature, SigningKey, VerifyingKey};
 use p256::{PublicKey, SecretKey};
 use prost::Message;
 use rand_core::OsRng;
@@ -279,6 +279,165 @@ impl BrioletteClerk {
         // 4. Return the new tickets.
         return Ok(reply);
     }
+    // Refreshes existing tickets, preserving the same credential (payment pseudonym)
+    // but issuing a fresh lifetime.  This enables persistent peer identities with
+    // medium-lived tickets instead of long-lived ones.
+    pub async fn refresh_tickets_impl(
+        &self,
+        request: &RefreshTicketsRequest,
+    ) -> Result<RefreshTicketsReply, BrioletteError> {
+        trace!("refresh_tickets: request = {:?}", &request);
+        if request.version != Version::Current as i32 {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidVersion.into(),
+            });
+        }
+        if request.tickets.is_empty() {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            });
+        }
+
+        let eu = self.epoch_update.read().unwrap().clone();
+        if eu.is_none() {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidServerState.into(),
+            });
+        }
+        let eed = eu.clone().unwrap().extended_data.unwrap();
+        if !eed.ttc_group_public_keys.contains(&request.ttc_public_key) {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::UnknownTokenTransferGroupPublicKey.into(),
+            });
+        }
+
+        let ed = eu.clone().unwrap().data.unwrap();
+        if request.known_epoch < ed.epoch {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::EpochUpdateRequired.into(),
+            });
+        }
+
+        // Verify the NAC signature over the serialized ticket list.
+        let tickets_msg: Vec<u8> = {
+            use prost::Message;
+            // Serialize the tickets as a repeated field wrapper for signing.
+            // We serialize each SignedTicket and concatenate, matching wallet-side.
+            let mut buf = Vec::new();
+            for t in &request.tickets {
+                buf.extend_from_slice(&t.encode_to_vec());
+            }
+            buf
+        };
+        let basename = Some(ed.epoch.to_le_bytes().to_vec());
+        if !v0::verify(
+            &request.nac_public_key,
+            &basename,
+            &None,
+            &request.nac_signature,
+            &tickets_msg,
+        ) {
+            trace!("NAC signature for the refresh request did not verify.");
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidSignature.into(),
+            });
+        }
+
+        // Verify the ticket signing key so we know these tickets came from us.
+        let sk: SecretKey = self.ticket_signing_key.clone().into();
+        let pk: PublicKey = sk.public_key();
+        let ticket_vk: VerifyingKey = pk.into();
+
+        let mut reply = RefreshTicketsReply::default();
+        reply.signing_key = pk.to_public_key_der().unwrap().as_bytes().to_vec();
+
+        for signed_ticket in &request.tickets {
+            let ticket = signed_ticket.ticket.as_ref().ok_or(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            })?;
+
+            // Verify the original ticket signature to ensure it was issued by us.
+            let serialized_old = ticket.encode_to_vec();
+            let mut sig_bytes = signed_ticket.signature.clone();
+            sig_bytes.pop(); // Drop RecoveryId byte
+            let old_sig = Signature::try_from(sig_bytes.as_slice()).map_err(|_| BrioletteError {
+                code: BrioletteErrorCode::UnparseableTicketSignature.into(),
+            })?;
+            ticket_vk
+                .verify(serialized_old.as_slice(), &old_sig)
+                .map_err(|_| BrioletteError {
+                    code: BrioletteErrorCode::InvalidTicketSignature.into(),
+                })?;
+
+            // Verify the credential belongs to the TTC group.
+            if !v0::credential_in_group(&ticket.credential, &request.ttc_public_key) {
+                return Err(BrioletteError {
+                    code: BrioletteErrorCode::CredentialInvalidForGroup.into(),
+                });
+            }
+
+            let tags = ticket.tags.as_ref().ok_or(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            })?;
+
+            // Check if the ticket's group has been revoked.
+            let group_num = tags.group_number as usize;
+            let byte_idx = group_num / 8;
+            let bit_idx = group_num % 8;
+            if byte_idx < ed.group_bitfield.len()
+                && (ed.group_bitfield[byte_idx] & (1 << bit_idx)) != 0
+            {
+                return Err(BrioletteError {
+                    code: BrioletteErrorCode::CredentialRevoked.into(),
+                });
+            }
+
+            // Issue a fresh ticket with the SAME credential and group but new lifetime.
+            let new_ticket = Ticket {
+                credential: ticket.credential.clone(),
+                tags: Some(TicketData {
+                    group_number: tags.group_number,
+                    lifetime: 7, // TODO: make dynamic, same as get_tickets
+                    created_on: ed.epoch,
+                }),
+            };
+
+            let serialized_ticket = new_ticket.encode_to_vec();
+            let sig: Signature = self
+                .ticket_signing_key
+                .sign_with_rng(&mut OsRng, serialized_ticket.as_slice());
+            let mut signature = sig.to_vec();
+            if let Ok(rec_id) =
+                RecoveryId::trial_recovery_from_msg(&pk.into(), serialized_ticket.as_slice(), &sig)
+            {
+                signature.push(rec_id.to_byte());
+            } else {
+                return Err(BrioletteError {
+                    code: BrioletteErrorCode::FailedToSignTicket.into(),
+                });
+            }
+
+            reply.tickets.push(SignedTicket {
+                ticket: Some(new_ticket),
+                signature,
+            });
+        }
+
+        // Store the refreshed tickets in the token map (same NAC linkage).
+        let nac_sig = LinkableSignature {
+            signature: request.nac_signature.clone(),
+            basename: basename.clone().unwrap(),
+            group_public_key: request.nac_public_key.clone(),
+        };
+        if !update_ticket_store(reply.tickets.clone(), nac_sig, &self.tokenmap_uri).await {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::TokenMapFailure.into(),
+            });
+        }
+
+        Ok(reply)
+    }
+
     // We always provide a non-async implementation for cleaner testing.
     // It also allows migration to different wrapping frameworks.
     pub fn add_epoch_impl(&self, request: &EpochUpdate) -> Result<AddEpochReply, BrioletteError> {

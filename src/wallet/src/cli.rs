@@ -88,6 +88,7 @@ fn print_help() {
     println!("  withdraw   Withdraw tokens from the mint");
     println!("  send       Transfer tokens to a recipient's ticket");
     println!("  receive    Export a ticket for receiving tokens");
+    println!("  refresh    Refresh expiring tickets (preserves payment pseudonym)");
     println!("  validate   Validate held tokens against the network");
     println!("  info       Show wallet details");
     println!("  help       Show this help message");
@@ -293,6 +294,62 @@ async fn cmd_tickets(config: &Config, args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+async fn cmd_refresh(config: &Config, args: &[String]) -> Result<(), String> {
+    use briolette_proto::briolette::token::TicketExpiry;
+
+    let mut wallet = load_wallet(&config.name)?;
+
+    if wallet.tickets.is_empty() {
+        return Err("No tickets to refresh. Run 'tickets' first.".to_string());
+    }
+
+    // Find tickets that are expiring soon (within 2 epochs) or already expired,
+    // or refresh specific indices if --index is given.
+    let indices: Vec<usize> = if let Some(idx_str) = get_arg(args, "--index") {
+        // Refresh specific ticket(s) by index
+        idx_str
+            .split(',')
+            .map(|s| s.trim().parse::<usize>().map_err(|_| "Invalid index"))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        // Auto-detect: refresh tickets expiring within --threshold epochs (default: 2)
+        let threshold: u64 = get_arg(args, "--threshold")
+            .unwrap_or_else(|| "2".to_string())
+            .parse()
+            .map_err(|_| "Invalid threshold")?;
+        let now = chrono::Utc::now().timestamp() as u64;
+        let epoch_secs = 86400u64; // TODO: read from epoch data
+        let cutoff = now + threshold * epoch_secs;
+
+        wallet
+            .tickets
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| {
+                let st: briolette_proto::briolette::token::SignedTicket = (*t).clone().into();
+                st.expires_on() <= cutoff
+            })
+            .map(|(i, _)| i)
+            .collect()
+    };
+
+    if indices.is_empty() {
+        println!("No tickets need refreshing (all have sufficient lifetime).");
+        return Ok(());
+    }
+
+    println!("Refreshing {} ticket(s)...", indices.len());
+    let refreshed = wallet.refresh_tickets(&indices).await;
+
+    save_wallet(&config.name, &wallet)?;
+    if refreshed > 0 {
+        println!("Refreshed {} ticket(s) ({} total)", refreshed, wallet.tickets.len());
+    } else {
+        return Err("Failed to refresh tickets. Is the clerk running?".to_string());
+    }
+    Ok(())
+}
+
 async fn cmd_withdraw(config: &Config, args: &[String]) -> Result<(), String> {
     let mut wallet = load_wallet(&config.name)?;
     let amount: u32 = get_arg(args, "--amount")
@@ -472,6 +529,7 @@ async fn main() {
         "balance" | "bal" => cmd_balance(&config).await,
         "sync" | "synchronize" => cmd_sync(&config).await,
         "tickets" | "ticket" => cmd_tickets(&config, &remaining).await,
+        "refresh" => cmd_refresh(&config, &remaining).await,
         "withdraw" | "mint" => cmd_withdraw(&config, &remaining).await,
         "send" | "transfer" => cmd_send(&config, &remaining).await,
         "receive" | "recv" | "address" => cmd_receive(&config).await,
