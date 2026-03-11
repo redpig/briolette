@@ -14,7 +14,7 @@
 
 use briolette_proto::briolette::clerk::{
     AddEpochReply, EpochReply, EpochRequest, EpochUpdate, EpochVerify, GetTicketsReply,
-    GetTicketsRequest, RefreshTicketsReply, RefreshTicketsRequest,
+    GetTicketsRequest, GroupPolicy, RefreshTicketsReply, RefreshTicketsRequest,
 };
 use briolette_proto::briolette::token::{SignedTicket, Ticket, TicketData};
 use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
@@ -211,6 +211,13 @@ impl BrioletteClerk {
                 code: BrioletteErrorCode::InvalidSignature.into(),
             });
         }
+        // Determine ticket lifetime from the epoch's per-NAC-group policy.
+        let lifetime = ticket_lifetime_for_nac_group(
+            &eed.group_policies,
+            &request.nac_public_key,
+        );
+        trace!("ticket lifetime for TTC group: {} epochs", lifetime);
+
         let mut reply = GetTicketsReply::default();
         // Spray the secret keys all over memory! =)
         let sk: SecretKey = self.ticket_signing_key.clone().into();
@@ -225,7 +232,7 @@ impl BrioletteClerk {
                 credential: ticket_req.credential.clone(),
                 tags: Some(TicketData {
                     group_number: ticket_req.group_number,
-                    lifetime: 7, // TODO: make dynamic
+                    lifetime,
                     created_on: ed.epoch,
                 }),
             };
@@ -393,11 +400,15 @@ impl BrioletteClerk {
             }
 
             // Issue a fresh ticket with the SAME credential and group but new lifetime.
+            let lifetime = ticket_lifetime_for_nac_group(
+                &eed.group_policies,
+                &request.nac_public_key,
+            );
             let new_ticket = Ticket {
                 credential: ticket.credential.clone(),
                 tags: Some(TicketData {
                     group_number: tags.group_number,
-                    lifetime: 7, // TODO: make dynamic, same as get_tickets
+                    lifetime,
                     created_on: ed.epoch,
                 }),
             };
@@ -506,6 +517,20 @@ impl BrioletteClerk {
 
         return Ok(reply);
     }
+}
+
+/// Default ticket lifetime (in epochs) when no per-group policy is configured.
+const DEFAULT_TICKET_LIFETIME: u32 = 7;
+
+/// Look up the ticket lifetime for a NAC group public key from the epoch's
+/// group policies.  Returns the default lifetime if no policy matches.
+fn ticket_lifetime_for_nac_group(policies: &[GroupPolicy], nac_gpk: &[u8]) -> u32 {
+    for p in policies {
+        if p.nac_group_public_key == nac_gpk {
+            return p.ticket_lifetime;
+        }
+    }
+    DEFAULT_TICKET_LIFETIME
 }
 
 async fn update_ticket_store(

@@ -16,7 +16,6 @@ syntax = "proto3";
 package briolette.clerk;
 import "common.proto";
 import "token.proto";
-import "registrar.proto";
 
 service Clerk {
     // TODO: allow non-ticket calls to get the current epoch and state updates.
@@ -79,28 +78,25 @@ message ExtendedEpochData {
   // TODO: Add epoch key distribution to the registrar.
   // Add service URIs for failover, recovery registration, etc.
   briolette.ServiceMap service_map = 6;
-  // Per-security-level ticket policy.  Maps security level (0=LOW, 1=MEDIUM,
-  // 2=HIGH) to the ticket lifetime (in epochs) for wallets in that tier.
-  // If empty, all wallets receive the same default lifetime.
-  repeated SecurityLevelPolicy security_policies = 7;
-  // TTC group public keys indexed by security level.  When set, the clerk
-  // uses this to determine which security tier a credential belongs to,
-  // enabling differentiated policy (e.g. longer ticket lifetimes for
-  // hardware-backed wallets).
-  repeated SecurityLevelGroupKeys security_level_keys = 8;
+  // Per-NAC-group ticket policy.  Each entry maps a NAC group public key
+  // to its ticket lifetime (in epochs).  All wallets share the same TTC
+  // group so they can transact with each other — the differentiation is
+  // purely on the NAC side.  The clerk looks up the requesting wallet's
+  // NAC GPK to determine the applicable lifetime.  Merchants only see
+  // tickets with varying expiry, never the underlying security rationale.
+  // If a NAC GPK has no entry, the default lifetime applies.
+  repeated GroupPolicy group_policies = 7;
 }
 
-// Policy parameters for a specific security level.
-message SecurityLevelPolicy {
-  .briolette.registrar.SecurityLevel level = 1;
-  // Ticket lifetime in epochs for wallets at this security level.
+// Ticket policy for a specific NAC issuer group.
+// The registrar decides which NAC group a wallet joins (based on
+// attestation strength, smart-card presence, etc.) but that rationale
+// is not visible here — only the resulting policy parameters.
+message GroupPolicy {
+  bytes nac_group_public_key = 1;
+  // Ticket lifetime in epochs.  Lower-assurance NAC groups get shorter
+  // lifetimes; the worst tier may be online-only (lifetime = 0 or 1).
   uint32 ticket_lifetime = 2;
-}
-
-// Maps a security level to its TTC group public key.
-message SecurityLevelGroupKeys {
-  .briolette.registrar.SecurityLevel level = 1;
-  bytes ttc_group_public_key = 2;
 }
 
 // TODO: figure out delta updates, if needed.

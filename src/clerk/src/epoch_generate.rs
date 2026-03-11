@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
-use briolette_proto::briolette::clerk::{EpochData, EpochRequest, EpochUpdate, ExtendedEpochData};
+use briolette_proto::briolette::clerk::{
+    EpochData, EpochRequest, EpochUpdate, ExtendedEpochData, GroupPolicy,
+};
 use briolette_proto::briolette::tokenmap::revocation_data_request::Select;
 use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
 use briolette_proto::briolette::tokenmap::{RevocationDataRequest, SelectGroup};
@@ -98,12 +100,32 @@ async fn make_epoch_update(args: &Args) -> EpochUpdate {
         std::fs::read(&args.mint_public_key).expect("Please generate Mint keys before running!");
     eed.mint_signing_keys.push(mint_pk_in);
 
-    // Now load in a TTC gpk
+    // Now load in the default TTC gpk
     let ttc_gpk = std::fs::read(&args.ttc_group_public_key)
         .expect("Please generate wallet group keys before running!");
     eed.ttc_group_public_keys.push(ttc_gpk);
-    // TODO: Provide an out of bands mean for the servers to track acceptable NAC GPKs
-    // let nac_gpk = std::fs::read(&Path::new("../registar/data/wallet.nac.gpk")).unwrap();
+
+    // Load per-NAC-group policies mapping NAC GPKs to ticket lifetimes.
+    // All wallets share the same TTC group — differentiation is on NAC side.
+    for entry in &args.nac_group_policy {
+        let parts: Vec<&str> = entry.rsplitn(2, ':').collect();
+        if parts.len() != 2 {
+            panic!(
+                "invalid --nac-group-policy format '{}': expected FILE:LIFETIME",
+                entry
+            );
+        }
+        let lifetime: u32 = parts[0]
+            .parse()
+            .unwrap_or_else(|_| panic!("invalid lifetime in '{}'", entry));
+        let gpk_path = parts[1];
+        let gpk = std::fs::read(gpk_path)
+            .unwrap_or_else(|_| panic!("could not read NAC GPK: {}", gpk_path));
+        eed.group_policies.push(GroupPolicy {
+            nac_group_public_key: gpk,
+            ticket_lifetime: lifetime,
+        });
+    }
 
     // Add the service URIs
     // TODO(redpig): Populate via config server message or commandline args
@@ -196,7 +218,6 @@ struct Args {
     )]
     mint_public_key: PathBuf,
     // Path to wallet token transfer ticket credential group public key (TTC-GPK)
-    // TODO(redpig) add list support
     // TODO(redpig) cross-check ttc_issuer.gpk matches wallet fetched gpk
     #[arg(
         short = 'W',
@@ -205,6 +226,16 @@ struct Args {
         default_value = "data/registrar/ttc_issuer.gpk"
     )]
     ttc_group_public_key: PathBuf,
+    // Per-NAC-group policies mapping NAC GPKs to ticket lifetimes.
+    // Format: "FILE:LIFETIME" e.g. "data/registrar/nac_low.gpk:3"
+    // These are published in the epoch's group_policies so the clerk
+    // can enforce differentiated ticket lifetimes per NAC group.
+    #[arg(
+        long,
+        value_name = "FILE:LIFETIME",
+        help = "NAC GPK with ticket lifetime (e.g. data/nac_low.gpk:3)"
+    )]
+    nac_group_policy: Vec<String>,
     // TokenMap server URI
     #[arg(
         long,
