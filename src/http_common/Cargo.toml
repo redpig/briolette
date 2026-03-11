@@ -1,0 +1,16 @@
+[package]
+name = "briolette-http-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+briolette-proto = { path = "../proto", version = "*" }
+briolette-receiver = { path = "../receiver", version = "*" }
+briolette-wallet = { path = "../wallet", version = "*" }
+axum = "0.6"
+tower = "0.4"
+tower-http = { version = "0.4", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.21"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
