@@ -27,8 +27,8 @@ and impact in the context of eventual production deployment.
 | Severity     | Count |
 |--------------|-------|
 | Critical     |     1 |
-| High         |     4 |
-| Medium       |    10 |
+| High         |     3 |
+| Medium       |    11 |
 | Low          |     6 |
 | Informational|     9 |
 
@@ -265,14 +265,15 @@ allows impersonation of any Briolette service.
 **Recommendation:** Use unique, randomly-generated service identities with
 proper credential management (e.g., HSM-backed keys, rotation).
 
-### H-4: Bloom Filter Has ~1% False Positive Rate
+### H-4: Bloom Filter False Positives Recoverable via Swap but Path Not Wired
 
-**Severity:** High
-**Location:** `src/javacard/applet/BloomFilter.java:28-30`
+**Severity:** Medium (reduced from High — architectural recovery mechanism exists)
+**Location:** `src/javacard/applet/BloomFilter.java:28-30`,
+`src/javacard/applet/BrioletteApplet.java:343-359`
 
 The bloom filter is tuned for ~1000 transactions per epoch with a 1% false
-positive rate (9585 bits, 7 hash functions). This means approximately 1 in 100
-legitimate transactions will be incorrectly blocked.
+positive rate (9585 bits, 7 hash functions). A false positive causes the card
+to reject a legitimate basename with `SW_BASENAME_USED` (0x6A84).
 
 ```java
 // Parameters (tuned for ~1000 basenames/epoch, 1% false positive rate):
@@ -280,18 +281,28 @@ legitimate transactions will be incorrectly blocked.
 //   - Hash functions: 7
 ```
 
-Additionally, the bloom filter uses only 14 bytes of SHA-256 output for 7 hash
-functions (2 bytes each), providing only 16-bit positions mod 9585. This is
-correct for the given size but means the filter cannot be scaled without
-fundamental redesign.
+The intended recovery mechanism exists: the swap authorization flow
+(`INS_SIGN_COMMIT_SWAP`, 0x13) performs Schnorr verification of swap server
+authorization and bypasses the bloom filter entirely
+(`BrioletteApplet.java:349-352`). A wallet that encounters a false positive
+can request swap authorization from the swapper service, then re-sign using
+the swap flow. This is architecturally sound — the false positive triggers a
+swap, which gives the wallet a fresh token with a new basename, resolving the
+collision.
 
-**Impact:** 1% false positive means denial-of-service for 1 in 100 legitimate
-transactions. For a production CBDC system handling millions of transactions,
-this would be unacceptable.
+**Remaining gap:** The wallet does not yet implement this recovery path. The
+`SmartCard::sign_commit()` trait collapses all APDU errors into `None`,
+preventing the wallet from distinguishing a bloom filter rejection from other
+failures. The wallet needs to:
+1. Surface the APDU status word so it can detect `SW_BASENAME_USED`
+2. On bloom filter rejection, request swap authorization from the swapper
+3. Re-attempt signing via `INS_SIGN_COMMIT_SWAP` with the authorization
 
-**Recommendation:** Either increase bloom filter size (EEPROM permitting) or
-switch to a counting bloom filter that supports deletion. Consider Cuckoo
-filters for better space efficiency.
+**Recommendation:** Wire up the bloom filter rejection → swap recovery path in
+the wallet. This requires exposing APDU status words through the `SmartCard`
+trait and adding retry logic in `sign_split()`. The bloom filter parameters
+themselves are reasonable for the card's EEPROM constraints — the recovery
+mechanism is the correct architectural answer rather than enlarging the filter.
 
 ### H-5: Token Split Validation Is Incomplete
 
