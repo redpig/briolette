@@ -2,7 +2,7 @@
 //
 // Prerequisites for CAP build (gradle buildJavaCard):
 //   - JavaCard SDK 3.0.4+ (set JCDK_HOME environment variable)
-//   - JCMathLib (https://github.com/OpenCryptoProject/JCMathLib)
+//   - JCMathLib (set JCMATHLIB_HOME or place JCMathLib.jar in libs/)
 //   - Gradle 7+
 //   - JDK 11+ (JavaCard SDK requires it)
 //
@@ -10,11 +10,16 @@
 //   - Gradle 7+, JDK 11+
 //   - No JavaCard SDK or physical hardware needed
 //
-// Build CAP file:
-//   gradle buildJavaCard
+// Build CAP file (with JCMathLib for real hardware):
+//   JCMATHLIB_HOME=/path/to/jcmathlib gradle buildJavaCard
 //
-// Run simulator tests:
+// Run simulator tests (BigInteger math, no JCMathLib needed):
 //   gradle test
+//
+// EC math backend selection (compile-time conditional):
+//   - applet-sim/ECMath.java : BigInteger (jCardSim simulator, default)
+//   - applet-hw/ECMath.java  : JCMathLib (production JavaCard hardware)
+//   Selected automatically based on JCMATHLIB_HOME / libs/JCMathLib.jar
 //
 // The output CAP file will be in build/javacard/
 // Install to card using GlobalPlatformPro (gp.jar):
@@ -23,6 +28,10 @@
 plugins {
     id 'java'
 }
+
+// Detect whether JCMathLib is available
+def jcmathlib = file("${System.getenv('JCMATHLIB_HOME') ?: 'libs'}/JCMathLib.jar")
+def useJCMathLib = jcmathlib.exists() || project.hasProperty('USE_JCMATHLIB')
 
 // Conditionally apply javacard plugin for CAP file building
 // This allows 'gradle test' to work without the JavaCard SDK installed
@@ -57,11 +66,13 @@ if (System.getenv('JCDK_HOME') || file('/opt/jcdk').exists()) {
     }
 }
 
-// Source configuration
+// Source configuration: select EC math backend at compile time
+// - applet-sim/  contains ECMath.java using java.math.BigInteger (jCardSim)
+// - applet-hw/   contains ECMath.java using JCMathLib (real hardware)
 sourceSets {
     main {
         java {
-            srcDirs = ['applet']
+            srcDirs = ['applet', useJCMathLib ? 'applet-hw' : 'applet-sim']
         }
     }
     test {
@@ -70,6 +81,8 @@ sourceSets {
         }
     }
 }
+
+logger.lifecycle("EC math backend: ${useJCMathLib ? 'JCMathLib (applet-hw/)' : 'BigInteger (applet-sim/)'}")
 
 // Dependencies
 repositories {
@@ -86,7 +99,6 @@ dependencies {
     // JCMathLib for big number and EC point operations on BN254
     // Install from: https://github.com/OpenCryptoProject/JCMathLib
     // mvn install -f JCMathLib/pom.xml
-    def jcmathlib = file("${System.getenv('JCMATHLIB_HOME') ?: 'libs'}/JCMathLib.jar")
     if (jcmathlib.exists()) {
         implementation files(jcmathlib)
     }
