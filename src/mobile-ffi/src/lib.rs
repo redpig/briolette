@@ -1,17 +1,20 @@
 //! UniFFI bridge for Briolette wallet operations.
 //!
-//! Exposes the wallet's async Rust API as synchronous functions that Kotlin
-//! and Swift can call via UniFFI-generated bindings. Each function takes and
-//! returns a `WalletState` (serialized JSON + cached summary), allowing the
-//! mobile app to persist state between calls.
+//! This is a thin synchronous wrapper over `briolette-integration`, which
+//! provides the actual wallet logic. Each function blocks on a tokio runtime
+//! to call the async integration API, then converts types to the UniFFI-
+//! compatible structs defined in `briolette.udl`.
+//!
+//! Application developers who want a native Rust (async) API should depend
+//! on `briolette-integration` directly instead of this crate.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use prost::Message;
+use briolette_integration as bri;
 
 uniffi::include_scaffolding!("briolette");
 
 // ---------------------------------------------------------------------------
-// Error type
+// Error type (must match UDL)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, thiserror::Error)]
@@ -32,8 +35,23 @@ pub enum WalletError {
     ValidationFailed,
 }
 
+impl From<bri::Error> for WalletError {
+    fn from(e: bri::Error) -> Self {
+        match e {
+            bri::Error::NotInitialized => WalletError::NotInitialized,
+            bri::Error::Network(_) => WalletError::NetworkError,
+            bri::Error::InsufficientFunds { .. } => WalletError::InsufficientFunds,
+            bri::Error::NoTicketsAvailable => WalletError::NoTicketsAvailable,
+            bri::Error::InvalidData(_) => WalletError::InvalidData,
+            bri::Error::Serialization(_) => WalletError::SerializationError,
+            bri::Error::ValidationFailed => WalletError::ValidationFailed,
+            bri::Error::AlreadyRegistered => WalletError::InvalidData,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Data types (mirrored in UDL)
+// Data types (must match UDL)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -66,125 +84,10 @@ pub struct ValidationResult {
     pub invalid_count: u32,
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Build a tokio runtime for blocking on async wallet operations.
-fn runtime() -> Result<tokio::runtime::Runtime, WalletError> {
-    tokio::runtime::Runtime::new()
-        .map_err(|_| WalletError::NetworkError)
-}
-
-/// Extract a summary from wallet JSON without fully deserializing the wallet.
-/// This parses the JSON to compute balance/ticket counts for the cached fields.
-fn summarize_wallet(json: &str, name: &str) -> Result<WalletState, WalletError> {
-    let v: serde_json::Value = serde_json::from_str(json)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    let tokens = v.get("tokens").and_then(|t| t.as_array());
-    let tickets = v.get("tickets").and_then(|t| t.as_array());
-
-    let mut whole_sum: i64 = 0;
-    let mut frac_sum: i64 = 0;
-    let mut currency = String::from("TEST");
-    let token_count = tokens.map_or(0, |t| t.len()) as u32;
-
-    if let Some(toks) = tokens {
-        for tok in toks {
-            whole_sum += tok.get("whole_value").and_then(|v| v.as_i64()).unwrap_or(0);
-            // fractional_value is f32 in the wallet, representing micros
-            let frac = tok.get("fractional_value")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            frac_sum += frac as i64;
-            if let Some(code) = tok.get("value_code").and_then(|v| v.as_i64()) {
-                currency = match code {
-                    0 => "TEST".to_string(),
-                    8888 => "ETH".to_string(),
-                    840 => "USD".to_string(),
-                    978 => "EUR".to_string(),
-                    _ => format!("CODE_{code}"),
-                };
-            }
-        }
-    }
-
-    // Normalize fractional overflow (1_000_000 micros = 1 whole)
-    whole_sum += frac_sum / 1_000_000;
-    frac_sum %= 1_000_000;
-
-    Ok(WalletState {
-        json: json.to_string(),
-        balance: Balance {
-            whole: whole_sum as i32,
-            fractional: frac_sum as i32,
-            currency,
-            token_count,
-        },
-        ticket_count: tickets.map_or(0, |t| t.len()) as u32,
-        wallet_name: name.to_string(),
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Public FFI functions
-// ---------------------------------------------------------------------------
-
-/// Create a new wallet, register with the network, sync epoch, and fetch
-/// initial tickets. Returns serialized wallet state.
-pub fn create_wallet(
-    name: String,
-    registrar_uri: String,
-    clerk_uri: String,
-    mint_uri: String,
-    validate_uri: String,
-) -> Result<String, WalletError> {
-    let rt = runtime()?;
-    rt.block_on(async {
-        use briolette_wallet::Wallet;
-
-        // Generate a hardware ID from the wallet name.
-        let hw_id = sha256::digest(name.as_bytes());
-
-        let mut wallet = briolette_wallet::WalletData::new(
-            registrar_uri,
-            clerk_uri,
-            mint_uri,
-            validate_uri,
-        )
-        .map_err(|_| WalletError::InvalidData)?;
-
-        if !wallet.initialize_keys(hw_id.as_bytes()) {
-            return Err(WalletError::NotInitialized);
-        }
-
-        if !wallet.initialize_credential().await {
-            return Err(WalletError::NetworkError);
-        }
-
-        if !wallet.synchronize().await {
-            return Err(WalletError::NetworkError);
-        }
-
-        if !wallet.get_tickets(10).await {
-            return Err(WalletError::NetworkError);
-        }
-
-        serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)
-    })
-}
-
-/// Result of `init_wallet_keys` — contains the serialized wallet and the
-/// attestation challenge preimage that must be hashed and used as the
-/// attestation challenge for cryptographic binding.
 #[derive(Debug, Clone)]
 pub struct KeyInitResult {
     pub wallet_json: String,
     pub challenge_preimage_b64: String,
-    // Card public key shares for split-key proof (base64).
-    // Empty strings when not using split keys.
     pub nac_card_public_key_b64: String,
     pub ttc_card_public_key_b64: String,
 }
@@ -196,17 +99,86 @@ pub struct AttestationData {
     pub public_key_b64: String,
 }
 
-/// Initialize wallet keys and return the attestation challenge preimage.
-///
-/// Phase 1 of 2-phase attested registration. The returned base64 value is
-/// `hw_id || nac_pk || ttc_pk` — the mobile app must SHA-256 hash this and
-/// use the hash as the attestation challenge when generating Android Key
-/// Attestation or iOS App Attest data. This cryptographically binds the
-/// hardware attestation to the specific ECDAA credential public keys,
-/// preventing attestation replay attacks.
-///
-/// The returned `wallet_json` must be passed to `register_wallet_with_attestation`
-/// along with the attestation data to complete registration.
+#[derive(Debug, Clone)]
+pub struct SplitKeyStep1Result {
+    pub state_json: String,
+    pub b_ttc_b64: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SplitKeyStep2aResult {
+    pub state_json: String,
+    pub c_ttc_b64: String,
+    pub b_nac_b64: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SplitKeyStep2bResult {
+    pub state_json: String,
+    pub c_nac_b64: String,
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn runtime() -> Result<tokio::runtime::Runtime, WalletError> {
+    tokio::runtime::Runtime::new().map_err(|_| WalletError::NetworkError)
+}
+
+fn to_wallet_state(client: &bri::BrioletteClient) -> Result<WalletState, WalletError> {
+    let bal = client.balance();
+    Ok(WalletState {
+        json: client.to_json().map_err(WalletError::from)?,
+        balance: Balance {
+            whole: bal.whole,
+            fractional: bal.fractional,
+            currency: bal.currency,
+            token_count: bal.token_count,
+        },
+        ticket_count: client.ticket_count(),
+        wallet_name: client.name().to_string(),
+    })
+}
+
+fn from_wallet_state(state: &WalletState) -> Result<bri::BrioletteClient, WalletError> {
+    bri::BrioletteClient::from_json(&state.json).map_err(WalletError::from)
+}
+
+fn config_from(
+    registrar_uri: &str,
+    clerk_uri: &str,
+    mint_uri: &str,
+    validate_uri: &str,
+) -> bri::ServiceConfig {
+    bri::ServiceConfig {
+        registrar_uri: registrar_uri.to_string(),
+        clerk_uri: clerk_uri.to_string(),
+        mint_uri: mint_uri.to_string(),
+        validate_uri: validate_uri.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public FFI functions
+// ---------------------------------------------------------------------------
+
+pub fn create_wallet(
+    name: String,
+    registrar_uri: String,
+    clerk_uri: String,
+    mint_uri: String,
+    validate_uri: String,
+) -> Result<String, WalletError> {
+    let rt = runtime()?;
+    rt.block_on(async {
+        let config = config_from(&registrar_uri, &clerk_uri, &mint_uri, &validate_uri);
+        let client = bri::BrioletteClient::create(&name, &config).await
+            .map_err(WalletError::from)?;
+        client.to_json().map_err(WalletError::from)
+    })
+}
+
 pub fn init_wallet_keys(
     name: String,
     registrar_uri: String,
@@ -214,39 +186,18 @@ pub fn init_wallet_keys(
     mint_uri: String,
     validate_uri: String,
 ) -> Result<KeyInitResult, WalletError> {
-    use briolette_wallet::Wallet;
-    let hw_id = sha256::digest(name.as_bytes());
-
-    let mut wallet = briolette_wallet::WalletData::new(
-        registrar_uri,
-        clerk_uri,
-        mint_uri,
-        validate_uri,
-    )
-    .map_err(|_| WalletError::InvalidData)?;
-
-    if !wallet.initialize_keys(hw_id.as_bytes()) {
-        return Err(WalletError::NotInitialized);
-    }
-
-    let challenge_preimage = wallet.attestation_challenge_preimage();
-    let wallet_json = serde_json::to_string(&wallet)
-        .map_err(|_| WalletError::SerializationError)?;
+    let config = config_from(&registrar_uri, &clerk_uri, &mint_uri, &validate_uri);
+    let result = bri::BrioletteClient::init_keys(&name, &config)
+        .map_err(WalletError::from)?;
 
     Ok(KeyInitResult {
-        wallet_json,
-        challenge_preimage_b64: B64.encode(&challenge_preimage),
+        wallet_json: result.client.to_json().map_err(WalletError::from)?,
+        challenge_preimage_b64: B64.encode(&result.challenge_preimage),
         nac_card_public_key_b64: String::new(),
         ttc_card_public_key_b64: String::new(),
     })
 }
 
-/// Complete attested wallet registration.
-///
-/// Phase 2 of 2-phase attested registration. Takes the wallet JSON from
-/// `init_wallet_keys` and the attestation data generated using the
-/// challenge preimage. Registers with the network, syncs epoch, and
-/// fetches initial tickets.
 pub fn register_wallet_with_attestation(
     wallet_json: String,
     attestation: AttestationData,
@@ -255,53 +206,39 @@ pub fn register_wallet_with_attestation(
 ) -> Result<String, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
-        use briolette_wallet::Wallet;
+        let client = bri::BrioletteClient::from_json(&wallet_json)
+            .map_err(WalletError::from)?;
 
-        let mut wallet: briolette_wallet::WalletData =
-            serde_json::from_str(&wallet_json)
-                .map_err(|_| WalletError::SerializationError)?;
+        let att = bri::Attestation {
+            algorithm: attestation.algorithm,
+            signature: B64.decode(&attestation.signature_b64)
+                .map_err(|_| WalletError::InvalidData)?,
+            public_key: B64.decode(&attestation.public_key_b64)
+                .map_err(|_| WalletError::InvalidData)?,
+        };
 
-        // Decode and set attestation data.
-        let sig_bytes = B64
-            .decode(&attestation.signature_b64)
-            .map_err(|_| WalletError::InvalidData)?;
-        let pk_bytes = B64
-            .decode(&attestation.public_key_b64)
-            .map_err(|_| WalletError::InvalidData)?;
-        wallet.set_attestation_data(attestation.algorithm, sig_bytes, pk_bytes);
+        let proof = if !nac_card_public_key_b64.is_empty()
+            && !ttc_card_public_key_b64.is_empty()
+        {
+            Some(bri::SplitKeyProof {
+                nac_card_public_key: B64.decode(&nac_card_public_key_b64)
+                    .map_err(|_| WalletError::InvalidData)?,
+                ttc_card_public_key: B64.decode(&ttc_card_public_key_b64)
+                    .map_err(|_| WalletError::InvalidData)?,
+            })
+        } else {
+            None
+        };
 
-        // Set split-key proof if card public key shares are provided.
-        if !nac_card_public_key_b64.is_empty() && !ttc_card_public_key_b64.is_empty() {
-            let nac_card_pk = B64.decode(&nac_card_public_key_b64)
-                .map_err(|_| WalletError::InvalidData)?;
-            let ttc_card_pk = B64.decode(&ttc_card_public_key_b64)
-                .map_err(|_| WalletError::InvalidData)?;
-            wallet.set_split_key_proof(nac_card_pk, ttc_card_pk);
-        }
+        let registered = client
+            .register_with_attestation(&att, proof.as_ref())
+            .await
+            .map_err(WalletError::from)?;
 
-        if !wallet.initialize_credential().await {
-            return Err(WalletError::NetworkError);
-        }
-
-        if !wallet.synchronize().await {
-            return Err(WalletError::NetworkError);
-        }
-
-        if !wallet.get_tickets(10).await {
-            return Err(WalletError::NetworkError);
-        }
-
-        serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)
+        registered.to_json().map_err(WalletError::from)
     })
 }
 
-/// Create a new wallet with hardware attestation data (legacy one-shot API).
-///
-/// NOTE: This function accepts pre-generated attestation data. For proper
-/// cryptographic binding, use the 2-phase API: `init_wallet_keys` followed
-/// by `register_wallet_with_attestation`, which allows the attestation
-/// challenge to include the ECDAA public keys.
 pub fn create_wallet_with_attestation(
     name: String,
     registrar_uri: String,
@@ -312,323 +249,46 @@ pub fn create_wallet_with_attestation(
 ) -> Result<String, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
-        use briolette_wallet::Wallet;
+        let config = config_from(&registrar_uri, &clerk_uri, &mint_uri, &validate_uri);
+        let init = bri::BrioletteClient::init_keys(&name, &config)
+            .map_err(WalletError::from)?;
 
-        let hw_id = sha256::digest(name.as_bytes());
+        let att = bri::Attestation {
+            algorithm: attestation.algorithm,
+            signature: B64.decode(&attestation.signature_b64)
+                .map_err(|_| WalletError::InvalidData)?,
+            public_key: B64.decode(&attestation.public_key_b64)
+                .map_err(|_| WalletError::InvalidData)?,
+        };
 
-        let mut wallet = briolette_wallet::WalletData::new(
-            registrar_uri,
-            clerk_uri,
-            mint_uri,
-            validate_uri,
-        )
-        .map_err(|_| WalletError::InvalidData)?;
+        let registered = init.client
+            .register_with_attestation(&att, None)
+            .await
+            .map_err(WalletError::from)?;
 
-        if !wallet.initialize_keys(hw_id.as_bytes()) {
-            return Err(WalletError::NotInitialized);
-        }
-
-        // Decode and set attestation data.
-        let sig_bytes = B64
-            .decode(&attestation.signature_b64)
-            .map_err(|_| WalletError::InvalidData)?;
-        let pk_bytes = B64
-            .decode(&attestation.public_key_b64)
-            .map_err(|_| WalletError::InvalidData)?;
-        wallet.set_attestation_data(attestation.algorithm, sig_bytes, pk_bytes);
-
-        if !wallet.initialize_credential().await {
-            return Err(WalletError::NetworkError);
-        }
-
-        if !wallet.synchronize().await {
-            return Err(WalletError::NetworkError);
-        }
-
-        if !wallet.get_tickets(10).await {
-            return Err(WalletError::NetworkError);
-        }
-
-        serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)
+        registered.to_json().map_err(WalletError::from)
     })
 }
 
-// ---------------------------------------------------------------------------
-// Split-key + attestation multi-step protocol
-// ---------------------------------------------------------------------------
-//
-// For wallets using NFC smart cards (split-key mode), key generation requires
-// interactive NFC communication. The card-derived combined public keys flow
-// into the attestation challenge, cryptographically binding the attestation
-// to both the phone hardware AND the specific NFC card.
-//
-// Protocol:
-//
-// Step 1: split_key_start(name, config)
-//   → Returns base point B_ttc. App sends to TTC card:
-//     PUBLIC_KEY_SHARE(B_ttc) → q_card_ttc, JOIN_COMMIT(B_ttc) → u_card_ttc
-//
-// Step 2a: split_key_after_ttc_commit(state, q_card_ttc, u_card_ttc)
-//   → Returns c_ttc (send to TTC card: JOIN_RESPOND(c_ttc) → s_card_ttc)
-//     and B_nac (send to NAC card: PUBLIC_KEY_SHARE, JOIN_COMMIT)
-//
-// Step 2b: split_key_after_nac_commit(state, q_card_nac, u_card_nac)
-//   → Returns c_nac (send to NAC card: JOIN_RESPOND(c_nac) → s_card_nac)
-//
-// Step 3: split_key_complete(state, s_card_ttc, s_card_nac)
-//   → Returns KeyInitResult with challenge_preimage_b64 bound to
-//     card-derived combined public keys
-//
-// Step 4: register_wallet_with_attestation(wallet_json, attestation)
-//   → Same as non-split path
-
-/// Result of split_key_start.
-#[derive(Debug, Clone)]
-pub struct SplitKeyStep1Result {
-    pub state_json: String,
-    /// Base64 G1 point for TTC card PUBLIC_KEY_SHARE + JOIN_COMMIT.
-    pub b_ttc_b64: String,
-}
-
-/// Result of split_key_after_ttc_commit.
-#[derive(Debug, Clone)]
-pub struct SplitKeyStep2aResult {
-    pub state_json: String,
-    /// Challenge for TTC card JOIN_RESPOND.
-    pub c_ttc_b64: String,
-    /// Base64 G1 point for NAC card PUBLIC_KEY_SHARE + JOIN_COMMIT.
-    pub b_nac_b64: String,
-}
-
-/// Result of split_key_after_nac_commit.
-#[derive(Debug, Clone)]
-pub struct SplitKeyStep2bResult {
-    pub state_json: String,
-    /// Challenge for NAC card JOIN_RESPOND.
-    pub c_nac_b64: String,
-}
-
-/// Step 1: Initialize wallet and compute TTC base point.
-pub fn split_key_start(
-    name: String,
-    registrar_uri: String,
-    clerk_uri: String,
-    mint_uri: String,
-    validate_uri: String,
-) -> Result<SplitKeyStep1Result, WalletError> {
-    let hw_id = sha256::digest(name.as_bytes());
-
-    let wallet = briolette_wallet::WalletData::new(
-        registrar_uri, clerk_uri, mint_uri, validate_uri,
-    ).map_err(|_| WalletError::InvalidData)?;
-
-    let hw_id_bytes = hw_id.into_bytes();
-    let b_ttc = briolette_crypto::v0::split::split_base_point(&hw_id_bytes);
-
-    let state = serde_json::json!({
-        "wallet": serde_json::to_string(&wallet).map_err(|_| WalletError::SerializationError)?,
-        "hw_id": B64.encode(&hw_id_bytes),
-    });
-
-    Ok(SplitKeyStep1Result {
-        state_json: state.to_string(),
-        b_ttc_b64: B64.encode(&b_ttc),
-    })
-}
-
-/// Step 2a: After TTC card responses, compute TTC challenge and NAC base point.
-pub fn split_key_after_ttc_commit(
-    state_json: String,
-    q_card_ttc_b64: String,
-    u_card_ttc_b64: String,
-) -> Result<SplitKeyStep2aResult, WalletError> {
-    let state: serde_json::Value = serde_json::from_str(&state_json)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    let hw_id = B64.decode(state["hw_id"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let q_card_ttc = B64.decode(&q_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
-    let u_card_ttc = B64.decode(&u_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
-
-    let (host_sk_ttc, host_r_ttc, c_ttc, q_ttc_combined) =
-        briolette_crypto::v0::split::split_join_host_commit_and_challenge(
-            &hw_id, &q_card_ttc, &u_card_ttc,
-        ).ok_or(WalletError::InvalidData)?;
-
-    let b_nac = briolette_crypto::v0::split::split_base_point(&q_ttc_combined);
-
-    let updated_state = serde_json::json!({
-        "wallet": state["wallet"],
-        "hw_id": state["hw_id"],
-        "host_sk_ttc": B64.encode(&host_sk_ttc),
-        "host_r_ttc": B64.encode(&host_r_ttc),
-        "q_card_ttc": q_card_ttc_b64,
-        "u_card_ttc": u_card_ttc_b64,
-        "c_ttc": B64.encode(&c_ttc),
-        "q_ttc_combined": B64.encode(&q_ttc_combined),
-    });
-
-    Ok(SplitKeyStep2aResult {
-        state_json: updated_state.to_string(),
-        c_ttc_b64: B64.encode(&c_ttc),
-        b_nac_b64: B64.encode(&b_nac),
-    })
-}
-
-/// Step 2b: After NAC card responses, compute NAC challenge.
-pub fn split_key_after_nac_commit(
-    state_json: String,
-    q_card_nac_b64: String,
-    u_card_nac_b64: String,
-) -> Result<SplitKeyStep2bResult, WalletError> {
-    let state: serde_json::Value = serde_json::from_str(&state_json)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    let q_ttc_combined = B64.decode(
-        state["q_ttc_combined"].as_str().ok_or(WalletError::InvalidData)?
-    ).map_err(|_| WalletError::InvalidData)?;
-    let q_card_nac = B64.decode(&q_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
-    let u_card_nac = B64.decode(&u_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
-
-    let (host_sk_nac, host_r_nac, c_nac, _) =
-        briolette_crypto::v0::split::split_join_host_commit_and_challenge(
-            &q_ttc_combined, &q_card_nac, &u_card_nac,
-        ).ok_or(WalletError::InvalidData)?;
-
-    let mut updated_state: serde_json::Value = serde_json::from_str(&state_json)
-        .map_err(|_| WalletError::SerializationError)?;
-    updated_state["host_sk_nac"] = serde_json::Value::String(B64.encode(&host_sk_nac));
-    updated_state["host_r_nac"] = serde_json::Value::String(B64.encode(&host_r_nac));
-    updated_state["q_card_nac"] = serde_json::Value::String(q_card_nac_b64);
-    updated_state["u_card_nac"] = serde_json::Value::String(u_card_nac_b64);
-    updated_state["c_nac"] = serde_json::Value::String(B64.encode(&c_nac));
-
-    Ok(SplitKeyStep2bResult {
-        state_json: updated_state.to_string(),
-        c_nac_b64: B64.encode(&c_nac),
-    })
-}
-
-/// Step 3: Combine card responses into split-key wallet.
-/// The challenge_preimage_b64 in the result is bound to the card-derived
-/// combined public keys (hw_id || nac_pk || ttc_pk where nac_pk and ttc_pk
-/// contain the card's public key share contributions).
-pub fn split_key_complete(
-    state_json: String,
-    s_card_ttc_b64: String,
-    s_card_nac_b64: String,
-) -> Result<KeyInitResult, WalletError> {
-    let state: serde_json::Value = serde_json::from_str(&state_json)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    let wallet_json_str = state["wallet"].as_str().ok_or(WalletError::InvalidData)?;
-    let mut wallet: briolette_wallet::WalletData =
-        serde_json::from_str(wallet_json_str)
-            .map_err(|_| WalletError::SerializationError)?;
-
-    // Decode all intermediates
-    let hw_id = B64.decode(state["hw_id"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let host_sk_ttc = B64.decode(state["host_sk_ttc"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let host_r_ttc = B64.decode(state["host_r_ttc"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let q_card_ttc = B64.decode(state["q_card_ttc"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let u_card_ttc = B64.decode(state["u_card_ttc"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let c_ttc = B64.decode(state["c_ttc"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let s_card_ttc = B64.decode(&s_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
-    let q_ttc_combined = B64.decode(state["q_ttc_combined"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-
-    let host_sk_nac = B64.decode(state["host_sk_nac"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let host_r_nac = B64.decode(state["host_r_nac"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let q_card_nac = B64.decode(state["q_card_nac"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let u_card_nac = B64.decode(state["u_card_nac"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let c_nac = B64.decode(state["c_nac"].as_str().ok_or(WalletError::InvalidData)?)
-        .map_err(|_| WalletError::InvalidData)?;
-    let s_card_nac = B64.decode(&s_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
-
-    // Finalize TTC key
-    let ttc_pk = briolette_crypto::v0::split::split_join_finalize(
-        &hw_id, &q_card_ttc, &u_card_ttc, &host_sk_ttc, &host_r_ttc,
-        &c_ttc, &s_card_ttc,
-    ).ok_or(WalletError::InvalidData)?;
-
-    // Finalize NAC key
-    let nac_pk = briolette_crypto::v0::split::split_join_finalize(
-        &q_ttc_combined, &q_card_nac, &u_card_nac, &host_sk_nac, &host_r_nac,
-        &c_nac, &s_card_nac,
-    ).ok_or(WalletError::InvalidData)?;
-
-    // Set the wallet's split keys
-    wallet.set_split_keys(hw_id, nac_pk, host_sk_nac, ttc_pk, host_sk_ttc);
-
-    let challenge_preimage = wallet.attestation_challenge_preimage();
-    let final_json = serde_json::to_string(&wallet)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    Ok(KeyInitResult {
-        wallet_json: final_json,
-        challenge_preimage_b64: B64.encode(&challenge_preimage),
-        nac_card_public_key_b64: B64.encode(&q_card_nac),
-        ttc_card_public_key_b64: B64.encode(&q_card_ttc),
-    })
-}
-
-/// Load a wallet from its JSON representation.
 pub fn load_wallet(json: String) -> Result<WalletState, WalletError> {
-    // Validate that the JSON is parseable.
-    let v: serde_json::Value = serde_json::from_str(&json)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    let name = v
-        .get("name")
-        .and_then(|n| n.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    summarize_wallet(&json, &name)
+    let client = bri::BrioletteClient::from_json(&json).map_err(WalletError::from)?;
+    to_wallet_state(&client)
 }
 
-/// Serialize wallet state to JSON.
 pub fn save_wallet(state: WalletState) -> Result<String, WalletError> {
-    // The state.json is already valid JSON; just return it.
-    // Validate it first.
-    let _: serde_json::Value = serde_json::from_str(&state.json)
-        .map_err(|_| WalletError::SerializationError)?;
-    Ok(state.json)
+    let client = from_wallet_state(&state)?;
+    client.to_json().map_err(WalletError::from)
 }
 
-/// Synchronize epoch data from the clerk.
 pub fn synchronize(state: WalletState, _clerk_uri: String) -> Result<WalletState, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
-        use briolette_wallet::Wallet;
-
-        let mut wallet: briolette_wallet::WalletData =
-            serde_json::from_str(&state.json)
-                .map_err(|_| WalletError::SerializationError)?;
-
-        if !wallet.synchronize().await {
-            return Err(WalletError::NetworkError);
-        }
-
-        let json = serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)?;
-
-        summarize_wallet(&json, &state.wallet_name)
+        let client = from_wallet_state(&state)?;
+        let updated = client.synchronize().await.map_err(WalletError::from)?;
+        to_wallet_state(&updated)
     })
 }
 
-/// Request receiving tickets from the clerk.
 pub fn request_tickets(
     state: WalletState,
     _clerk_uri: String,
@@ -636,24 +296,12 @@ pub fn request_tickets(
 ) -> Result<WalletState, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
-        use briolette_wallet::Wallet;
-
-        let mut wallet: briolette_wallet::WalletData =
-            serde_json::from_str(&state.json)
-                .map_err(|_| WalletError::SerializationError)?;
-
-        if !wallet.get_tickets(count).await {
-            return Err(WalletError::NetworkError);
-        }
-
-        let json = serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)?;
-
-        summarize_wallet(&json, &state.wallet_name)
+        let client = from_wallet_state(&state)?;
+        let updated = client.request_tickets(count).await.map_err(WalletError::from)?;
+        to_wallet_state(&updated)
     })
 }
 
-/// Withdraw (top up) tokens from the mint.
 pub fn withdraw(
     state: WalletState,
     _mint_uri: String,
@@ -661,28 +309,12 @@ pub fn withdraw(
 ) -> Result<WalletState, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
-        use briolette_wallet::Wallet;
-
-        let mut wallet: briolette_wallet::WalletData =
-            serde_json::from_str(&state.json)
-                .map_err(|_| WalletError::SerializationError)?;
-
-        if wallet.tickets.is_empty() {
-            return Err(WalletError::NoTicketsAvailable);
-        }
-
-        if !wallet.withdraw(amount).await {
-            return Err(WalletError::NetworkError);
-        }
-
-        let json = serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)?;
-
-        summarize_wallet(&json, &state.wallet_name)
+        let client = from_wallet_state(&state)?;
+        let updated = client.withdraw(amount).await.map_err(WalletError::from)?;
+        to_wallet_state(&updated)
     })
 }
 
-/// Transfer tokens to a recipient. Returns updated state + base64 tokens to send.
 pub fn transfer_tokens(
     state: WalletState,
     recipient_ticket_b64: String,
@@ -690,143 +322,152 @@ pub fn transfer_tokens(
 ) -> Result<TransferResult, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
-        use briolette_wallet::Wallet;
-
-        let recipient_bytes = B64
-            .decode(&recipient_ticket_b64)
-            .map_err(|_| WalletError::InvalidData)?;
-
-        let mut wallet: briolette_wallet::WalletData =
-            serde_json::from_str(&state.json)
-                .map_err(|_| WalletError::SerializationError)?;
-
-        let balance_whole: i32 = wallet.tokens.iter().map(|t| t.whole_value).sum();
-        if balance_whole < amount as i32 {
-            return Err(WalletError::InsufficientFunds);
-        }
-
-        if !wallet.transfer(amount, recipient_bytes) {
-            return Err(WalletError::InsufficientFunds);
-        }
-
-        // Extract pending tokens as base64 for the caller to deliver.
-        let tokens_b64: Vec<String> = wallet
-            .pending_tokens
-            .iter()
-            .map(|t| B64.encode(t))
-            .collect();
-        wallet.pending_tokens.clear();
-
-        let json = serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)?;
-
-        let updated_state = summarize_wallet(&json, &state.wallet_name)?;
-
-        Ok(TransferResult {
-            state: updated_state,
-            tokens_b64,
-        })
+        let client = from_wallet_state(&state)?;
+        let (updated, tokens_b64) = client
+            .transfer_b64(amount, &recipient_ticket_b64)
+            .await
+            .map_err(WalletError::from)?;
+        let ws = to_wallet_state(&updated)?;
+        Ok(TransferResult { state: ws, tokens_b64 })
     })
 }
 
-/// Import received tokens (base64-encoded protobuf) into the wallet.
 pub fn receive_tokens(
     state: WalletState,
     tokens_b64: Vec<String>,
 ) -> Result<WalletState, WalletError> {
-    use briolette_proto::briolette::token::Token;
-
-    let mut wallet: briolette_wallet::WalletData =
-        serde_json::from_str(&state.json)
-            .map_err(|_| WalletError::SerializationError)?;
-
-    for b64 in &tokens_b64 {
-        let bytes = B64
-            .decode(b64)
-            .map_err(|_| WalletError::InvalidData)?;
-
-        // Decode the token protobuf and convert via From<Token> impl.
-        let token = Token::decode(bytes.as_slice())
-            .map_err(|_| WalletError::InvalidData)?;
-        wallet.tokens.push(briolette_wallet::TokenEntry::from(token));
-    }
-
-    let json = serde_json::to_string(&wallet)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    summarize_wallet(&json, &state.wallet_name)
+    let client = from_wallet_state(&state)?;
+    let updated = client.receive_tokens_b64(&tokens_b64).map_err(WalletError::from)?;
+    to_wallet_state(&updated)
 }
 
-/// Validate all held tokens with the network.
 pub fn validate_tokens(
     state: WalletState,
     _validate_uri: String,
 ) -> Result<ValidationResult, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
-        use briolette_wallet::Wallet;
-
-        let wallet: briolette_wallet::WalletData =
-            serde_json::from_str(&state.json)
-                .map_err(|_| WalletError::SerializationError)?;
-
-        let total = wallet.tokens.len() as u32;
-
-        if !wallet.validate().await {
-            return Err(WalletError::ValidationFailed);
-        }
-
-        let valid_count = wallet.tokens.len() as u32;
-        let invalid_count = total.saturating_sub(valid_count);
-
-        let json = serde_json::to_string(&wallet)
-            .map_err(|_| WalletError::SerializationError)?;
-
-        let updated_state = summarize_wallet(&json, &state.wallet_name)?;
-
+        let client = from_wallet_state(&state)?;
+        let result = client.validate().await.map_err(WalletError::from)?;
+        let ws = to_wallet_state(&result.client)?;
         Ok(ValidationResult {
-            state: updated_state,
-            all_valid: invalid_count == 0,
-            valid_count,
-            invalid_count,
+            state: ws,
+            all_valid: result.all_valid,
+            valid_count: result.valid_count,
+            invalid_count: result.invalid_count,
         })
     })
 }
 
-/// Get a receiving ticket as base64 for QR code display.
-///
-/// Extracts the first ticket's raw bytes from the wallet JSON and
-/// returns them as base64. The ticket bytes are the serialized
-/// SignedTicket protobuf that a sender needs to target their payment.
 pub fn get_receiving_ticket_b64(state: WalletState) -> Result<String, WalletError> {
-    let v: serde_json::Value = serde_json::from_str(&state.json)
-        .map_err(|_| WalletError::SerializationError)?;
-
-    let ticket_arr = v
-        .get("tickets")
-        .and_then(|t| t.as_array())
-        .ok_or(WalletError::NoTicketsAvailable)?;
-
-    let first = ticket_arr.first().ok_or(WalletError::NoTicketsAvailable)?;
-
-    // The "ticket" field is a JSON array of bytes (Vec<u8> serialized by serde).
-    let ticket_bytes: Vec<u8> = first
-        .get("ticket")
-        .and_then(|t| serde_json::from_value(t.clone()).ok())
-        .ok_or(WalletError::InvalidData)?;
-
-    Ok(B64.encode(&ticket_bytes))
+    let client = from_wallet_state(&state)?;
+    client.receiving_ticket_b64().map_err(WalletError::from)
 }
 
-/// Compute the wallet balance from state.
 pub fn get_balance(state: WalletState) -> Balance {
     state.balance.clone()
 }
 
-/// Get the number of available tickets.
 pub fn get_ticket_count(state: WalletState) -> u32 {
     state.ticket_count
 }
+
+// ---------------------------------------------------------------------------
+// Split-key protocol
+// ---------------------------------------------------------------------------
+
+pub fn split_key_start(
+    name: String,
+    registrar_uri: String,
+    clerk_uri: String,
+    mint_uri: String,
+    validate_uri: String,
+) -> Result<SplitKeyStep1Result, WalletError> {
+    let config = config_from(&registrar_uri, &clerk_uri, &mint_uri, &validate_uri);
+    let step = bri::BrioletteClient::split_key_start(&name, &config)
+        .map_err(WalletError::from)?;
+
+    let state_json = serde_json::to_string(&step.state)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    Ok(SplitKeyStep1Result {
+        state_json,
+        b_ttc_b64: B64.encode(&step.b_ttc),
+    })
+}
+
+pub fn split_key_after_ttc_commit(
+    state_json: String,
+    q_card_ttc_b64: String,
+    u_card_ttc_b64: String,
+) -> Result<SplitKeyStep2aResult, WalletError> {
+    let state: bri::SplitKeyState = serde_json::from_str(&state_json)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    let q = B64.decode(&q_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
+    let u = B64.decode(&u_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
+
+    let step = bri::BrioletteClient::split_key_after_ttc_commit(&state, &q, &u)
+        .map_err(WalletError::from)?;
+
+    let new_state_json = serde_json::to_string(&step.state)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    Ok(SplitKeyStep2aResult {
+        state_json: new_state_json,
+        c_ttc_b64: B64.encode(&step.c_ttc),
+        b_nac_b64: B64.encode(&step.b_nac),
+    })
+}
+
+pub fn split_key_after_nac_commit(
+    state_json: String,
+    q_card_nac_b64: String,
+    u_card_nac_b64: String,
+) -> Result<SplitKeyStep2bResult, WalletError> {
+    let state: bri::SplitKeyState = serde_json::from_str(&state_json)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    let q = B64.decode(&q_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
+    let u = B64.decode(&u_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
+
+    let step = bri::BrioletteClient::split_key_after_nac_commit(&state, &q, &u)
+        .map_err(WalletError::from)?;
+
+    let new_state_json = serde_json::to_string(&step.state)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    Ok(SplitKeyStep2bResult {
+        state_json: new_state_json,
+        c_nac_b64: B64.encode(&step.c_nac),
+    })
+}
+
+pub fn split_key_complete(
+    state_json: String,
+    s_card_ttc_b64: String,
+    s_card_nac_b64: String,
+) -> Result<KeyInitResult, WalletError> {
+    let state: bri::SplitKeyState = serde_json::from_str(&state_json)
+        .map_err(|_| WalletError::SerializationError)?;
+
+    let s_ttc = B64.decode(&s_card_ttc_b64).map_err(|_| WalletError::InvalidData)?;
+    let s_nac = B64.decode(&s_card_nac_b64).map_err(|_| WalletError::InvalidData)?;
+
+    let result = bri::BrioletteClient::split_key_complete(&state, &s_ttc, &s_nac)
+        .map_err(WalletError::from)?;
+
+    Ok(KeyInitResult {
+        wallet_json: result.client.to_json().map_err(WalletError::from)?,
+        challenge_preimage_b64: B64.encode(&result.challenge_preimage),
+        nac_card_public_key_b64: B64.encode(&result.nac_card_public_key),
+        ttc_card_public_key_b64: B64.encode(&result.ttc_card_public_key),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -834,8 +475,8 @@ mod tests {
 
     #[test]
     fn summarize_empty_wallet_json() {
-        let json = r#"{"name":"test","tokens":[],"tickets":[]}"#;
-        let state = summarize_wallet(json, "test").unwrap();
+        let json = r#"{"name":"test","tokens":[],"tickets":[]}"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.whole, 0);
         assert_eq!(state.balance.token_count, 0);
         assert_eq!(state.ticket_count, 0);
@@ -851,8 +492,8 @@ mod tests {
                 {"token": "", "credential": "", "whole_value": 3, "fractional_value": 500000, "value_code": 0}
             ],
             "tickets": [{"ticket": "", "credential": "", "group_number": 0, "created_on": 0, "lifetime": 1, "signature": ""}]
-        }"#;
-        let state = summarize_wallet(json, "alice").unwrap();
+        }"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.whole, 8);
         assert_eq!(state.balance.fractional, 500000);
         assert_eq!(state.balance.token_count, 2);
@@ -862,7 +503,7 @@ mod tests {
     #[test]
     fn balance_extract() {
         let state = WalletState {
-            json: "{}".to_string(),
+            json: r#"{"name":"bob","tokens":[],"tickets":[]}"#.to_string(),
             balance: Balance {
                 whole: 42,
                 fractional: 0,
@@ -880,7 +521,7 @@ mod tests {
     #[test]
     fn ticket_count_extract() {
         let state = WalletState {
-            json: "{}".to_string(),
+            json: r#"{"name":"carol","tokens":[],"tickets":[]}"#.to_string(),
             balance: Balance { whole: 0, fractional: 0, currency: "TEST".to_string(), token_count: 0 },
             ticket_count: 7,
             wallet_name: "carol".to_string(),
@@ -937,15 +578,14 @@ mod tests {
 
     #[test]
     fn summarize_wallet_fractional_overflow_normalizes() {
-        // 2_500_000 micros = 2 whole + 500_000 fractional
         let json = r#"{
             "name": "norm",
             "tokens": [
                 {"token": "", "credential": "", "whole_value": 0, "fractional_value": 2500000, "value_code": 0}
             ],
             "tickets": []
-        }"#;
-        let state = summarize_wallet(json, "norm").unwrap();
+        }"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.whole, 2);
         assert_eq!(state.balance.fractional, 500_000);
     }
@@ -959,9 +599,8 @@ mod tests {
                 {"token": "", "credential": "", "whole_value": 2, "fractional_value": 0, "value_code": 840}
             ],
             "tickets": []
-        }"#;
-        let state = summarize_wallet(json, "multi").unwrap();
-        // Last token's code wins
+        }"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.currency, "USD");
         assert_eq!(state.balance.whole, 3);
     }
@@ -974,8 +613,8 @@ mod tests {
                 {"token": "", "credential": "", "whole_value": 1, "fractional_value": 0, "value_code": 8888}
             ],
             "tickets": []
-        }"#;
-        let state = summarize_wallet(json, "eth").unwrap();
+        }"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.currency, "ETH");
     }
 
@@ -987,8 +626,8 @@ mod tests {
                 {"token": "", "credential": "", "whole_value": 1, "fractional_value": 0, "value_code": 978}
             ],
             "tickets": []
-        }"#;
-        let state = summarize_wallet(json, "eur").unwrap();
+        }"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.currency, "EUR");
     }
 
@@ -1000,22 +639,21 @@ mod tests {
                 {"token": "", "credential": "", "whole_value": 1, "fractional_value": 0, "value_code": 9999}
             ],
             "tickets": []
-        }"#;
-        let state = summarize_wallet(json, "x").unwrap();
+        }"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.currency, "CODE_9999");
     }
 
     #[test]
     fn summarize_wallet_invalid_json_returns_error() {
-        let result = summarize_wallet("not json", "test");
+        let result = load_wallet("not json".to_string());
         assert!(result.is_err());
     }
 
     #[test]
     fn summarize_wallet_no_tokens_or_tickets_fields() {
-        // JSON with no tokens/tickets keys at all
-        let json = r#"{"name":"bare"}"#;
-        let state = summarize_wallet(json, "bare").unwrap();
+        let json = r#"{"name":"bare"}"#.to_string();
+        let state = load_wallet(json).unwrap();
         assert_eq!(state.balance.whole, 0);
         assert_eq!(state.balance.token_count, 0);
         assert_eq!(state.ticket_count, 0);
@@ -1052,7 +690,6 @@ mod tests {
             wallet_name: "test".to_string(),
         };
         let b64 = get_receiving_ticket_b64(state).unwrap();
-        // [1,2,3,4] base64-encoded = "AQIDBA=="
         assert_eq!(b64, "AQIDBA==");
     }
 
@@ -1070,10 +707,9 @@ mod tests {
 
     #[test]
     fn split_key_protocol_produces_card_bound_challenge() {
-        // Simulate the full split-key + attestation protocol using a MockCard.
         use briolette_crypto::v0::split::{MockCard, SmartCard};
 
-        // Step 1: Start
+        // Step 1
         let step1 = split_key_start(
             "card-test".to_string(),
             "http://[::1]:50051".to_string(),
@@ -1083,42 +719,40 @@ mod tests {
         ).expect("step1 failed");
 
         let b_ttc = B64.decode(&step1.b_ttc_b64).unwrap();
-        assert!(!b_ttc.is_empty(), "TTC base point should not be empty");
+        assert!(!b_ttc.is_empty());
 
-        // Simulate TTC card: PUBLIC_KEY_SHARE + JOIN_COMMIT
+        // TTC card
         let mut ttc_card = MockCard::new();
         let q_card_ttc = ttc_card.public_key_share(&b_ttc);
         let u_card_ttc = ttc_card.join_commit(&b_ttc).unwrap();
 
-        // Step 2a: After TTC commit
+        // Step 2a
         let step2a = split_key_after_ttc_commit(
             step1.state_json,
             B64.encode(&q_card_ttc),
             B64.encode(&u_card_ttc),
         ).expect("step2a failed");
 
-        // TTC card: JOIN_RESPOND
         let c_ttc = B64.decode(&step2a.c_ttc_b64).unwrap();
         let s_card_ttc = ttc_card.join_respond(&c_ttc).unwrap();
 
-        // Simulate NAC card: PUBLIC_KEY_SHARE + JOIN_COMMIT
+        // NAC card
         let b_nac = B64.decode(&step2a.b_nac_b64).unwrap();
         let mut nac_card = MockCard::new();
         let q_card_nac = nac_card.public_key_share(&b_nac);
         let u_card_nac = nac_card.join_commit(&b_nac).unwrap();
 
-        // Step 2b: After NAC commit
+        // Step 2b
         let step2b = split_key_after_nac_commit(
             step2a.state_json,
             B64.encode(&q_card_nac),
             B64.encode(&u_card_nac),
         ).expect("step2b failed");
 
-        // NAC card: JOIN_RESPOND
         let c_nac = B64.decode(&step2b.c_nac_b64).unwrap();
         let s_card_nac = nac_card.join_respond(&c_nac).unwrap();
 
-        // Step 3: Complete
+        // Complete
         let result = split_key_complete(
             step2b.state_json,
             B64.encode(&s_card_ttc),
@@ -1128,16 +762,12 @@ mod tests {
         assert!(!result.wallet_json.is_empty());
         assert!(!result.challenge_preimage_b64.is_empty());
 
-        // Verify the challenge preimage contains the hw_id and credential PKs
         let preimage = B64.decode(&result.challenge_preimage_b64).unwrap();
-        // hw_id is SHA-256("card-test") as hex string bytes
         let hw_id = sha256::digest("card-test".as_bytes()).into_bytes();
-        assert!(preimage.starts_with(&hw_id),
-            "Challenge preimage must start with hw_id");
-        assert!(preimage.len() > hw_id.len(),
-            "Challenge preimage must include credential public keys");
+        assert!(preimage.starts_with(&hw_id));
+        assert!(preimage.len() > hw_id.len());
 
-        // Verify a second run with a different card produces a different challenge
+        // Second run with different card produces different challenge
         let mut ttc_card2 = MockCard::new();
         let q_card_ttc2 = ttc_card2.public_key_share(&b_ttc);
         let u_card_ttc2 = ttc_card2.join_commit(&b_ttc).unwrap();
@@ -1179,7 +809,6 @@ mod tests {
             B64.encode(&s_card_nac2),
         ).unwrap();
 
-        // Different cards → different combined PKs → different challenge preimage
         assert_ne!(
             result.challenge_preimage_b64,
             result2.challenge_preimage_b64,

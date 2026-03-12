@@ -9,6 +9,7 @@ crate-type = ["cdylib", "staticlib"]
 name = "briolette_mobile"
 
 [dependencies]
+briolette-integration = { path = "../integration", version = "*" }
 briolette-wallet = { path = "../wallet", version = "*" }
 briolette-crypto = { path = "../crypto", version = "*" }
 briolette-proto = { path = "../proto", version = "*" }
