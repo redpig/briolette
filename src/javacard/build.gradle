@@ -1,43 +1,57 @@
 // Briolette JavaCard Applet Build Configuration
 //
-// Prerequisites:
+// Prerequisites for CAP build (gradle buildJavaCard):
 //   - JavaCard SDK 3.0.4+ (set JCDK_HOME environment variable)
 //   - JCMathLib (https://github.com/OpenCryptoProject/JCMathLib)
 //   - Gradle 7+
 //   - JDK 11+ (JavaCard SDK requires it)
 //
-// Build:
-//   gradle build
+// Prerequisites for simulator tests (gradle test):
+//   - Gradle 7+, JDK 11+
+//   - No JavaCard SDK or physical hardware needed
+//
+// Build CAP file:
+//   gradle buildJavaCard
+//
+// Run simulator tests:
+//   gradle test
 //
 // The output CAP file will be in build/javacard/
 // Install to card using GlobalPlatformPro (gp.jar):
 //   java -jar gp.jar --install build/javacard/BrioletteApplet.cap
 
-buildscript {
-    repositories {
-        mavenCentral()
-    }
-    dependencies {
-        // JavaCard Gradle plugin
-        classpath 'com.github.nickmcdowall:gradle-javacard:3.1.0'
-    }
+plugins {
+    id 'java'
 }
 
-apply plugin: 'javacard'
+// Conditionally apply javacard plugin for CAP file building
+// This allows 'gradle test' to work without the JavaCard SDK installed
+if (System.getenv('JCDK_HOME') || file('/opt/jcdk').exists()) {
+    buildscript {
+        repositories {
+            mavenCentral()
+        }
+        dependencies {
+            classpath 'com.github.nickmcdowall:gradle-javacard:3.1.0'
+        }
+    }
 
-javacard {
-    config {
-        jcdk System.getenv('JCDK_HOME') ?: '/opt/jcdk'
+    apply plugin: 'javacard'
 
-        cap {
-            packageName 'com.briolette.javacard'
-            version '1.0'
-            aid '42:72:69:6F:6C:65:74:74:65' // "Briolette" in hex
-            output 'BrioletteApplet.cap'
+    javacard {
+        config {
+            jcdk System.getenv('JCDK_HOME') ?: '/opt/jcdk'
 
-            applet {
-                className 'com.briolette.javacard.BrioletteApplet'
-                aid '42:72:69:6F:6C:65:74:74:65:01'
+            cap {
+                packageName 'com.briolette.javacard'
+                version '1.0'
+                aid '42:72:69:6F:6C:65:74:74:65' // "Briolette" in hex
+                output 'BrioletteApplet.cap'
+
+                applet {
+                    className 'com.briolette.javacard.BrioletteApplet'
+                    aid '42:72:69:6F:6C:65:74:74:65:01'
+                }
             }
         }
     }
@@ -60,18 +74,25 @@ sourceSets {
 // Dependencies
 repositories {
     mavenCentral()
-    // JCMathLib may need to be installed locally
     mavenLocal()
 }
 
 dependencies {
+    // jCardSim provides the JavaCard API classes for both compilation and testing.
+    // For CAP builds, the javacard plugin provides the real SDK classes instead.
+    // https://central.sonatype.com/artifact/com.klinec/jcardsim
+    implementation 'com.klinec:jcardsim:3.0.5.9'
+
     // JCMathLib for big number and EC point operations on BN254
     // Install from: https://github.com/OpenCryptoProject/JCMathLib
     // mvn install -f JCMathLib/pom.xml
-    implementation files("${System.getenv('JCMATHLIB_HOME') ?: 'libs'}/JCMathLib.jar")
+    def jcmathlib = file("${System.getenv('JCMATHLIB_HOME') ?: 'libs'}/JCMathLib.jar")
+    if (jcmathlib.exists()) {
+        implementation files(jcmathlib)
+    }
 
-    // jCardSim simulator for unit testing
-    testImplementation 'com.licel:jcardsim:3.0.5'
+    // Test dependencies
+    testImplementation 'com.klinec:jcardsim:3.0.5.9'
     testImplementation 'junit:junit:4.13.2'
 }
 
