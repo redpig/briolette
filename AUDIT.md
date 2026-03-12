@@ -180,20 +180,29 @@ The v0 ECDAA implementation uses BN254 (also called FP256BN), which provides
 approximately 100-bit security after the Kim-Barbulescu attack on small-
 characteristic pairings. This is below the NIST-recommended 128-bit minimum.
 
-The codebase acknowledges this in `src/crypto/src/v1.rs:18`:
-> "128-bit security (vs ~100-bit for BN254 post Kim-Barbulescu)"
-
 However, v0 remains the default used by all server components (`use
 briolette_crypto::v0` in registrar, clerk, mint, etc.) and the JavaCard applet.
-v1 (BLS12-381) exists but is not wired into the protocol.
+
+**Migration status:** The v1 module (`src/crypto/src/v1.rs`) now uses BLS12-381
+with **compressed point encoding** (Zcash/IETF format). This makes v1 signatures
+(288 bytes) actually *smaller* than current v0 signatures (356 bytes) while
+providing 128-bit security:
+
+| Structure | v0 (BN254) | v1 compressed (BLS12-381) |
+|-----------|-----------|---------------------------|
+| Signature | 356 B | **288 B** (-19%) |
+| Sig + pseudonym | 421 B | **336 B** (-20%) |
+| Credential | 260 B | **192 B** (-26%) |
+
+The remaining blocker is the JavaCard applet, which is hardcoded to BN254. All
+consumer crates will migrate atomically once the applet supports BLS12-381.
 
 **Impact:** The primary cryptographic primitive is below modern security
 thresholds. While not immediately exploitable, it reduces the long-term security
 margin, especially for a financial system.
 
-**Recommendation:** Complete the migration to v1 (BLS12-381). Update all server
-components and the JavaCard applet to use v1 as the default, with v0 as a
-deprecated fallback.
+**Recommendation:** Complete the JavaCard BLS12-381 implementation to unblock
+the full v0→v1 migration. The crypto library is ready.
 
 ### H-2: JavaCard EC Math Implemented but Not Yet Tested on Hardware
 
@@ -643,7 +652,7 @@ operations.
 ### Immediate (Pre-Deployment Blockers)
 
 1. **Disable Algorithm::NONE** in production or restrict Low-tier to online-only (C-2)
-2. **Migrate to BLS12-381** (v1) as the default curve (H-1)
+2. **Complete JavaCard BLS12-381 support** to unblock full v0→v1 migration (H-1 — crypto library ready, uses compressed points)
 3. **Consider adding `remaining_value` hint** for offline split verification (H-5 — conservation already enforced by TokenMap)
 
 ### Short-Term

@@ -18,7 +18,8 @@
 //! 128-bit security (vs ~100-bit for BN254 post Kim-Barbulescu).
 //!
 //! Key differences from v0:
-//! - Uses BLS12-381 (48-byte G1 compressed, 96-byte G2 compressed)
+//! - Uses BLS12-381 with compressed point encoding (48-byte G1, 96-byte G2)
+//! - Signatures are 288 bytes (vs 356 for v0) — smaller despite stronger security
 //! - RFC 9380 compliant hash_to_curve via bls12_381_plus
 //! - Proper hash-to-field with domain separation
 //! - Same ECDAA algorithm and SmartCard trait interface
@@ -31,29 +32,29 @@ use ff::Field;
 use rand::rngs::OsRng;
 use sha2::Sha256;
 
-// BLS12-381 serialization sizes
+// BLS12-381 serialization sizes (compressed point encoding, Zcash/IETF format)
 pub(crate) mod native {
     // BLS12-381 scalar field is 255 bits, serialized as 32 bytes
     pub const SCALAR_LENGTH: usize = 32;
-    // G1 uncompressed = 0x04 || x (48 bytes) || y (48 bytes) = 97 bytes
-    pub const G1_LENGTH: usize = 97;
-    // G2 uncompressed = 0x04 || x_c0 (48) || x_c1 (48) || y_c0 (48) || y_c1 (48) = 193 bytes
-    pub const G2_LENGTH: usize = 193;
+    // G1 compressed = 48 bytes (high bits encode compression flag + y-sign)
+    pub const G1_LENGTH: usize = 48;
+    // G2 compressed = 96 bytes (high bits encode compression flag + y-sign)
+    pub const G2_LENGTH: usize = 96;
     // Credential = 4 G1 points
-    pub const CREDENTIAL_LENGTH: usize = 4 * G1_LENGTH; // 388
+    pub const CREDENTIAL_LENGTH: usize = 4 * G1_LENGTH; // 192
     // Credential signature = (c, s) two scalars
     pub const CREDENTIAL_SIGNATURE_LENGTH: usize = 2 * SCALAR_LENGTH; // 64
-    // Signature without pseudonym = (c, s, n) + (R, S, T, W) = 3*32 + 4*97 = 96 + 388 = 484
+    // Signature without pseudonym = (c, s, n) + (R, S, T, W) = 3*32 + 4*48 = 96 + 192 = 288
     pub const SIGNATURE_LENGTH: usize = 3 * SCALAR_LENGTH + 4 * G1_LENGTH;
     // Signature with pseudonym adds K point
-    pub const SIGNATURE_WITH_NYM_LENGTH: usize = SIGNATURE_LENGTH + G1_LENGTH; // 581
+    pub const SIGNATURE_WITH_NYM_LENGTH: usize = SIGNATURE_LENGTH + G1_LENGTH; // 336
     // Issuer secret key = (x, y) two scalars
     pub const ISSUER_SECRET_KEY_LENGTH: usize = 2 * SCALAR_LENGTH; // 64
     // Group public key = (X, Y) two G2 points
-    pub const ISSUER_GROUP_PUBLIC_KEY_LENGTH: usize = 2 * G2_LENGTH; // 386
+    pub const ISSUER_GROUP_PUBLIC_KEY_LENGTH: usize = 2 * G2_LENGTH; // 192
     // Member secret key = one scalar
     pub const WALLET_SECRET_KEY_LENGTH: usize = SCALAR_LENGTH; // 32
-    // Member public key = (Q, c, s, n) = 97 + 32 + 32 + 32 = 193
+    // Member public key = (Q, c, s, n) = 48 + 32 + 32 + 32 = 144
     pub const WALLET_PUBLIC_KEY_LENGTH: usize = G1_LENGTH + 3 * SCALAR_LENGTH;
 }
 
@@ -62,29 +63,16 @@ pub(crate) mod native {
 // ============================================================================
 
 fn serialize_g1(point: &G1Projective) -> [u8; native::G1_LENGTH] {
-    let mut buf = [0u8; native::G1_LENGTH];
-    let affine = G1Affine::from(point);
-    if bool::from(affine.is_identity()) {
-        buf[0] = 0x04;
-        return buf;
-    }
-    let uncompressed = affine.to_uncompressed();
-    buf[0] = 0x04;
-    buf[1..97].copy_from_slice(&uncompressed);
-    buf
+    G1Affine::from(point).to_compressed()
 }
 
 fn deserialize_g1(data: &[u8]) -> Option<G1Projective> {
-    if data.len() < native::G1_LENGTH || data[0] != 0x04 {
+    if data.len() < native::G1_LENGTH {
         return None;
     }
-    // Check for point at infinity
-    if data[1..native::G1_LENGTH].iter().all(|&b| b == 0) {
-        return Some(G1Projective::identity());
-    }
-    let mut uncompressed = [0u8; 96];
-    uncompressed.copy_from_slice(&data[1..97]);
-    let affine = G1Affine::from_uncompressed(&uncompressed);
+    let mut buf = [0u8; 48];
+    buf.copy_from_slice(&data[..48]);
+    let affine = G1Affine::from_compressed(&buf);
     if bool::from(affine.is_none()) {
         return None;
     }
@@ -92,28 +80,16 @@ fn deserialize_g1(data: &[u8]) -> Option<G1Projective> {
 }
 
 fn serialize_g2(point: &G2Projective) -> [u8; native::G2_LENGTH] {
-    let mut buf = [0u8; native::G2_LENGTH];
-    let affine = G2Affine::from(point);
-    if bool::from(affine.is_identity()) {
-        buf[0] = 0x04;
-        return buf;
-    }
-    let uncompressed = affine.to_uncompressed();
-    buf[0] = 0x04;
-    buf[1..193].copy_from_slice(&uncompressed);
-    buf
+    G2Affine::from(point).to_compressed()
 }
 
 fn deserialize_g2(data: &[u8]) -> Option<G2Projective> {
-    if data.len() < native::G2_LENGTH || data[0] != 0x04 {
+    if data.len() < native::G2_LENGTH {
         return None;
     }
-    if data[1..native::G2_LENGTH].iter().all(|&b| b == 0) {
-        return Some(G2Projective::identity());
-    }
-    let mut uncompressed = [0u8; 192];
-    uncompressed.copy_from_slice(&data[1..193]);
-    let affine = G2Affine::from_uncompressed(&uncompressed);
+    let mut buf = [0u8; 96];
+    buf.copy_from_slice(&data[..96]);
+    let affine = G2Affine::from_compressed(&buf);
     if bool::from(affine.is_none()) {
         return None;
     }
@@ -224,7 +200,7 @@ fn isk_get_y(isk: &[u8]) -> Option<Scalar> {
 }
 
 // ----- Signature structure -----
-// Layout: c (32) | s (32) | R (97) | S (97) | T (97) | W (97) | n (32) [| K (97)]
+// Layout: c (32) | s (32) | R (48) | S (48) | T (48) | W (48) | n (32) [| K (48)]
 
 fn sig_get_c(sig: &[u8]) -> Option<Scalar> {
     deserialize_scalar(&sig[0..32])
