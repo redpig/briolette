@@ -50,6 +50,11 @@ sourceSets {
             srcDirs = ['applet']
         }
     }
+    test {
+        java {
+            srcDirs = ['test']
+        }
+    }
 }
 
 // Dependencies
@@ -64,4 +69,13 @@ dependencies {
     // Install from: https://github.com/OpenCryptoProject/JCMathLib
     // mvn install -f JCMathLib/pom.xml
     implementation files("${System.getenv('JCMATHLIB_HOME') ?: 'libs'}/JCMathLib.jar")
+
+    // jCardSim simulator for unit testing
+    testImplementation 'com.licel:jcardsim:3.0.5'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    // jCardSim needs access to JavaCard API classes
+    jvmArgs = ['--add-opens', 'java.base/java.lang=ALL-UNNAMED']
 }
