@@ -194,15 +194,22 @@ providing 128-bit security:
 | Sig + pseudonym | 421 B | **336 B** (-20%) |
 | Credential | 260 B | **192 B** (-26%) |
 
-The remaining blocker is the JavaCard applet, which is hardcoded to BN254. All
-consumer crates will migrate atomically once the applet supports BLS12-381.
+The JavaCard applet now supports both BN254 and BLS12-381. Curve selection
+occurs at `GENERATE_KEY` time (P1=0x00 for BN254, P1=0x01 for BLS12-381) and
+is locked for the card's lifetime. The simulator ECMath implements full BLS12-381
+point compression/decompression; the hardware JCMathLib backend has placeholder
+stubs pending validation on physical hardware.
+
+The remaining blocker for full migration is updating consumer crates (registrar,
+clerk, mint, wallet, etc.) to use `briolette_crypto::v1` — planned as an atomic
+flag-day migration.
 
 **Impact:** The primary cryptographic primitive is below modern security
 thresholds. While not immediately exploitable, it reduces the long-term security
 margin, especially for a financial system.
 
-**Recommendation:** Complete the JavaCard BLS12-381 implementation to unblock
-the full v0→v1 migration. The crypto library is ready.
+**Recommendation:** Migrate consumer crates from v0 to v1. Validate the
+JCMathLib hardware backend for BLS12-381 on target JavaCard hardware (JCOP4).
 
 ### H-2: JavaCard EC Math Implemented but Not Yet Tested on Hardware
 
@@ -213,13 +220,17 @@ The previously stubbed EC math operations have been replaced with two real
 implementations selected at build time:
 
 - **Simulator (`applet-sim/ECMath.java`):** Uses `java.math.BigInteger` for
-  affine BN254 arithmetic — double-and-add scalar multiplication, point
+  affine EC arithmetic — double-and-add scalar multiplication, point
   addition/doubling, `scalarMulAdd` (a + b*c mod r), scalar negation, and
-  modular reduction. This is functional for jCardSim testing.
+  modular reduction. Supports both BN254 (uncompressed, 65-byte points) and
+  BLS12-381 (compressed, 48-byte points with Zcash/IETF encoding). BLS12-381
+  point decompression uses `y² = x³ + 4`, `y = y²^((p+1)/4) mod p`.
 - **Hardware (`applet-hw/ECMath.java`):** Uses JCMathLib's `ECPoint` and
   `BigNat` classes, which leverage the card's RSA engine for modular arithmetic
   and the ECDH engine for scalar multiplication. Build with
-  `gradle -PUSE_JCMATHLIB=true`.
+  `gradle -PUSE_JCMATHLIB=true`. Supports curve selection via `initCurve()`;
+  BLS12-381 point compression/decompression has placeholder stubs pending
+  JCMathLib validation for 48-byte field elements.
 
 The `BrioletteApplet` itself delegates all EC operations to `ECMath.*` static
 methods (`BrioletteApplet.java:704-731`), so the same applet code works with
@@ -652,12 +663,12 @@ operations.
 ### Immediate (Pre-Deployment Blockers)
 
 1. **Disable Algorithm::NONE** in production or restrict Low-tier to online-only (C-2)
-2. **Complete JavaCard BLS12-381 support** to unblock full v0→v1 migration (H-1 — crypto library ready, uses compressed points)
+2. **Migrate consumer crates to v1** — crypto library and JavaCard applet both support BLS12-381 with compressed points (H-1)
 3. **Consider adding `remaining_value` hint** for offline split verification (H-5 — conservation already enforced by TokenMap)
 
 ### Short-Term
 
-4. **Test JavaCard JCMathLib build** on target hardware (H-2 — code exists)
+4. **Test JavaCard JCMathLib build** on target hardware, especially BLS12-381 (H-2 — simulator tested, hardware pending)
 5. **Add TLS for confidentiality** — server-authenticated, not mTLS (C-1)
 6. Encrypt key material at rest (M-3, M-4)
 7. Add rate limiting to all server endpoints (M-6)
@@ -685,7 +696,8 @@ operations.
 | briolette-crypto | Tests in module | 0            | ~40%              |
 | Server crates    | 0          | Via wallet tests  | ~20%              |
 
-The unit test suite passes (all 68 unit tests across 3 crates). The 9
+The unit test suite passes (68 unit tests in briolette-proto/wallet/mobile-ffi,
+plus 68 JavaCard applet tests including BLS12-381 variants). The 9
 integration tests in `briolette-wallet` require running server infrastructure
 and are expected to fail in isolation.
 
