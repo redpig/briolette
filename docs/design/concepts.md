@@ -723,11 +723,15 @@ expirations allow for consumers who have validated their holdings to recover
 lost tokens after the soft expiration has expired.  This will allow the system
 operator to confirm the tokens have not been validated within the wallet
 enforced policy timeframe and show that the tokens were last known to have been
-in the claimed lost wallet.  An additional service or system will need to be
-put into place to anchor the ownership claim of the lost wallet.  This may be
-done either through the NAC registrar or through the addition of a new protocol
-method which allows a wallet to sign a message indicating that another wallet
-is allowed to perform a recovery.
+in the claimed lost wallet.  The recovery protocol (`docs/design/recovery.md`)
+provides the mechanism to anchor ownership claims: wallets pre-register a
+recovery binding with the recovery server, associating their TTC credential
+with a delegate key (either an offline ECDSA backup key or another wallet's TTC
+credential). After wallet loss, the delegate proves authorization to the recovery
+server, which locates expired tokens via the TokenMap's `FindByHolder` index and
+issues replacement tokens from the mint. The old wallet's credentials are revoked
+to prevent abuse. See `src/proto/proto/recovery.proto` for the service definition
+and `formal/RecoveryProtocol.tla` for the formal specification.
 
 #### Privacy
 

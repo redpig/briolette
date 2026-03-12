@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "proto/service_auth.proto",
         "proto/bridge.proto",
         "proto/swapper.proto",
+        "proto/recovery.proto",
     ];
     for proto in &protos {
         println!("cargo:rerun-if-changed={}", proto);

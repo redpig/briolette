@@ -201,7 +201,8 @@ pub struct WalletData {
     // self-transfer, but no other entities will know. Additionally, if the operator allows
     // overlapping ticket expiration, then even then it will only know if the transfer was to the
     // same hw family)
-    // (N.b., ticket expirations provide a means for currency recovery if a wallet is lost.)
+    // (N.b., ticket expirations provide a means for currency recovery if a wallet is lost.
+    //  See docs/design/recovery.md for the full recovery protocol and register_recovery_binding().)
     network_credential: Credential,
     // Token Transfer Credential
     // Allows exchange of currency.
@@ -1366,6 +1367,276 @@ impl Wallet for WalletData {
             .map(|t| token::Token::decode(t.token.as_slice()).unwrap())
             .collect();
         return self.validate_tokens(&tokens).await;
+    }
+}
+
+// Recovery binding support
+impl WalletData {
+    /// Register a recovery binding with the recovery server.
+    ///
+    /// Creates a `RecoveryBinding` containing this wallet's TTC public key
+    /// and the specified delegate key, signs it with the NAC credential,
+    /// and sends it to the recovery server.
+    ///
+    /// Returns the binding ID on success.
+    pub async fn register_recovery_binding(
+        &self,
+        delegate_key: &[u8],
+        delegate_type: i32,
+        valid_until: u64,
+        recovery_uri: &str,
+    ) -> Result<Vec<u8>, BrioletteErrorCode> {
+        use briolette_proto::briolette::recovery::recovery_client::RecoveryClient;
+        use briolette_proto::briolette::recovery::{RecoveryBinding, RegisterBindingRequest};
+        use briolette_proto::briolette::tokenmap::LinkableSignature;
+
+        let binding = RecoveryBinding {
+            ttc_public_key: self.transfer_credential.public_key.clone(),
+            delegate_type,
+            delegate_key: delegate_key.to_vec(),
+            valid_until,
+        };
+
+        // Create NAC signature over the binding (basename = current epoch).
+        // The NAC credential signs a message with basename = epoch for rate-limiting.
+        let binding_bytes = {
+            use prost::Message;
+            binding.encode_to_vec()
+        };
+        let basename = self.epoch.epoch.to_le_bytes().to_vec();
+        let nac_signature = if let Some(ref credential) = self.network_credential.credential {
+            let mut sig = Vec::new();
+            let bsn = Some(basename.clone());
+            let ok = Self::sign_or_split(
+                &self.nac_card,
+                &self.network_credential.host_secret_key,
+                &binding_bytes,
+                credential,
+                &self.network_credential.secret_key,
+                &bsn,
+                true,
+                &mut sig,
+            );
+            if !ok || sig.is_empty() {
+                return Err(BrioletteErrorCode::FailedToSignTokenTransfer);
+            }
+            LinkableSignature {
+                signature: sig,
+                basename,
+                group_public_key: self
+                    .network_credential
+                    .group_public_key
+                    .clone()
+                    .unwrap_or_default(),
+            }
+        } else {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        };
+
+        let request = RegisterBindingRequest {
+            version: Version::Current.into(),
+            binding: Some(binding),
+            nac_signature: Some(nac_signature),
+        };
+
+        let channel = tonic::transport::Channel::from_shared(recovery_uri.to_string())
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?
+            .connect()
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let mut client = RecoveryClient::new(channel);
+        let response = client
+            .register_binding(request)
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let reply = response.into_inner();
+        if reply.error.is_some() {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        }
+        Ok(reply.binding_id)
+    }
+
+    /// Refresh an existing recovery binding's expiration.
+    pub async fn refresh_recovery_binding(
+        &self,
+        binding_id: &[u8],
+        new_valid_until: u64,
+        recovery_uri: &str,
+    ) -> Result<(), BrioletteErrorCode> {
+        use briolette_proto::briolette::recovery::recovery_client::RecoveryClient;
+        use briolette_proto::briolette::recovery::RefreshBindingRequest;
+        use briolette_proto::briolette::tokenmap::LinkableSignature;
+
+        let basename = self.epoch.epoch.to_le_bytes().to_vec();
+        let nac_signature = if let Some(ref credential) = self.network_credential.credential {
+            let mut sig = Vec::new();
+            let bsn = Some(basename.clone());
+            let message = binding_id.to_vec();
+            Self::sign_or_split(
+                &self.nac_card,
+                &self.network_credential.host_secret_key,
+                &message,
+                credential,
+                &self.network_credential.secret_key,
+                &bsn,
+                true,
+                &mut sig,
+            );
+            LinkableSignature {
+                signature: sig,
+                basename,
+                group_public_key: self
+                    .network_credential
+                    .group_public_key
+                    .clone()
+                    .unwrap_or_default(),
+            }
+        } else {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        };
+
+        let request = RefreshBindingRequest {
+            version: Version::Current.into(),
+            binding_id: binding_id.to_vec(),
+            new_valid_until,
+            nac_signature: Some(nac_signature),
+        };
+
+        let channel = tonic::transport::Channel::from_shared(recovery_uri.to_string())
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?
+            .connect()
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let mut client = RecoveryClient::new(channel);
+        let response = client
+            .refresh_binding(request)
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let reply = response.into_inner();
+        if reply.error.is_some() {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        }
+        Ok(())
+    }
+
+    /// Revoke an existing recovery binding.
+    pub async fn revoke_recovery_binding(
+        &self,
+        binding_id: &[u8],
+        recovery_uri: &str,
+    ) -> Result<(), BrioletteErrorCode> {
+        use briolette_proto::briolette::recovery::recovery_client::RecoveryClient;
+        use briolette_proto::briolette::recovery::RevokeBindingRequest;
+        use briolette_proto::briolette::tokenmap::LinkableSignature;
+
+        let basename = self.epoch.epoch.to_le_bytes().to_vec();
+        let nac_signature = if let Some(ref credential) = self.network_credential.credential {
+            let mut sig = Vec::new();
+            let bsn = Some(basename.clone());
+            let message = binding_id.to_vec();
+            Self::sign_or_split(
+                &self.nac_card,
+                &self.network_credential.host_secret_key,
+                &message,
+                credential,
+                &self.network_credential.secret_key,
+                &bsn,
+                true,
+                &mut sig,
+            );
+            LinkableSignature {
+                signature: sig,
+                basename,
+                group_public_key: self
+                    .network_credential
+                    .group_public_key
+                    .clone()
+                    .unwrap_or_default(),
+            }
+        } else {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        };
+
+        let request = RevokeBindingRequest {
+            version: Version::Current.into(),
+            binding_id: binding_id.to_vec(),
+            nac_signature: Some(nac_signature),
+        };
+
+        let channel = tonic::transport::Channel::from_shared(recovery_uri.to_string())
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?
+            .connect()
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let mut client = RecoveryClient::new(channel);
+        let response = client
+            .revoke_binding(request)
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let reply = response.into_inner();
+        if reply.error.is_some() {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        }
+        Ok(())
+    }
+
+    /// Initiate recovery as the delegate for a lost wallet.
+    ///
+    /// The caller must be the delegate wallet. They provide the lost wallet's
+    /// TTC public key and a proof (ECDSA or ECDAA signature depending on the
+    /// binding's delegate type). Recovered tokens are added to this wallet.
+    pub async fn initiate_recovery(
+        &mut self,
+        old_ttc_public_key: &[u8],
+        delegate_proof: &[u8],
+        recovery_uri: &str,
+    ) -> Result<Vec<token::Token>, BrioletteErrorCode> {
+        use briolette_proto::briolette::recovery::recovery_client::RecoveryClient;
+        use briolette_proto::briolette::recovery::RecoverTokensRequest;
+
+        if self.tickets.is_empty() {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        }
+
+        let new_ticket: token::SignedTicket = self.tickets[0].clone().into();
+        let timestamp = Utc::now().timestamp() as u64;
+
+        let request = RecoverTokensRequest {
+            version: Version::Current.into(),
+            old_ttc_public_key: old_ttc_public_key.to_vec(),
+            delegate_proof: delegate_proof.to_vec(),
+            timestamp,
+            new_wallet_ticket: Some(new_ticket),
+        };
+
+        let channel = tonic::transport::Channel::from_shared(recovery_uri.to_string())
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?
+            .connect()
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let mut client = RecoveryClient::new(channel);
+        let response = client
+            .recover_tokens(request)
+            .await
+            .map_err(|_| BrioletteErrorCode::InvalidMissingFields)?;
+        let reply = response.into_inner();
+        if reply.error.is_some() {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        }
+
+        // Add recovered tokens to our wallet
+        let mut recovered = Vec::new();
+        for rt in reply.tokens.iter() {
+            if let Some(ref token) = rt.recovered_token {
+                self.tokens.push(TokenEntry::from(token.clone()));
+                recovered.push(token.clone());
+            }
+        }
+        info!(
+            "recovered {} tokens from lost wallet",
+            recovered.len()
+        );
+        Ok(recovered)
     }
 }
 

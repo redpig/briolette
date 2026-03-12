@@ -12,66 +12,71 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::server::BrioletteTokenMap;
-use briolette_proto::briolette::tokenmap::token_map_server::TokenMap;
-use briolette_proto::briolette::tokenmap::{
-    ArchiveReply, ArchiveRequest, FindByHolderReply, FindByHolderRequest, RevocationDataReply,
-    RevocationDataRequest, StoreTicketsReply, StoreTicketsRequest, UpdateReply, UpdateRequest,
+use crate::server::BrioletteRecovery;
+use briolette_proto::briolette::recovery::recovery_server::Recovery;
+use briolette_proto::briolette::recovery::{
+    GetBindingStatusReply, GetBindingStatusRequest, RecoverTokensReply, RecoverTokensRequest,
+    RefreshBindingReply, RefreshBindingRequest, RegisterBindingReply, RegisterBindingRequest,
+    RevokeBindingReply, RevokeBindingRequest,
 };
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
-impl TokenMap for BrioletteTokenMap {
-    async fn update(
+impl Recovery for BrioletteRecovery {
+    async fn register_binding(
         &self,
-        request: Request<UpdateRequest>,
-    ) -> Result<Response<UpdateReply>, Status> {
+        request: Request<RegisterBindingRequest>,
+    ) -> Result<Response<RegisterBindingReply>, Status> {
         let message = request.into_inner();
-        let maybe_reply = self.update_impl(&message).await;
+        let maybe_reply = self.register_binding_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),
         }
     }
-    async fn store_tickets(
+
+    async fn refresh_binding(
         &self,
-        request: Request<StoreTicketsRequest>,
-    ) -> Result<Response<StoreTicketsReply>, Status> {
+        request: Request<RefreshBindingRequest>,
+    ) -> Result<Response<RefreshBindingReply>, Status> {
         let message = request.into_inner();
-        let maybe_reply = self.store_tickets_impl(&message).await;
+        let maybe_reply = self.refresh_binding_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),
         }
     }
-    async fn revocation_data(
+
+    async fn revoke_binding(
         &self,
-        request: Request<RevocationDataRequest>,
-    ) -> Result<Response<RevocationDataReply>, Status> {
+        request: Request<RevokeBindingRequest>,
+    ) -> Result<Response<RevokeBindingReply>, Status> {
         let message = request.into_inner();
-        let maybe_reply = self.revocation_data_impl(&message).await;
+        let maybe_reply = self.revoke_binding_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),
         }
     }
-    async fn archive(
+
+    async fn recover_tokens(
         &self,
-        request: Request<ArchiveRequest>,
-    ) -> Result<Response<ArchiveReply>, Status> {
+        request: Request<RecoverTokensRequest>,
+    ) -> Result<Response<RecoverTokensReply>, Status> {
         let message = request.into_inner();
-        let maybe_reply = self.archive_impl(&message).await;
+        let maybe_reply = self.recover_tokens_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),
         }
     }
-    async fn find_by_holder(
+
+    async fn get_binding_status(
         &self,
-        request: Request<FindByHolderRequest>,
-    ) -> Result<Response<FindByHolderReply>, Status> {
+        request: Request<GetBindingStatusRequest>,
+    ) -> Result<Response<GetBindingStatusReply>, Status> {
         let message = request.into_inner();
-        let maybe_reply = self.find_by_holder_impl(&message).await;
+        let maybe_reply = self.get_binding_status_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),
