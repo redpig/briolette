@@ -95,32 +95,46 @@ NAC-based approach provides application-layer signing but not confidentiality.
 At minimum, deploy with TLS-terminating proxies; ideally integrate
 `tonic::transport::ServerTlsConfig` and `ClientTlsConfig`.
 
-### C-2: No Hardware ID Verification at Registration
+### C-2: Algorithm::NONE Still Accepted at Registration
 
-**Severity:** Critical
-**Location:** `src/registrar/src/server.rs:139-150`, `src/proto/proto/registrar.proto:78-87`
+**Severity:** Critical (reduced from original — attestation is implemented but
+NONE fallback remains)
+**Location:** `src/registrar/src/server.rs:215-250`, `src/proto/proto/registrar.proto:77-94`
 
-The registrar accepts `Algorithm::NONE` for hardware ID signatures, meaning any
-client can register with an arbitrary hardware ID and receive valid ECDAA
-credentials. The `hwid_signature` field accepts an empty signature with no
-verification. The `ANDROID_KM_ATTESTATION` algorithm is defined in the proto
-but not implemented.
+Hardware attestation is now implemented for both Android Key Attestation
+(`ANDROID_KM_ATTESTATION`) and Apple App Attest (`IOS_APP_ATTEST`). The
+registrar verifies certificate chains, attestation challenges, and
+cryptographically binds ECDAA public keys to the attestation
+(`src/registrar/src/attestation.rs`). Attestation results drive a tiered NAC
+issuer system: the registrar maintains per-security-level NAC keypairs
+(Low/Medium/High) and selects the issuer based on attestation strength
+(`server.rs:154-196`, `server.rs:327-352`). Hardware-backed attestation
+(TEE/StrongBox or App Attest) caps at Medium; reaching High additionally
+requires a smartcard split-key proof (`SplitKeyProof` in `registrar.proto:131-138`).
+
+The remaining risk is that `Algorithm::NONE` is still accepted as a fallback,
+which assigns `SecurityLevel::Low`. In production, NONE registrations should
+be rejected or heavily restricted (e.g., online-only tickets with lifetime 0-1
+epochs via the `GroupPolicy` mechanism in `clerk.proto:91-100`).
 
 ```
-// registrar.proto line 79-80:
+// registrar.proto:
 enum Algorithm {
-  NONE = 0;  // No verification — accepts any hwid
-  ANDROID_KM_ATTESTATION = 1;  // Defined but not implemented
+  NONE = 0;       // Fallback — assigns Low security tier
+  ANDROID_KM_ATTESTATION = 1;  // Implemented (attestation.rs)
+  IOS_APP_ATTEST = 2;          // Implemented (attestation.rs)
 }
 ```
 
-**Impact:** Without hardware attestation, Sybil attacks are trivial. An attacker
-can create unlimited wallets and credentials, defeating the identity-binding that
-ECDAA group signatures are designed to provide.
+**Impact:** With NONE still accepted, Sybil attacks remain possible but are now
+mitigated by the tiered system: NONE wallets receive Low-tier NAC credentials
+with short ticket lifetimes, limiting their exposure window. Attested wallets
+receive Medium or High tier credentials with longer lifetimes.
 
-**Recommendation:** Implement at least one hardware attestation algorithm
-(Android KeyMaster, Apple DeviceCheck, or TPM attestation) before any
-production deployment.
+**Recommendation:** For production, either reject `Algorithm::NONE` entirely or
+configure the clerk's `GroupPolicy` to give the Low-tier NAC group a ticket
+lifetime of 0 (online-only), effectively requiring attestation for offline
+transacting.
 
 ---
 
@@ -416,13 +430,32 @@ cross-boundary data transfer instead of untyped dictionaries.
 Key files are written via `std::fs::write()` without setting restrictive file
 permissions. The default umask applies, which may leave keys world-readable.
 
-### L-2: No Key Rotation Mechanism
+### L-2: Key Rotation Mechanism Exists but Is Not Exercised
 
-**Severity:** Low
-**Location:** System-wide
+**Severity:** Low (informational)
+**Location:** `src/proto/proto/clerk.proto:59-74`, `src/wallet/src/lib.rs:175-184`
 
-There is no mechanism for rotating issuer secret keys, ticket signing keys, or
-epoch signing keys. Key compromise requires manual intervention.
+Key rotation is supported by the existing protocol. The `ExtendedEpochData`
+message uses `repeated` fields for all rotatable key types:
+
+```protobuf
+repeated bytes ttc_group_public_keys = 1;
+repeated bytes epoch_signing_keys = 2;
+repeated bytes ticket_signing_keys = 3;
+repeated bytes mint_signing_keys = 4;
+```
+
+The wallet already validates signatures against the full key list
+(`lib.rs:687-695` for ticket signing keys, `lib.rs:769-777` for epoch signing
+keys). Rotation is performed by including both old and new keys in one epoch,
+then dropping the old key in a subsequent epoch. The `AddEpoch` RPC on the
+Clerk (`clerk.proto:30`) is the control plane for publishing new key sets.
+
+The remaining gap is operational: no tooling or runbook exists for performing a
+rotation, and the initial epoch signing key is trusted on first contact
+(`// TODO: We trust the first epoch signing keys we fetch` in `lib.rs`). This
+bootstrap trust is acceptable when the wallet trusts its registrar (which
+provides the initial clerk URI and keys during registration).
 
 ### L-3: Bloom Filter Epoch Reset Has No Authentication
 
@@ -549,7 +582,7 @@ operations.
 ### Immediate (Pre-Deployment Blockers)
 
 1. **Add TLS** to all gRPC channels (C-1)
-2. **Implement hardware attestation** for wallet registration (C-2)
+2. **Disable Algorithm::NONE** in production or restrict Low-tier to online-only (C-2)
 3. **Migrate to BLS12-381** (v1) as the default curve (H-1)
 4. **Implement JavaCard crypto operations** via JCMathLib (H-2)
 5. **Add value conservation checks** for token splits (H-5)
@@ -564,7 +597,7 @@ operations.
 
 ### Long-Term
 
-11. Implement key rotation for all key types (L-2)
+11. Build key rotation tooling and operational runbook (L-2 — protocol support exists)
 12. Add comprehensive integration test suite (currently requires live servers)
 13. Commission formal review of custom ECDAA implementation (I-6)
 14. Complete `cargo audit` for dependency vulnerabilities (I-5)
