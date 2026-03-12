@@ -26,9 +26,9 @@ and impact in the context of eventual production deployment.
 
 | Severity     | Count |
 |--------------|-------|
-| Critical     |     2 |
+| Critical     |     1 |
 | High         |     5 |
-| Medium       |     8 |
+| Medium       |     9 |
 | Low          |     6 |
 | Informational|     9 |
 
@@ -75,25 +75,56 @@ and impact in the context of eventual production deployment.
 
 ## 2. Critical Findings
 
-### C-1: No Transport Security (No TLS/mTLS)
+### C-1: No Transport Confidentiality (No TLS)
 
-**Severity:** Critical
+**Severity:** Medium (reduced from Critical — application-layer authentication
+exists; the gap is confidentiality, not authentication)
 **Location:** All gRPC client/server connections (`src/proto/src/lib.rs:37`, all `*_main.rs`)
 
 All inter-service gRPC communication uses plaintext channels. The `multiconnect()`
 helper in `BrioletteClientHelper` connects via either TCP or UNIX domain sockets
-with no TLS configuration. There is no certificate validation, no encryption of
-data in transit, and no mutual authentication at the transport layer.
+with no TLS configuration.
 
-**Impact:** An attacker on the network can:
-- Intercept and read all token transfers, credential issuance, and epoch updates
-- Perform man-in-the-middle attacks to modify tokens in transit
-- Impersonate any server (registrar, clerk, mint, validator)
+However, briolette does not rely on TLS for authentication. Application-layer
+cryptographic authentication is already in place for all security-critical RPCs:
 
-**Recommendation:** Add TLS with mutual authentication. The existing `service_auth`
-NAC-based approach provides application-layer signing but not confidentiality.
-At minimum, deploy with TLS-terminating proxies; ideally integrate
-`tonic::transport::ServerTlsConfig` and `ClientTlsConfig`.
+- **Clerk GetTickets / RefreshTickets:** Wallet signs requests with its NAC
+  credential (ECDAA, epoch-bound basename). The clerk verifies the NAC
+  signature, checks TTC group membership, and looks up ticket policy by NAC
+  group public key (`clerk/src/server.rs:199-213`, `328-351`).
+- **Mint GetTokens:** Wallet presents a clerk-signed ticket; the mint verifies
+  the ticket signature against its trusted ticket signing keys and confirms
+  the credential belongs to the TTC group (`mint/src/server.rs:107-120`).
+- **Registrar RegisterCall:** Hardware attestation (Android KM or iOS App
+  Attest) with cryptographic binding of ECDAA keys to the attestation
+  challenge (`registrar/src/attestation.rs`).
+- **Peer-to-peer transfers:** Token history is ECDAA-signed; recipients verify
+  the full signature chain and credential-to-ticket binding.
+- **Intentionally public endpoints:** GetEpoch (epoch data is gossipped
+  between peers anyway) and ValidateTokens (tokens are not secret; merchants
+  must be able to validate before accepting) require no authentication by
+  design.
+
+Using TLS mutual authentication (mTLS with per-device certificates) would be
+counterproductive — the purpose of NAC-based authentication is that wallets
+prove group membership via ECDAA without revealing individual identity. mTLS
+would undermine this privacy property.
+
+**Impact:** Without TLS, a network-level eavesdropper can:
+- Correlate IP addresses to ticket bundles and token transfers (privacy leak)
+- Observe registration traffic linking hardware attestation to IP addresses
+- Potentially perform traffic analysis to link wallets across sessions
+
+A network-level MITM could attempt to modify messages in transit, but
+application-layer signatures (NAC over requests, ECDAA over token history)
+would cause verification failures at the receiver.
+
+**Recommendation:** Add TLS for confidentiality (server-authenticated TLS, not
+mTLS). This protects against eavesdroppers correlating network identifiers to
+wallet activity. At minimum, deploy with TLS-terminating proxies; for direct
+integration use `tonic::transport::ServerTlsConfig`. Do not add client
+certificate authentication — wallet authentication must remain at the
+application layer via NAC/ECDAA to preserve unlinkability.
 
 ### C-2: Algorithm::NONE Still Accepted at Registration
 
@@ -581,14 +612,14 @@ operations.
 
 ### Immediate (Pre-Deployment Blockers)
 
-1. **Add TLS** to all gRPC channels (C-1)
-2. **Disable Algorithm::NONE** in production or restrict Low-tier to online-only (C-2)
-3. **Migrate to BLS12-381** (v1) as the default curve (H-1)
-4. **Implement JavaCard crypto operations** via JCMathLib (H-2)
-5. **Add value conservation checks** for token splits (H-5)
+1. **Disable Algorithm::NONE** in production or restrict Low-tier to online-only (C-2)
+2. **Migrate to BLS12-381** (v1) as the default curve (H-1)
+3. **Implement JavaCard crypto operations** via JCMathLib (H-2)
+4. **Add value conservation checks** for token splits (H-5)
 
 ### Short-Term
 
+5. **Add TLS for confidentiality** — server-authenticated, not mTLS (C-1)
 6. Encrypt key material at rest (M-3, M-4)
 7. Add rate limiting to all server endpoints (M-6)
 8. Replace panics with errors for untrusted input (M-7)
