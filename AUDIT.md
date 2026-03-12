@@ -27,8 +27,8 @@ and impact in the context of eventual production deployment.
 | Severity     | Count |
 |--------------|-------|
 | Critical     |     1 |
-| High         |     5 |
-| Medium       |     9 |
+| High         |     4 |
+| Medium       |    10 |
 | Low          |     6 |
 | Informational|     9 |
 
@@ -195,28 +195,38 @@ margin, especially for a financial system.
 components and the JavaCard applet to use v1 as the default, with v0 as a
 deprecated fallback.
 
-### H-2: JavaCard Applet Contains Only Stub Implementations
+### H-2: JavaCard EC Math Implemented but Not Yet Tested on Hardware
 
-**Severity:** High
-**Location:** `src/javacard/applet/BrioletteApplet.java:717-826`
+**Severity:** Medium (reduced from High — stubs replaced with real implementations)
+**Location:** `src/javacard/applet-sim/ECMath.java`, `src/javacard/applet-hw/ECMath.java`
 
-All core JavaCard cryptographic operations are stubs:
-- `ecPointMul()` — copies input point unchanged (line 769)
-- `scalarMulAdd()` — outputs zeros (line 748)
-- `scalarNegate()` — outputs zeros (line 804)
-- `ecPointAdd()` — copies first point (line 824)
-- `reduceModOrder()` — no-op (line 787)
-- `verifySwapAuthSchnorr()` — always returns false (line 511)
+The previously stubbed EC math operations have been replaced with two real
+implementations selected at build time:
 
-These stubs mean the JavaCard split-key protocol provides zero security. The
-card would sign anything without performing real cryptographic operations.
+- **Simulator (`applet-sim/ECMath.java`):** Uses `java.math.BigInteger` for
+  affine BN254 arithmetic — double-and-add scalar multiplication, point
+  addition/doubling, `scalarMulAdd` (a + b*c mod r), scalar negation, and
+  modular reduction. This is functional for jCardSim testing.
+- **Hardware (`applet-hw/ECMath.java`):** Uses JCMathLib's `ECPoint` and
+  `BigNat` classes, which leverage the card's RSA engine for modular arithmetic
+  and the ECDH engine for scalar multiplication. Build with
+  `gradle -PUSE_JCMATHLIB=true`.
 
-**Impact:** If deployed, the JavaCard component provides no security guarantees.
-The bloom filter double-spend check works correctly, but all signature operations
-are non-functional.
+The `BrioletteApplet` itself delegates all EC operations to `ECMath.*` static
+methods (`BrioletteApplet.java:704-731`), so the same applet code works with
+either backend.
 
-**Recommendation:** Integrate JCMathLib for BN254 EC operations. The pseudocode
-in the stubs is well-documented and correct; it requires JCMathLib linkage.
+**Remaining concerns:**
+- The JCMathLib backend has not been tested on physical JavaCard hardware.
+  Card-specific `OperationSupport.setCard()` configuration is needed per target.
+- `verifySwapAuthSchnorr()` implementation status should be verified.
+- The simulator backend uses `BigInteger` which is non-constant-time; this is
+  acceptable for testing but the JCMathLib backend inherits the card's native
+  constant-time properties.
+
+**Recommendation:** Test the JCMathLib build on target JavaCard hardware
+(e.g., JCOP4 P71) and verify all split-key protocol operations end-to-end.
+Run the existing jCardSim test suite against both backends.
 
 ### H-3: Service-to-Service Auth Uses Deterministic Nonce
 
@@ -614,11 +624,11 @@ operations.
 
 1. **Disable Algorithm::NONE** in production or restrict Low-tier to online-only (C-2)
 2. **Migrate to BLS12-381** (v1) as the default curve (H-1)
-3. **Implement JavaCard crypto operations** via JCMathLib (H-2)
-4. **Add value conservation checks** for token splits (H-5)
+3. **Add value conservation checks** for token splits (H-5)
 
 ### Short-Term
 
+4. **Test JavaCard JCMathLib build** on target hardware (H-2 — code exists)
 5. **Add TLS for confidentiality** — server-authenticated, not mTLS (C-1)
 6. Encrypt key material at rest (M-3, M-4)
 7. Add rate limiting to all server endpoints (M-6)
