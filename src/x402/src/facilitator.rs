@@ -74,7 +74,10 @@ impl Facilitator {
         for t in tokens {
             if let Some(desc) = &t.descriptor {
                 if let Some(val) = &desc.value {
-                    total = total + val.clone();
+                    total = match total + val.clone() {
+                        Ok(t) => t,
+                        Err(_) => return Err(VerificationError::InvalidTokens),
+                    };
                 }
             }
         }

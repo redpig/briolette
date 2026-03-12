@@ -26,8 +26,9 @@ use prost::Message;
 use sha2::{Digest, Sha256};
 use std::ops::Add;
 
-// TODO: make configurable
-const EPOCH_SECONDS: u32 = 86400;
+/// Default epoch duration in seconds (24 hours).
+/// Use `ExtendedEpochData.epoch_seconds` to override at runtime.
+pub const DEFAULT_EPOCH_SECONDS: u32 = 86400;
 
 pub trait TokenVerify {
     //  Returns true if the Token is valid. If trusted_mints are supplied, the base will be
@@ -478,12 +479,17 @@ impl TokenTransfer for Token {
 
 pub trait TicketExpiry {
     fn expires_on(&self) -> u64;
+    fn expires_on_with_epoch(&self, epoch_seconds: u32) -> u64;
 }
 
 impl TicketExpiry for SignedTicket {
     fn expires_on(&self) -> u64 {
+        self.expires_on_with_epoch(DEFAULT_EPOCH_SECONDS)
+    }
+
+    fn expires_on_with_epoch(&self, epoch_seconds: u32) -> u64 {
         let ticket_tags = self.ticket.clone().unwrap().tags.unwrap();
-        ticket_tags.created_on + ((ticket_tags.lifetime * EPOCH_SECONDS) as u64)
+        ticket_tags.created_on + ((ticket_tags.lifetime * epoch_seconds) as u64)
     }
 }
 
@@ -610,16 +616,18 @@ impl VerifyTicketSignature for SignedTicket {
 }
 
 impl Add for Amount {
-    type Output = Self;
+    type Output = Result<Self, BrioletteErrorCode>;
 
     fn add(self, other: Self) -> Self::Output {
-        assert_eq!(self.code, other.code);
+        if self.code != other.code {
+            return Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch);
+        }
         let total_frac = self.fractional + other.fractional;
-        Self {
+        Ok(Self {
             whole: self.whole + other.whole + total_frac / 1_000_000,
             fractional: total_frac % 1_000_000,
             code: self.code,
-        }
+        })
     }
 }
 
@@ -635,7 +643,7 @@ mod tests {
     fn amount_add_whole_only() {
         let a = Amount { whole: 3, fractional: 0, code: 0 };
         let b = Amount { whole: 5, fractional: 0, code: 0 };
-        let c = a + b;
+        let c = (a + b).unwrap();
         assert_eq!(c.whole, 8);
         assert_eq!(c.fractional, 0);
         assert_eq!(c.code, 0);
@@ -645,7 +653,7 @@ mod tests {
     fn amount_add_fractional_no_carry() {
         let a = Amount { whole: 1, fractional: 300_000, code: 840 };
         let b = Amount { whole: 2, fractional: 400_000, code: 840 };
-        let c = a + b;
+        let c = (a + b).unwrap();
         assert_eq!(c.whole, 3);
         assert_eq!(c.fractional, 700_000);
         assert_eq!(c.code, 840);
@@ -655,7 +663,7 @@ mod tests {
     fn amount_add_fractional_with_carry() {
         let a = Amount { whole: 1, fractional: 700_000, code: 0 };
         let b = Amount { whole: 2, fractional: 500_000, code: 0 };
-        let c = a + b;
+        let c = (a + b).unwrap();
         assert_eq!(c.whole, 4);
         assert_eq!(c.fractional, 200_000);
     }
@@ -664,24 +672,23 @@ mod tests {
     fn amount_add_zero() {
         let a = Amount { whole: 0, fractional: 0, code: 0 };
         let b = Amount { whole: 0, fractional: 0, code: 0 };
-        let c = a + b;
+        let c = (a + b).unwrap();
         assert_eq!(c.whole, 0);
         assert_eq!(c.fractional, 0);
     }
 
     #[test]
-    #[should_panic(expected = "assertion")]
-    fn amount_add_different_currency_panics() {
+    fn amount_add_different_currency_returns_error() {
         let a = Amount { whole: 1, fractional: 0, code: 0 };
         let b = Amount { whole: 1, fractional: 0, code: 840 };
-        let _ = a + b;
+        assert_eq!(a + b, Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch));
     }
 
     #[test]
     fn amount_add_exact_carry_boundary() {
         let a = Amount { whole: 0, fractional: 999_999, code: 0 };
         let b = Amount { whole: 0, fractional: 1, code: 0 };
-        let c = a + b;
+        let c = (a + b).unwrap();
         assert_eq!(c.whole, 1);
         assert_eq!(c.fractional, 0);
     }
@@ -691,7 +698,7 @@ mod tests {
         // Both at 999_999 => total_frac = 1_999_998 => carry 1, remainder 999_998
         let a = Amount { whole: 10, fractional: 999_999, code: 0 };
         let b = Amount { whole: 20, fractional: 999_999, code: 0 };
-        let c = a + b;
+        let c = (a + b).unwrap();
         assert_eq!(c.whole, 31);
         assert_eq!(c.fractional, 999_998);
     }

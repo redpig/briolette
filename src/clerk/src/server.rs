@@ -98,6 +98,11 @@ impl BrioletteClerk {
     pub fn write_key(&self, data_file: &Path) -> Result<bool, Box<dyn std::error::Error>> {
         let sk: SecretKey = self.ticket_signing_key.clone().into();
         std::fs::write(&data_file, sk.to_pkcs8_der().unwrap().as_bytes())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&data_file, std::fs::Permissions::from_mode(0o600))?;
+        }
         Ok(true)
     }
 
@@ -123,6 +128,11 @@ impl BrioletteClerk {
             tokenmap_uri: self.tokenmap_uri.to_string(),
         };
         std::fs::write(&data_file, serde_json::to_vec(&es).unwrap())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&data_file, std::fs::Permissions::from_mode(0o600))?;
+        }
         Ok(true)
     }
 

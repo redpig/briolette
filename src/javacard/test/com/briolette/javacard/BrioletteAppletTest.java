@@ -49,6 +49,7 @@ public class BrioletteAppletTest {
     private static final byte INS_JOIN_RESPOND = (byte) 0x21;
     private static final byte INS_RESET_BLOOM = (byte) 0x30;
     private static final byte INS_SET_SWAP_PUBKEY = (byte) 0x31;
+    private static final byte INS_SET_RESET_PUBKEY = (byte) 0x32;
     private static final byte INS_GET_STATUS = (byte) 0x40;
 
     // Status words
@@ -61,6 +62,9 @@ public class BrioletteAppletTest {
     private static final int SW_SWAP_AUTH_FAILED = 0x6A85;
     private static final int SW_BAD_VERSION = 0x6A86;
     private static final int SW_NO_SWAP_KEY = 0x6A87;
+    private static final int SW_RESET_AUTH_FAILED = 0x6A88;
+    private static final int SW_NO_RESET_KEY = 0x6A89;
+    private static final int SW_PERSONALIZED = 0x6A8A;
 
     private static final int FR_BYTES = 32;
     private static final int BN254_G1_BYTES = 65;
@@ -964,5 +968,118 @@ public class BrioletteAppletTest {
 
         ResponseAPDU resp = send(INS_SIGN_RESPOND, dummyScalar);
         assertEquals(SW_OK, resp.getSW());
+    }
+
+    // ========================================================================
+    // Personalization lock tests (L-4)
+    // ========================================================================
+
+    @Test
+    public void testSetSwapPubkey_rejectedAfterSign() {
+        generateKey();
+
+        // Perform a signing operation — this locks personalization.
+        send(INS_SIGN_COMMIT, dummyBN254Point);
+        send(INS_SIGN_RESPOND, dummyScalar);
+
+        // Now SET_SWAP_PUBKEY should be rejected.
+        ResponseAPDU resp = send(INS_SET_SWAP_PUBKEY, dummyBN254Point);
+        assertEquals("SET_SWAP_PUBKEY should fail after personalization",
+                     SW_PERSONALIZED, resp.getSW());
+    }
+
+    @Test
+    public void testSetSwapPubkey_rejectedAfterJoin() {
+        generateKey();
+
+        // JOIN also locks personalization.
+        send(INS_JOIN_COMMIT, dummyBN254Point);
+        send(INS_JOIN_RESPOND, dummyScalar);
+
+        ResponseAPDU resp = send(INS_SET_SWAP_PUBKEY, dummyBN254Point);
+        assertEquals("SET_SWAP_PUBKEY should fail after join",
+                     SW_PERSONALIZED, resp.getSW());
+    }
+
+    @Test
+    public void testSetResetPubkey_success() {
+        generateKey();
+
+        ResponseAPDU resp = send(INS_SET_RESET_PUBKEY, dummyBN254Point);
+        assertEquals(SW_OK, resp.getSW());
+    }
+
+    @Test
+    public void testSetResetPubkey_rejectedAfterSign() {
+        generateKey();
+
+        send(INS_SIGN_COMMIT, dummyBN254Point);
+        send(INS_SIGN_RESPOND, dummyScalar);
+
+        ResponseAPDU resp = send(INS_SET_RESET_PUBKEY, dummyBN254Point);
+        assertEquals("SET_RESET_PUBKEY should fail after personalization",
+                     SW_PERSONALIZED, resp.getSW());
+    }
+
+    @Test
+    public void testSetResetPubkey_setsStatusFlag() {
+        generateKey();
+        send(INS_SET_RESET_PUBKEY, dummyBN254Point);
+
+        ResponseAPDU status = send(INS_GET_STATUS);
+        byte flags = status.getData()[0];
+        assertNotEquals("Reset key flag should be set", 0, flags & 0x08);
+    }
+
+    @Test
+    public void testPersonalizedFlag_inStatus() {
+        generateKey();
+
+        ResponseAPDU status1 = send(INS_GET_STATUS);
+        assertEquals("Personalized flag should not be set initially",
+                     0, status1.getData()[0] & 0x10);
+
+        send(INS_SIGN_COMMIT, dummyBN254Point);
+
+        ResponseAPDU status2 = send(INS_GET_STATUS);
+        assertNotEquals("Personalized flag should be set after sign",
+                        0, status2.getData()[0] & 0x10);
+    }
+
+    // ========================================================================
+    // Authenticated RESET_BLOOM tests (L-3)
+    // ========================================================================
+
+    @Test
+    public void testResetBloom_withoutResetKey_acceptsPlainEpoch() {
+        // Without a reset pubkey, RESET_BLOOM accepts just the 4-byte epoch.
+        byte[] epoch = {0, 0, 0, 1};
+        ResponseAPDU resp = send(INS_RESET_BLOOM, epoch);
+        assertEquals(SW_OK, resp.getSW());
+    }
+
+    @Test
+    public void testResetBloom_withResetKey_rejectsPlainEpoch() {
+        generateKey();
+        send(INS_SET_RESET_PUBKEY, dummyBN254Point);
+
+        // With a reset pubkey, plain 4-byte epoch should fail (wrong length).
+        byte[] epoch = {0, 0, 0, 1};
+        ResponseAPDU resp = send(INS_RESET_BLOOM, epoch);
+        assertEquals("Should require auth signature",
+                     SW_WRONG_LENGTH, resp.getSW());
+    }
+
+    @Test
+    public void testResetBloom_withResetKey_rejectsBadAuth() {
+        generateKey();
+        send(INS_SET_RESET_PUBKEY, dummyBN254Point);
+
+        // 4 bytes epoch + 64 bytes of zeros (invalid signature).
+        byte[] data = new byte[68];
+        data[3] = 1; // epoch = 1
+        ResponseAPDU resp = send(INS_RESET_BLOOM, data);
+        assertEquals("Invalid auth should fail",
+                     SW_RESET_AUTH_FAILED, resp.getSW());
     }
 }

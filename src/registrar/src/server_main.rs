@@ -117,6 +117,19 @@ struct Args {
     nac_high_issuer_gpk: Option<PathBuf>,
     #[arg(long, value_name = "FILE")]
     nac_high_issuer_secret: Option<PathBuf>,
+
+    /// Reject Algorithm::NONE registrations. In production, this should
+    /// be enabled to require hardware attestation for all wallets.
+    #[arg(long, action)]
+    require_attestation: bool,
+
+    /// TLS certificate PEM file. When provided with --tls-key, enables TLS.
+    #[arg(long, value_name = "FILE")]
+    tls_cert: Option<PathBuf>,
+
+    /// TLS private key PEM file.
+    #[arg(long, value_name = "FILE")]
+    tls_key: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -141,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         level_keys.push((SecurityLevel::High, sk.clone(), gpk.clone()));
     }
 
-    let registrar = if level_keys.is_empty() {
+    let mut registrar = if level_keys.is_empty() {
         BrioletteRegistrar::new(
             args.generate,
             &args.network_access_credential_issuer_secret_key,
@@ -163,9 +176,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &level_refs,
         )
     };
-    tonic::transport::Server::builder()
-        .add_service(RegistrarServer::new(registrar))
-        .serve(args.listen_address.parse().unwrap())
-        .await?;
+    registrar.require_attestation = args.require_attestation;
+    let addr = args.listen_address.parse().unwrap();
+    let mut server = tonic::transport::Server::builder();
+    if let (Some(cert), Some(key)) = (&args.tls_cert, &args.tls_key) {
+        let tls_config = briolette_proto::tls::server_tls_config(cert, key, None)?;
+        server
+            .tls_config(tls_config)?
+            .add_service(RegistrarServer::new(registrar))
+            .serve(addr)
+            .await?;
+    } else {
+        server
+            .add_service(RegistrarServer::new(registrar))
+            .serve(addr)
+            .await?;
+    }
     Ok(())
 }

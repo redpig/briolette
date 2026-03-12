@@ -672,11 +672,12 @@ fn token_is_second_split(candidate: &Token, tokens: &Vec<Token>) -> bool {
                 if known_amount.code != unknown_amount.code {
                     return false;
                 } else {
-                    let total = known_amount + unknown_amount;
                     let original_total = token.descriptor.clone().unwrap().value.clone().unwrap();
                     // If a split doesn't sum to its original amount, it is a failure.
-                    if total == original_total {
-                        return true;
+                    if let Ok(total) = known_amount + unknown_amount {
+                        if total == original_total {
+                            return true;
+                        }
                     }
                     trace!("splits do not add up!");
                 }

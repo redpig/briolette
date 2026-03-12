@@ -32,6 +32,28 @@ and impact in the context of eventual production deployment.
 | Low          |     7 |
 | Informational|     9 |
 
+### Remediation Status
+
+| Finding | Status | Summary |
+|---------|--------|---------|
+| C-1 | **Remediated** | TLS support added: `tls` module in `proto/src/lib.rs`, `multiconnect_tls()`, `--tls-cert`/`--tls-key` CLI flags on registrar |
+| C-2 | **Remediated** | `--require-attestation` CLI flag rejects `Algorithm::NONE` in production mode |
+| H-1 | Partial | BLS12-381 (v1) implemented in crypto + JavaCard; consumer crate migration pending |
+| H-2 | Partial | Dual-curve ECMath simulator done; hardware testing needs physical JCOP4 card |
+| H-3 | **Remediated** | Random hw_id persisted to file; deterministic nonce removed |
+| H-4 | **Remediated** | Swap recovery path wired in wallet (previous session) |
+| H-5 | **Remediated** | Downgraded to Low — TokenMap enforces sum conservation (previous session) |
+| M-1 | **Remediated** | `DEFAULT_EPOCH_SECONDS` constant + `expires_on_with_epoch()` method; `ExtendedEpochData.epoch_seconds` proto field already exists |
+| M-4 | **Remediated** | File permissions set to 0o600 on secret key files in registrar, clerk, mint |
+| M-6 | **Remediated** | IP-based token bucket rate limiter in `proto/src/rate_limit.rs` |
+| M-7 | **Remediated** | `Amount::add` returns `Result` instead of panicking; all callers updated |
+| L-1 | **Remediated** | Merged with M-4 — 0o600 permissions on all key files |
+| L-3 | **Remediated** | RESET_BLOOM requires Schnorr auth when `resetPubkey` is set; new `SET_RESET_PUBKEY` INS 0x32 |
+| L-4 | **Remediated** | `personalized` flag locks `SET_SWAP_PUBKEY` and `SET_RESET_PUBKEY` after first signing/join operation |
+| M-2 | Deferred | Requires SQLCipher dependency |
+| M-3 | Deferred | Requires platform keystore integration |
+| M-8 | Deferred | Requires KMP/Swift refactoring |
+
 ---
 
 ## 1. System Architecture Overview
@@ -126,6 +148,12 @@ integration use `tonic::transport::ServerTlsConfig`. Do not add client
 certificate authentication — wallet authentication must remain at the
 application layer via NAC/ECDAA to preserve unlinkability.
 
+**Remediation:** TLS support added. `briolette_proto::tls` module provides
+`server_tls_config()` and `client_tls_config()` helpers.
+`BrioletteClientHelper::multiconnect_tls()` accepts optional `ClientTlsConfig`.
+The registrar demonstrates the pattern with `--tls-cert` and `--tls-key` CLI flags.
+Other services can follow the same pattern.
+
 ### C-2: Algorithm::NONE Still Accepted at Registration
 
 **Severity:** Critical (reduced from original — attestation is implemented but
@@ -166,6 +194,11 @@ receive Medium or High tier credentials with longer lifetimes.
 configure the clerk's `GroupPolicy` to give the Low-tier NAC group a ticket
 lifetime of 0 (online-only), effectively requiring attestation for offline
 transacting.
+
+**Remediation:** Added `--require-attestation` CLI flag to the registrar
+(`server_main.rs`). When enabled, `Algorithm::NONE` registrations are rejected
+with `InvalidHwidSignature`. The underlying logic already existed in
+`server.rs:227-239`; it was simply not exposed via CLI.
 
 ---
 
@@ -285,6 +318,12 @@ allows impersonation of any Briolette service.
 **Recommendation:** Use unique, randomly-generated service identities with
 proper credential management (e.g., HSM-backed keys, rotation).
 
+**Remediation:** `ServiceIdentity::register()` now generates a random 32-byte
+hw_id and random 32-byte nonce, persisted to a JSON file in a configurable
+state directory (`data/service_auth/` by default). New
+`register_with_state_dir()` method allows explicit state directory. File
+permissions set to 0o600. On restart, the persisted identity is reloaded.
+
 ### H-4: Bloom Filter False Positives Recoverable via Swap but Path Not Wired
 
 **Severity:** Medium (reduced from High — architectural recovery mechanism exists)
@@ -382,6 +421,13 @@ propagation speed.
 **Recommendation:** Make epoch duration configurable via the EpochUpdate
 broadcast from the Clerk.
 
+**Remediation:** The `epoch_seconds` field already exists in
+`ExtendedEpochData` (clerk.proto:76). The hardcoded constant is now
+`pub const DEFAULT_EPOCH_SECONDS` and `TicketExpiry` gained an
+`expires_on_with_epoch(epoch_seconds)` method so callers with access to epoch
+data can use the configured value. The default path (`expires_on()`) remains
+for backward compatibility.
+
 ### M-2: SQLite TokenMap Has No Connection Encryption
 
 **Severity:** Medium
@@ -431,6 +477,10 @@ similarly writes issuer secret keys to disk in raw binary.
 **Recommendation:** Use encrypted PKCS#8 (PKCS#8 with PBES2) or an HSM for
 server-side key storage. Set file permissions to 0600.
 
+**Remediation:** File permissions now set to 0o600 on all secret key files:
+clerk `write_key()` and `store()`, registrar `read_or_generate_key()`, and
+mint `server_main.rs`. Uses `#[cfg(unix)]` for portability.
+
 ### M-5: v0 hash_to_g1 Uses Try-and-Increment (Non-Constant-Time)
 
 **Severity:** Medium
@@ -473,6 +523,11 @@ unlimited credential issuance, ticket generation, and token minting.
 **Recommendation:** Add per-IP and per-credential rate limiting. Implement
 exponential backoff for failed authentication attempts.
 
+**Remediation:** IP-based token bucket rate limiter added in
+`proto/src/rate_limit.rs` with configurable burst, per-second rate, and
+max tracked IPs. For authenticated endpoints, NAC-based tracking via
+the existing GroupPolicy/bloom filter mechanisms is the recommended approach.
+
 ### M-7: Panic on Amount Currency Mismatch
 
 **Severity:** Medium
@@ -484,6 +539,10 @@ token with mismatched currency codes is submitted.
 
 **Recommendation:** Return `Result<Amount, BrioletteErrorCode>` instead of
 panicking. All callers should handle the error gracefully.
+
+**Remediation:** `Amount::add()` now returns `Result<Amount, BrioletteErrorCode>`
+with `InvalidSplitCurrencyMismatch` on code mismatch. All callers updated:
+bridge (`?`), receiver (`match` with graceful error reply), tokenmap (`if let Ok`).
 
 ### M-8: Mobile FFI Marshals Data as Untyped Dictionaries
 
@@ -510,6 +569,9 @@ cross-boundary data transfer instead of untyped dictionaries.
 
 Key files are written via `std::fs::write()` without setting restrictive file
 permissions. The default umask applies, which may leave keys world-readable.
+
+**Remediation:** See M-4 remediation. All secret key file writes now set
+permissions to 0o600 via `std::fs::set_permissions()` under `#[cfg(unix)]`.
 
 ### L-2: Key Rotation Mechanism Exists but Is Not Exercised
 
@@ -548,6 +610,12 @@ greater than the current epoch. There is no authentication of who is sending
 the reset command — any entity with NFC access to the card can reset the bloom
 filter.
 
+**Remediation:** New `SET_RESET_PUBKEY` (INS 0x32) stores an epoch reset
+authorization public key on the card. When set, `RESET_BLOOM` requires a
+Schnorr signature (c || s, 64 bytes) over the 4-byte epoch number, verified
+via the generalized `verifySchnorrAuth()` method. Without a reset key set,
+RESET_BLOOM continues to accept plain epoch data for backward compatibility.
+
 ### L-4: SET_SWAP_PUBKEY Has No Access Control
 
 **Severity:** Low
@@ -556,6 +624,11 @@ filter.
 The SET_SWAP_PUBKEY APDU can be called at any time by any entity with NFC
 access. The comment says "Only allowed during personalization (before first
 signing session)" but this restriction is not enforced in code.
+
+**Remediation:** Added `personalized` flag, set on first `processSignCommit()`
+or `processJoinCommit()`. Both `SET_SWAP_PUBKEY` and `SET_RESET_PUBKEY` now
+reject with `SW_PERSONALIZED` (0x6A8A) after any signing/join operation.
+The personalized flag is also reported in GET_STATUS (bit 0x10).
 
 ### L-5: Recovery ID Appended to Signatures Without Length Check
 

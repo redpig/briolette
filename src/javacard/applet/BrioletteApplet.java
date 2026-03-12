@@ -50,8 +50,9 @@ import javacard.security.RandomData;
  *   INS 0x13: SIGN_COMMIT_BSN_SWAP - Phase 1 signing (swap mode, skip bloom)
  *   INS 0x20: JOIN_COMMIT        - Phase 1 blind join
  *   INS 0x21: JOIN_RESPOND       - Phase 2 blind join
- *   INS 0x30: RESET_BLOOM        - Reset bloom filter for new epoch
+ *   INS 0x30: RESET_BLOOM        - Reset bloom filter for new epoch (auth required if key set)
  *   INS 0x31: SET_SWAP_PUBKEY    - Set swap server public key
+ *   INS 0x32: SET_RESET_PUBKEY   - Set epoch reset authorization public key
  *   INS 0x40: GET_STATUS         - Query card status
  */
 public class BrioletteApplet extends Applet {
@@ -69,6 +70,7 @@ public class BrioletteApplet extends Applet {
     private static final byte INS_JOIN_RESPOND       = (byte) 0x21;
     private static final byte INS_RESET_BLOOM        = (byte) 0x30;
     private static final byte INS_SET_SWAP_PUBKEY    = (byte) 0x31;
+    private static final byte INS_SET_RESET_PUBKEY   = (byte) 0x32;
     private static final byte INS_GET_STATUS         = (byte) 0x40;
 
     // ========================================================================
@@ -84,6 +86,9 @@ public class BrioletteApplet extends Applet {
     private static final short SW_BAD_VERSION        = (short) 0x6A86;
     private static final short SW_SWAP_AUTH_FAILED   = (short) 0x6A85;
     private static final short SW_NO_SWAP_KEY        = (short) 0x6A87;
+    private static final short SW_RESET_AUTH_FAILED  = (short) 0x6A88;
+    private static final short SW_NO_RESET_KEY       = (short) 0x6A89;
+    private static final short SW_PERSONALIZED       = (short) 0x6A8A;
 
     /** Size of swap authorization token: c (32B) + s (32B). */
     private static final short SWAP_AUTH_BYTES       = (short) 64;
@@ -113,6 +118,15 @@ public class BrioletteApplet extends Applet {
 
     /** Whether swap pubkey has been set. */
     private boolean swapPubkeySet;
+
+    /** Epoch reset authorization public key (G1 point in wire format). */
+    private byte[] resetPubkey;
+
+    /** Whether reset pubkey has been set. */
+    private boolean resetPubkeySet;
+
+    /** Set on first signing/join operation; locks pubkey configuration. */
+    private boolean personalized;
 
     /** Locked curve version (set at GENERATE_KEY time). */
     private byte activeCurveVersion;
@@ -156,6 +170,9 @@ public class BrioletteApplet extends Applet {
         // BLS12-381 compressed = 48 bytes, so 65 is sufficient for both
         swapPubkey = new byte[BN254Params.G1_BYTES];
         swapPubkeySet = false;
+        resetPubkey = new byte[BN254Params.G1_BYTES];
+        resetPubkeySet = false;
+        personalized = false;
 
         // Transient buffers (cleared on card deselect/reset)
         rCard = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
@@ -238,6 +255,9 @@ public class BrioletteApplet extends Applet {
             case INS_SET_SWAP_PUBKEY:
                 processSetSwapPubkey(apdu);
                 break;
+            case INS_SET_RESET_PUBKEY:
+                processSetResetPubkey(apdu);
+                break;
             case INS_GET_STATUS:
                 processGetStatus(apdu);
                 break;
@@ -302,6 +322,7 @@ public class BrioletteApplet extends Applet {
 
     private void processSignCommit(APDU apdu, boolean hasBasename, boolean isSwap) {
         requireKeyInitialized();
+        personalized = true;
 
         byte[] buffer = apdu.getBuffer();
         short dataLen = apdu.setIncomingAndReceive();
@@ -363,10 +384,19 @@ public class BrioletteApplet extends Applet {
     }
 
     /**
-     * Verify a swap authorization Schnorr signature.
+     * Verify a Schnorr authorization signature against a given public key.
+     * Used by both swap authorization and epoch reset authorization.
+     *
+     * @param pubkey     The verifying public key (G1 point).
+     * @param ctxBuf     Buffer containing the context data to bind to.
+     * @param ctxOff     Offset of context data in ctxBuf.
+     * @param ctxLen     Length of context data.
+     * @param authBuf    Buffer containing the Schnorr signature (c || s).
+     * @param authOff    Offset of the signature in authBuf.
      */
-    private boolean verifySwapAuth(byte[] bsnBuf, short bsnOff,
-                                    byte[] authBuf, short authOff) {
+    private boolean verifySchnorrAuth(byte[] pubkey,
+                                       byte[] ctxBuf, short ctxOff, short ctxLen,
+                                       byte[] authBuf, short authOff) {
         short cOff = authOff;
         short sOff = (short)(authOff + activeFrBytes);
 
@@ -380,29 +410,39 @@ public class BrioletteApplet extends Applet {
         // Step 2: Negate c
         scalarNegate(authBuf, cOff, scratchHash, (short) 0);
 
-        // Step 3: scratchPoint2 = swap_pk * (-c)
-        ecPointMul(swapPubkey, (short) 0,
+        // Step 3: scratchPoint2 = pubkey * (-c)
+        ecPointMul(pubkey, (short) 0,
                    scratchHash, (short) 0,
                    scratchPoint2, (short) 0);
 
-        // Step 4: R' = G*s + swap_pk*(-c)
+        // Step 4: R' = G*s + pubkey*(-c)
         ecPointAdd(scratchPoint, (short) 0,
                    scratchPoint2, (short) 0,
                    scratchPoint, (short) 0);
 
-        // Step 5: c' = SHA256(R' || bsn_base || swap_pk) reduced to Fr
+        // Step 5: c' = SHA256(R' || context || pubkey) reduced to Fr
         MessageDigest sha256 = MessageDigest.getInstance(
             MessageDigest.ALG_SHA_256, false);
         sha256.reset();
         sha256.update(scratchPoint, (short) 0, activeG1Bytes);
-        sha256.update(bsnBuf, bsnOff, activeG1Bytes);
-        sha256.doFinal(swapPubkey, (short) 0, activeG1Bytes,
+        sha256.update(ctxBuf, ctxOff, ctxLen);
+        sha256.doFinal(pubkey, (short) 0, activeG1Bytes,
                        scratchHash, (short) 0);
         reduceModOrder(scratchHash, (short) 0);
 
         // Step 6: Compare
         return Util.arrayCompare(scratchHash, (short) 0,
                                  authBuf, cOff, activeFrBytes) == 0;
+    }
+
+    /**
+     * Verify a swap authorization Schnorr signature (legacy wrapper).
+     */
+    private boolean verifySwapAuth(byte[] bsnBuf, short bsnOff,
+                                    byte[] authBuf, short authOff) {
+        return verifySchnorrAuth(swapPubkey,
+                                 bsnBuf, bsnOff, activeG1Bytes,
+                                 authBuf, authOff);
     }
 
     // ========================================================================
@@ -436,6 +476,7 @@ public class BrioletteApplet extends Applet {
 
     private void processJoinCommit(APDU apdu) {
         requireKeyInitialized();
+        personalized = true;
 
         byte[] buffer = apdu.getBuffer();
         short dataLen = apdu.setIncomingAndReceive();
@@ -487,8 +528,17 @@ public class BrioletteApplet extends Applet {
         byte[] buffer = apdu.getBuffer();
         short dataLen = apdu.setIncomingAndReceive();
 
-        if (dataLen != 4) {
-            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        short epochBytes = 4;
+        if (resetPubkeySet) {
+            // When a reset public key is set, the APDU must include:
+            // 4 bytes epoch + 64 bytes Schnorr signature (c || s)
+            if (dataLen != (short)(epochBytes + SWAP_AUTH_BYTES)) {
+                ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+            }
+        } else {
+            if (dataLen != epochBytes) {
+                ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+            }
         }
 
         short off = ISO7816.OFFSET_CDATA;
@@ -496,6 +546,16 @@ public class BrioletteApplet extends Applet {
                      | ((buffer[(short)(off + 1)] & 0xFF) << 16)
                      | ((buffer[(short)(off + 2)] & 0xFF) << 8)
                      | (buffer[(short)(off + 3)] & 0xFF);
+
+        if (resetPubkeySet) {
+            // Verify the Schnorr signature over the epoch bytes.
+            short authOff = (short)(off + epochBytes);
+            if (!verifySchnorrAuth(resetPubkey,
+                                    buffer, off, epochBytes,
+                                    buffer, authOff)) {
+                ISOException.throwIt(SW_RESET_AUTH_FAILED);
+            }
+        }
 
         if (!bloomFilter.resetForEpoch(newEpoch)) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
@@ -508,6 +568,9 @@ public class BrioletteApplet extends Applet {
 
     private void processSetSwapPubkey(APDU apdu) {
         requireKeyInitialized();
+        if (personalized) {
+            ISOException.throwIt(SW_PERSONALIZED);
+        }
 
         byte[] buffer = apdu.getBuffer();
         short dataLen = apdu.setIncomingAndReceive();
@@ -522,6 +585,28 @@ public class BrioletteApplet extends Applet {
     }
 
     // ========================================================================
+    // INS 0x32: SET_RESET_PUBKEY
+    // ========================================================================
+
+    private void processSetResetPubkey(APDU apdu) {
+        requireKeyInitialized();
+        if (personalized) {
+            ISOException.throwIt(SW_PERSONALIZED);
+        }
+
+        byte[] buffer = apdu.getBuffer();
+        short dataLen = apdu.setIncomingAndReceive();
+
+        if (dataLen != activeG1Bytes) {
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        }
+
+        Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA,
+                       resetPubkey, (short) 0, activeG1Bytes);
+        resetPubkeySet = true;
+    }
+
+    // ========================================================================
     // INS 0x40: GET_STATUS
     // ========================================================================
 
@@ -532,6 +617,8 @@ public class BrioletteApplet extends Applet {
         if (keyInitialized) flags |= 0x01;
         if (sessionType[0] != SESSION_NONE) flags |= 0x02;
         if (swapPubkeySet) flags |= 0x04;
+        if (resetPubkeySet) flags |= 0x08;
+        if (personalized) flags |= 0x10;
         buffer[0] = flags;
 
         int epoch = bloomFilter.getEpoch();
