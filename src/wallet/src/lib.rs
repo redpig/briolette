@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use briolette_crypto::v0;
-use briolette_crypto::v0::split;
+use briolette_crypto::v1;
+use briolette_crypto::v1::split;
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
 use briolette_proto::briolette::clerk::{
     EpochRequest, EpochUpdate, EpochVerify, GetTicketsRequest, RefreshTicketsRequest,
@@ -529,7 +529,7 @@ impl WalletData {
                 signature,
             )
         } else {
-            v0::sign(
+            v1::sign(
                 message,
                 credential,
                 secret_key,
@@ -690,7 +690,7 @@ impl Wallet for WalletData {
     fn initialize_keys(&mut self, id: &[u8]) -> bool {
         self.id = Vec::from(id);
         self.hw_id = digest(id).into_bytes();
-        let mut ret = v0::generate_wallet_keypair(
+        let mut ret = v1::generate_wallet_keypair(
             &self.hw_id,
             &mut self.transfer_credential.secret_key,
             &mut self.transfer_credential.public_key,
@@ -698,7 +698,7 @@ impl Wallet for WalletData {
         if ret == false {
             return ret;
         }
-        ret = v0::generate_wallet_keypair(
+        ret = v1::generate_wallet_keypair(
             &self.transfer_credential.public_key,
             &mut self.network_credential.secret_key,
             &mut self.network_credential.public_key,
@@ -785,7 +785,7 @@ impl Wallet for WalletData {
         for _i in 0..count {
             let mut credential = vec![];
             assert!(
-                v0::randomize_credential(
+                v1::randomize_credential(
                     &self.transfer_credential.credential.clone().unwrap(),
                     &mut credential
                 ),

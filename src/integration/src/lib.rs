@@ -680,7 +680,7 @@ impl BrioletteClient {
         )
         .map_err(|e| Error::InvalidData(format!("{e}")))?;
 
-        let b_ttc = briolette_crypto::v0::split::split_base_point(&hw_id);
+        let b_ttc = briolette_crypto::v1::split::split_base_point(&hw_id);
 
         let wallet_json = serde_json::to_string(&wallet)
             .map_err(|e| Error::Serialization(e.to_string()))?;
@@ -703,12 +703,12 @@ impl BrioletteClient {
         u_card_ttc: &[u8],
     ) -> Result<SplitKeyStep2a, Error> {
         let (host_sk_ttc, host_r_ttc, c_ttc, q_ttc_combined) =
-            briolette_crypto::v0::split::split_join_host_commit_and_challenge(
+            briolette_crypto::v1::split::split_join_host_commit_and_challenge(
                 &state.hw_id, q_card_ttc, u_card_ttc,
             )
             .ok_or(Error::InvalidData("TTC commit/challenge failed".into()))?;
 
-        let b_nac = briolette_crypto::v0::split::split_base_point(&q_ttc_combined);
+        let b_nac = briolette_crypto::v1::split::split_base_point(&q_ttc_combined);
 
         Ok(SplitKeyStep2a {
             state: SplitKeyState {
@@ -734,7 +734,7 @@ impl BrioletteClient {
         u_card_nac: &[u8],
     ) -> Result<SplitKeyStep2b, Error> {
         let (host_sk_nac, host_r_nac, c_nac, _) =
-            briolette_crypto::v0::split::split_join_host_commit_and_challenge(
+            briolette_crypto::v1::split::split_join_host_commit_and_challenge(
                 &state.q_ttc_combined, q_card_nac, u_card_nac,
             )
             .ok_or(Error::InvalidData("NAC commit/challenge failed".into()))?;
@@ -769,7 +769,7 @@ impl BrioletteClient {
             serde_json::from_str(&state.wallet_json)
                 .map_err(|e| Error::Serialization(e.to_string()))?;
 
-        let ttc_pk = briolette_crypto::v0::split::split_join_finalize(
+        let ttc_pk = briolette_crypto::v1::split::split_join_finalize(
             &state.hw_id,
             &state.q_card_ttc,
             &state.u_card_ttc,
@@ -780,7 +780,7 @@ impl BrioletteClient {
         )
         .ok_or(Error::InvalidData("TTC finalize failed".into()))?;
 
-        let nac_pk = briolette_crypto::v0::split::split_join_finalize(
+        let nac_pk = briolette_crypto::v1::split::split_join_finalize(
             &state.q_ttc_combined,
             &state.q_card_nac,
             &state.u_card_nac,
@@ -1058,7 +1058,7 @@ mod tests {
 
     #[test]
     fn split_key_protocol_produces_card_bound_challenge() {
-        use briolette_crypto::v0::split::{MockCard, SmartCard};
+        use briolette_crypto::v1::split::{MockCard, SmartCard};
 
         let config = ServiceConfig {
             registrar_uri: "http://[::1]:50051".into(),

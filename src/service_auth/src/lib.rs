@@ -19,7 +19,7 @@
 //! This keeps the security model self-contained within Briolette's existing
 //! credential infrastructure — no secondary PKI (mTLS) needed.
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use briolette_proto::briolette::registrar::registrar_client::RegistrarClient;
 use briolette_proto::briolette::registrar::{
     Algorithm, CredentialRequest, HardwareId, RegisterRequest, Signature,
@@ -125,7 +125,7 @@ impl ServiceIdentity {
         // Generate keypair using the persisted random nonce.
         let mut secret_key = vec![];
         let mut public_key = vec![];
-        if !v0::generate_wallet_keypair(&state.nonce, &mut secret_key, &mut public_key) {
+        if !v1::generate_wallet_keypair(&state.nonce, &mut secret_key, &mut public_key) {
             return Err("failed to generate service keypair".into());
         }
 
@@ -189,7 +189,7 @@ impl ServiceIdentity {
         message.extend_from_slice(&timestamp_nanos.to_le_bytes());
 
         let mut signature = vec![];
-        if !v0::sign(
+        if !v1::sign(
             &message.to_vec(),
             &self.credential,
             &self.secret_key,
@@ -277,7 +277,7 @@ pub fn verify_service_auth(
     message.extend_from_slice(&auth_metadata.timestamp_nanos.to_le_bytes());
 
     // Verify the ECDAA signature.
-    if !v0::verify(
+    if !v1::verify(
         &nac_group_public_key.to_vec(),
         &None, // no basename
         &None, // credential not needed for verification (embedded in signature)
@@ -339,18 +339,18 @@ mod tests {
         // Generate issuer keypair for NAC.
         let mut issuer_sk = vec![];
         let mut group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+        assert!(v1::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
 
         // Generate service keypair.
         let nonce = b"test-service-nonce".to_vec();
         let mut sk = vec![];
         let mut pk = vec![];
-        assert!(v0::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
+        assert!(v1::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
 
         // Issue credential.
         let mut credential = vec![];
         let mut credential_sig = vec![];
-        assert!(v0::issue_credential(
+        assert!(v1::issue_credential(
             &pk,
             &issuer_sk,
             &nonce,
@@ -380,7 +380,7 @@ mod tests {
         let mut message = request_hash.to_vec();
         message.extend_from_slice(&auth.timestamp_nanos.to_le_bytes());
 
-        assert!(v0::verify(
+        assert!(v1::verify(
             &group_pk,
             &None,
             &None,
@@ -394,11 +394,11 @@ mod tests {
         // Generate two separate issuer keypairs.
         let mut issuer_sk = vec![];
         let mut group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+        assert!(v1::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
 
         let mut wrong_issuer_sk = vec![];
         let mut wrong_group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(
+        assert!(v1::generate_issuer_keypair(
             &mut wrong_issuer_sk,
             &mut wrong_group_pk
         ));
@@ -407,11 +407,11 @@ mod tests {
         let nonce = b"test-nonce".to_vec();
         let mut sk = vec![];
         let mut pk = vec![];
-        assert!(v0::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
+        assert!(v1::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
 
         let mut credential = vec![];
         let mut credential_sig = vec![];
-        assert!(v0::issue_credential(
+        assert!(v1::issue_credential(
             &pk,
             &issuer_sk,
             &nonce,
@@ -436,7 +436,7 @@ mod tests {
         let mut message = request_hash.to_vec();
         message.extend_from_slice(&auth.timestamp_nanos.to_le_bytes());
 
-        assert!(!v0::verify(
+        assert!(!v1::verify(
             &wrong_group_pk,
             &None,
             &None,
@@ -449,16 +449,16 @@ mod tests {
     fn test_verify_rejects_tampered_message() {
         let mut issuer_sk = vec![];
         let mut group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+        assert!(v1::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
 
         let nonce = b"tamper-test".to_vec();
         let mut sk = vec![];
         let mut pk = vec![];
-        assert!(v0::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
+        assert!(v1::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
 
         let mut credential = vec![];
         let mut credential_sig = vec![];
-        assert!(v0::issue_credential(
+        assert!(v1::issue_credential(
             &pk,
             &issuer_sk,
             &nonce,
@@ -484,7 +484,7 @@ mod tests {
         let mut message = request_hash.to_vec();
         message.extend_from_slice(&auth.timestamp_nanos.to_le_bytes());
 
-        assert!(!v0::verify(
+        assert!(!v1::verify(
             &group_pk,
             &None,
             &None,

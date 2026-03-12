@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::attestation::{self, AttestationResult};
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use briolette_proto::briolette::registrar::{
     Algorithm, CredentialReply, RegisterReply, RegisterRequest, SecurityLevel,
 };
@@ -83,7 +83,7 @@ impl BrioletteRegistrar {
                     secret_key_file.display(),
                     group_public_key_file.display()
                 );
-                let result = v0::generate_issuer_keypair(sk, gpk);
+                let result = v1::generate_issuer_keypair(sk, gpk);
                 if result == false {
                     error!("failed to generate issuer keypair");
                     return false;
@@ -339,11 +339,11 @@ impl BrioletteRegistrar {
         let mut effective_level = attestation_result.security_level;
         if effective_level >= SecurityLevel::Medium {
             if let Some(proof) = &request.split_key_proof {
-                let nac_valid = v0::verify_split_key_proof(
+                let nac_valid = v1::verify_split_key_proof(
                     &network_request.public_key,
                     &proof.nac_card_public_key,
                 );
-                let ttc_valid = v0::verify_split_key_proof(
+                let ttc_valid = v1::verify_split_key_proof(
                     &transfer_request.public_key,
                     &proof.ttc_card_public_key,
                 );
@@ -374,7 +374,7 @@ impl BrioletteRegistrar {
         //    using the security-level-appropriate NAC issuer.
         let mut network_credential = vec![];
         let mut network_credential_signature = vec![];
-        if v0::issue_credential(
+        if v1::issue_credential(
             &network_request.public_key,
             &nac_sk.to_vec(),
             &transfer_request.public_key,
@@ -391,7 +391,7 @@ impl BrioletteRegistrar {
         //    TTC is the same for all wallets.
         let mut transfer_credential = vec![];
         let mut transfer_credential_signature = vec![];
-        if v0::issue_credential(
+        if v1::issue_credential(
             &transfer_request.public_key,
             &self.transfer_secret_key,
             &attestation_result.hw_nonce,
@@ -432,7 +432,7 @@ mod tests {
     fn make_tiered_registrar() -> BrioletteRegistrar {
         let mut registrar = BrioletteRegistrar::default();
         // Generate a single TTC keypair (shared by all wallets).
-        assert!(v0::generate_issuer_keypair(
+        assert!(v1::generate_issuer_keypair(
             &mut registrar.transfer_secret_key,
             &mut registrar.transfer_group_public_key
         ));
@@ -441,7 +441,7 @@ mod tests {
         for level in [SecurityLevel::Low, SecurityLevel::Medium, SecurityLevel::High] {
             let idx = level as usize;
             let keys = &mut registrar.nac_issuers[idx];
-            assert!(v0::generate_issuer_keypair(
+            assert!(v1::generate_issuer_keypair(
                 &mut keys.secret_key,
                 &mut keys.group_public_key
             ));
@@ -458,10 +458,10 @@ mod tests {
     fn make_register_request(hw_id: &[u8]) -> RegisterRequest {
         let mut ttc_pk = vec![];
         let mut ttc_sk = vec![];
-        assert!(v0::generate_wallet_keypair(&hw_id.to_vec(), &mut ttc_sk, &mut ttc_pk));
+        assert!(v1::generate_wallet_keypair(&hw_id.to_vec(), &mut ttc_sk, &mut ttc_pk));
         let mut nac_pk = vec![];
         let mut nac_sk = vec![];
-        assert!(v0::generate_wallet_keypair(&ttc_pk, &mut nac_sk, &mut nac_pk));
+        assert!(v1::generate_wallet_keypair(&ttc_pk, &mut nac_sk, &mut nac_pk));
         RegisterRequest {
             version: Version::Current.into(),
             hwid: Some(briolette_proto::briolette::registrar::HardwareId {
@@ -522,11 +522,11 @@ mod tests {
     fn nac_keys_for_level_falls_back_to_default() {
         // A registrar with no tiered keys should use the default NAC keypair.
         let mut registrar = BrioletteRegistrar::default();
-        assert!(v0::generate_issuer_keypair(
+        assert!(v1::generate_issuer_keypair(
             &mut registrar.network_secret_key,
             &mut registrar.network_group_public_key
         ));
-        assert!(v0::generate_issuer_keypair(
+        assert!(v1::generate_issuer_keypair(
             &mut registrar.transfer_secret_key,
             &mut registrar.transfer_group_public_key
         ));

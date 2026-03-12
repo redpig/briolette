@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
 use briolette_proto::briolette::clerk::{
     EpochRequest, GetTicketsRequest, TicketRequest, TicketRequests,
@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for _i in 0..9 {
         let mut credential = vec![];
         assert!(
-            v0::randomize_credential(&ttc_cred, &mut credential),
+            v1::randomize_credential(&ttc_cred, &mut credential),
             "failed to randomize the wallet ttc credential!"
         );
         // Group count
@@ -156,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let requests_serialized = requests.encode_to_vec();
     let basename = Some(eu.data.clone().unwrap().epoch.to_le_bytes().to_vec());
     let mut signature = vec![];
-    assert!(v0::sign(
+    assert!(v1::sign(
         &requests_serialized,
         &nac_cred,
         &nac_sk,

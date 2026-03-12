@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use briolette_proto::briolette::mint::{GetTokensReply, GetTokensRequest};
 use briolette_proto::briolette::token;
 use briolette_proto::briolette::token::VerifyTicket;
@@ -112,7 +112,7 @@ impl BrioletteMint {
 
         // Ensure the credential is for a supported TTC group
         let recipient = signed_ticket.ticket.clone().unwrap().credential;
-        if v0::credential_in_group(&recipient, &self.ttc_group_public_key) == false {
+        if v1::credential_in_group(&recipient, &self.ttc_group_public_key) == false {
             trace!("signed ticket credential not in a known TTC!");
             return Err(BrioletteError {
                 code: BrioletteErrorCode::InvalidTicketGroup.into(),
@@ -122,7 +122,7 @@ impl BrioletteMint {
         let mut reply = GetTokensReply::default();
         for _i in 0..request.count {
             let desc = Some(token::Descriptor {
-                version: token::Version::V0.into(),
+                version: token::Version::V1.into(),
                 value: Some(amount.clone()),
             });
             let base = token::Transfer {

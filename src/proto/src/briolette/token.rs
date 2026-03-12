@@ -18,7 +18,7 @@ use chrono::Utc;
 use ecdsa::RecoveryId;
 //use ettecrypto::v0;
 use crate::briolette::ErrorCode as BrioletteErrorCode;
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use log::*;
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use p256::pkcs8::EncodePublicKey;
@@ -213,8 +213,8 @@ impl HistoryVerify for History {
 
         // Re-insert the bound credential into the signature
         let mut signature = self.signature.clone();
-        v0::inflate_signature(bound_credential, &mut signature);
-        let verified = v0::verify(
+        v1::inflate_signature(bound_credential, &mut signature);
+        let verified = v1::verify(
             group_public_key,
             &Some(previous_signature.clone()),
             &Some(bound_credential.clone()),
@@ -310,9 +310,9 @@ pub trait TokenTransfer {
     fn transfer_split(
         &mut self,
         destination: &SignedTicket,
-        card: &mut dyn v0::split::SmartCard,
+        card: &mut dyn v1::split::SmartCard,
         host_secret_key: Vec<u8>,
-        swap_auth: Option<&v0::split::SwapAuthorization>,
+        swap_auth: Option<&v1::split::SwapAuthorization>,
     ) -> Result<bool, BrioletteErrorCode>;
     // TODO: Pull base signing out of Mint
     // fn base(&mut self, ...)
@@ -372,7 +372,7 @@ impl TokenTransfer for Token {
         let serialized_transfer = transfer.encode_to_vec();
         let basename = Some(last_sig);
         let mut signature = vec![];
-        if v0::sign(
+        if v1::sign(
             &serialized_transfer,
             &committed_credential,
             &credential_secret,
@@ -387,7 +387,7 @@ impl TokenTransfer for Token {
         transfer.previous_signature.clear();
         // Remove the duplicated credential from the Token when serialized
         // This saves 260 bytes per transfer. At present, history is 515 bytes.
-        v0::deflate_signature(&mut signature);
+        v1::deflate_signature(&mut signature);
         let history = History {
             transfer: Some(transfer),
             signature,
@@ -399,9 +399,9 @@ impl TokenTransfer for Token {
     fn transfer_split(
         &mut self,
         destination: &SignedTicket,
-        card: &mut dyn v0::split::SmartCard,
+        card: &mut dyn v1::split::SmartCard,
         host_secret_key: Vec<u8>,
-        swap_auth: Option<&v0::split::SwapAuthorization>,
+        swap_auth: Option<&v1::split::SwapAuthorization>,
     ) -> Result<bool, BrioletteErrorCode> {
         // swap_auth is passed through to sign_split_ext which routes to
         // the card's swap commit flow (INS 0x13), bypassing the bloom filter.
@@ -453,7 +453,7 @@ impl TokenTransfer for Token {
         let serialized_transfer = transfer.encode_to_vec();
         let basename = Some(last_sig);
         let mut signature = vec![];
-        match v0::split::sign_split_ext(
+        match v1::split::sign_split_ext(
             card,
             &host_secret_key,
             &serialized_transfer,
@@ -464,7 +464,7 @@ impl TokenTransfer for Token {
             swap_auth,
         ) {
             Ok(()) => {}
-            Err(v0::split::SmartCardError::BloomFilterHit) => {
+            Err(v1::split::SmartCardError::BloomFilterHit) => {
                 return Err(BrioletteErrorCode::BloomFilterHit);
             }
             Err(_) => {
@@ -475,7 +475,7 @@ impl TokenTransfer for Token {
         transfer.previous_signature.clear();
         // Remove the duplicated credential from the Token when serialized
         // This saves 260 bytes per transfer. At present, history is 515 bytes.
-        v0::deflate_signature(&mut signature);
+        v1::deflate_signature(&mut signature);
         let history = History {
             transfer: Some(transfer),
             signature,
@@ -960,7 +960,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "transfer cannot be called with no base")]
     fn token_transfer_split_no_base_panics() {
-        use briolette_crypto::v0::split::MockCard;
+        use briolette_crypto::v1::split::MockCard;
         let mut token = Token {
             base: None,
             descriptor: None,

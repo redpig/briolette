@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use briolette_proto::briolette::registrar::registrar_client::RegistrarClient;
 use briolette_proto::briolette::registrar::{
     Algorithm, CredentialRequest, HardwareId, RegisterRequest, SecurityLevel, Signature,
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Token Key must include a signature over the hwid.
     let id_string: String = String::from("vendor:hw:sw:0012848734289738901879hc982");
     let hw_id: Vec<u8> = digest(id_string).into_bytes();
-    let mut ret = v0::generate_wallet_keypair(
+    let mut ret = v1::generate_wallet_keypair(
         &hw_id,
         &mut transfer_req.secret_key,
         &mut transfer_req.public_key,
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Failed to generate token credential");
     }
     // The network request must include a signature over the token public key.
-    ret = v0::generate_wallet_keypair(
+    ret = v1::generate_wallet_keypair(
         &transfer_req.public_key,
         &mut network_req.secret_key,
         &mut network_req.public_key,

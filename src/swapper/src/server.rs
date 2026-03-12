@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use briolette_crypto::v0::split;
+use briolette_crypto::v1::split;
 use briolette_proto::briolette::swapper::{
     AuthorizeSwapReply, AuthorizeSwapRequest, GetDestinationReply, GetDestinationRequest,
     SwapTokensReply, SwapTokensRequest,

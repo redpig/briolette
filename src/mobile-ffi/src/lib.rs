@@ -707,7 +707,7 @@ mod tests {
 
     #[test]
     fn split_key_protocol_produces_card_bound_challenge() {
-        use briolette_crypto::v0::split::{MockCard, SmartCard};
+        use briolette_crypto::v1::split::{MockCard, SmartCard};
 
         // Step 1
         let step1 = split_key_start(

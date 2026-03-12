@@ -27,7 +27,7 @@ use briolette_proto::briolette::Version;
 use bytes::Bytes;
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey};
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use ecdsa::RecoveryId;
 use log::*;
 use p256::ecdsa::{signature::RandomizedSigner, signature::Verifier, Signature, SigningKey, VerifyingKey};
@@ -208,7 +208,7 @@ impl BrioletteClerk {
         // Serialize TicketRequests and verify the supplied NAC signature.
         let tr_msg = request.requests.clone().unwrap().encode_to_vec();
         let basename = Some(ed.epoch.to_le_bytes().to_vec());
-        if v0::verify(
+        if v1::verify(
             &request.nac_public_key,
             &basename,
             &None,
@@ -247,7 +247,7 @@ impl BrioletteClerk {
                 }),
             };
             // Before signing, let's confirm the credential matches the TTC.
-            if v0::credential_in_group(&ticket.credential, &request.ttc_public_key) == false {
+            if v1::credential_in_group(&ticket.credential, &request.ttc_public_key) == false {
                 trace!("NAC signature for the ticket request did not verify.");
                 return Err(BrioletteError {
                     code: BrioletteErrorCode::CredentialInvalidForGroup.into(),
@@ -350,7 +350,7 @@ impl BrioletteClerk {
             buf
         };
         let basename = Some(ed.epoch.to_le_bytes().to_vec());
-        if !v0::verify(
+        if !v1::verify(
             &request.nac_public_key,
             &basename,
             &None,
@@ -390,7 +390,7 @@ impl BrioletteClerk {
                 })?;
 
             // Verify the credential belongs to the TTC group.
-            if !v0::credential_in_group(&ticket.credential, &request.ttc_public_key) {
+            if !v1::credential_in_group(&ticket.credential, &request.ttc_public_key) {
                 return Err(BrioletteError {
                     code: BrioletteErrorCode::CredentialInvalidForGroup.into(),
                 });
