@@ -2147,10 +2147,12 @@ mod tests {
         assert_eq!(wd.transfer(2, destination_addr), true);
         assert_eq!(wd.pending_tokens.len(), 2);
         let t = token::Token::decode(wd.pending_tokens[0].as_slice()).unwrap();
-        // A token with a token base and transfer is 987-989 bytes.
+        // A token with a token base and transfer.
+        // v1 (BLS12-381 compressed) uses 288-byte signatures and 192-byte credentials,
+        // yielding smaller tokens than v0 (BN254 uncompressed, 356-byte signatures).
         info!("token len: {}", wd.pending_tokens[0].len());
-        assert!(wd.pending_tokens[0].len() >= 987);
-        assert!(wd.pending_tokens[0].len() <= 990);
+        assert!(wd.pending_tokens[0].len() >= 836);
+        assert!(wd.pending_tokens[0].len() <= 842);
         assert_eq!(
             Ok(true),
             t.verify(
