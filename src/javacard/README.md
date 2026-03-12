@@ -17,22 +17,44 @@ secure element hardware.
 
 ## Prerequisites
 
+**For simulator tests** (no hardware needed):
+- Gradle 7+, JDK 11+
+
+**For production CAP build** (real JavaCard hardware):
 - **JavaCard SDK 3.0.4+**: Set `JCDK_HOME` environment variable
 - **JCMathLib**: For big number arithmetic on BN254
   - Clone from https://github.com/OpenCryptoProject/JCMathLib
   - Build and install: `mvn install -f JCMathLib/pom.xml`
   - Set `JCMATHLIB_HOME` or copy JAR to `libs/`
-- **Gradle 7+**
-- **JDK 11+**
 - **GlobalPlatformPro** (gp.jar): For installing the applet onto a card
 
 ## Build
 
+The build system automatically selects the correct EC math backend:
+
+| Backend | Source | When selected | Use case |
+|---------|--------|---------------|----------|
+| BigInteger | `applet-sim/ECMath.java` | Default (no JCMathLib) | jCardSim simulator testing |
+| JCMathLib  | `applet-hw/ECMath.java`  | `JCMATHLIB_HOME` set or `libs/JCMathLib.jar` exists | Production JavaCard hardware |
+
+Both backends expose identical static methods, so `BrioletteApplet.java` works
+unchanged with either one.
+
+**Simulator tests** (BigInteger backend, no SDK needed):
+
+```bash
+gradle test
+```
+
+**Production CAP build** (JCMathLib backend):
+
 ```bash
 export JCDK_HOME=/path/to/jcdk
 export JCMATHLIB_HOME=/path/to/JCMathLib/dist
-gradle build
+gradle buildJavaCard
 ```
+
+You can also force the JCMathLib backend with: `gradle -PUSE_JCMATHLIB=true buildJavaCard`
 
 The output CAP file will be in `build/javacard/BrioletteApplet.cap`.
 
@@ -117,12 +139,21 @@ Host (mobile/desktop)              JavaCard
 
 ## Implementation Notes
 
-The applet uses placeholder stubs for EC point multiplication and modular arithmetic.
-A production implementation must integrate JCMathLib:
+The EC math layer (`ECMath`) provides the following operations on BN254:
 
+- G1 scalar multiplication (`ecPointMul`)
+- G1 point addition (`ecPointAdd`)
+- Fr scalar multiply-and-add (`scalarMulAdd`)
+- Fr scalar negation (`scalarNegate`)
+- Fr reduction (`reduceModOrder`)
+
+The JCMathLib backend (`applet-hw/ECMath.java`) uses:
 - `ECPoint.multiplication(BigNat)` for G1 scalar multiplication
-- `BigNat.modMult()` for Fr multiplication
-- `BigNat.modAdd()` for Fr addition
+- `BigNat.modMult()` / `BigNat.modAdd()` for Fr arithmetic
+- Lazily initialized `ResourceManager`, `ECCurve`, and scratch objects
+
+Call `ECMath.setCardType()` during applet install to configure JCMathLib for your
+target platform (e.g., `OperationSupport.JCOP4_P71`).
 
 The bloom filter uses 1200 bytes of EEPROM with 7 hash functions derived from SHA-256,
 targeting ~1% false positive rate for 1000 basenames per epoch.
@@ -152,8 +183,8 @@ this specific transaction.
   authorizations. A compromised host cannot forge them.
 - **Card-verified**: The card performs the full Schnorr verification using only G1 scalar
   multiplications (2 muls) + point addition + SHA-256, all within JavaCard capabilities.
-- **Secure default**: The stub implementation returns `false` (swap disabled) until
-  JCMathLib is integrated. No trust-the-host fallback.
+- **Secure default**: The BigInteger (simulator) backend verifies swap authorizations
+  using pure Java math. The JCMathLib backend uses hardware-accelerated EC operations.
 
 ## Testing
 
