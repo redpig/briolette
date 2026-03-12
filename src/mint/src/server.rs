@@ -138,6 +138,9 @@ impl BrioletteMint {
                 .signing_key
                 .sign_with_rng(&mut OsRng, transfer_serialized.as_slice());
             let mut signature = sig.to_vec();
+            // Append the ECDSA recovery ID byte to produce the 65-byte
+            // recoverable signature format (r‖s‖recovery_id).  Consumers
+            // must pop this byte before parsing the 64-byte ECDSA signature.
             if let Ok(rec_id) = RecoveryId::trial_recovery_from_msg(
                 &self.verifying_key,
                 transfer_serialized.as_slice(),

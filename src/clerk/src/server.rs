@@ -260,6 +260,9 @@ impl BrioletteClerk {
             let sig: Signature = self
                 .ticket_signing_key
                 .sign_with_rng(&mut OsRng, serialized_ticket.as_slice());
+            // Append the ECDSA recovery ID byte to produce the 65-byte
+            // recoverable signature format (r‖s‖recovery_id).  Consumers
+            // must pop this byte before parsing the 64-byte ECDSA signature.
             signature = sig.to_vec();
             if let Ok(rec_id) =
                 RecoveryId::trial_recovery_from_msg(&pk.into(), serialized_ticket.as_slice(), &sig)
@@ -427,6 +430,9 @@ impl BrioletteClerk {
             let sig: Signature = self
                 .ticket_signing_key
                 .sign_with_rng(&mut OsRng, serialized_ticket.as_slice());
+            // Append the ECDSA recovery ID byte to produce the 65-byte
+            // recoverable signature format (r‖s‖recovery_id).  Consumers
+            // must pop this byte before parsing the 64-byte ECDSA signature.
             let mut signature = sig.to_vec();
             if let Ok(rec_id) =
                 RecoveryId::trial_recovery_from_msg(&pk.into(), serialized_ticket.as_slice(), &sig)

@@ -1,6 +1,6 @@
 [workspace]
-members = ["src/*/"]
-exclude = ["src/simulation", "src/javacard"]
+members = ["src/*/", "src/simulation/*/"]
+exclude = ["src/javacard", "src/simulation"]
 resolver = "2"
 
 [workspace.package]

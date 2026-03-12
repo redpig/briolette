@@ -48,8 +48,11 @@ and impact in the context of eventual production deployment.
 | M-6 | **Remediated** | IP-based token bucket rate limiter in `proto/src/rate_limit.rs` |
 | M-7 | **Remediated** | `Amount::add` returns `Result` instead of panicking; all callers updated |
 | L-1 | **Remediated** | Merged with M-4 — 0o600 permissions on all key files |
+| L-2 | **Remediated** | `epoch_generate` gains `--additional-*-key` CLI flags for rotation transitions |
 | L-3 | **Remediated** | RESET_BLOOM requires Schnorr auth when `resetPubkey` is set; new `SET_RESET_PUBKEY` INS 0x32 |
 | L-4 | **Remediated** | `personalized` flag locks `SET_SWAP_PUBKEY` and `SET_RESET_PUBKEY` after first signing/join operation |
+| L-5 | **Remediated** | `RECOVERABLE_SIG_BYTES` constant, length checks, proto + inline docs |
+| L-6 | **Remediated** | Simulation crates added to workspace members |
 | M-2 | Deferred | Requires SQLCipher dependency |
 | M-3 | Deferred | Requires platform keystore integration |
 | M-8 | Deferred | Requires KMP/Swift refactoring |
@@ -600,6 +603,13 @@ rotation, and the initial epoch signing key is trusted on first contact
 bootstrap trust is acceptable when the wallet trusts its registrar (which
 provides the initial clerk URI and keys during registration).
 
+**Remediation:** `epoch_generate` now accepts `--additional-epoch-signing-key`,
+`--additional-ticket-signing-key`, and `--additional-mint-key` CLI flags
+(repeatable). During a rotation, pass the old key via the additional flag so both
+old and new keys are published in the epoch. After one full epoch, drop the
+additional flag to retire the old key. Module-level doc comment documents the
+rotation procedure.
+
 ### L-3: Bloom Filter Epoch Reset Has No Authentication
 
 **Severity:** Low
@@ -640,6 +650,12 @@ documentation of the resulting length (64 + 1 = 65 bytes). Consumers must
 know to strip the last byte before verification. This implicit protocol
 increases the surface for interop bugs.
 
+**Remediation:** Wire format now fully documented. `RECOVERABLE_SIG_BYTES = 65`
+constant added to `token.rs`. Signature verification checks length before
+`sig.pop()` to avoid panics. Proto comments on `SignedTicket.signature` and
+`History.signature` describe the 65-byte format (r‖s‖recovery_id). Inline
+comments added at all signature-append sites in mint and clerk servers.
+
 ### L-6: Simulation Module Excluded From Workspace
 
 **Severity:** Low
@@ -647,6 +663,9 @@ increases the surface for interop bugs.
 
 The `src/simulation` directory is excluded from the workspace, meaning it
 doesn't receive workspace-wide dependency updates or audit checks.
+
+**Remediation:** Simulation crates added to workspace: `members` now includes
+`"src/simulation/*/"`. Only `src/javacard` remains excluded (non-Cargo build).
 
 ---
 
@@ -798,7 +817,7 @@ briolette/
 │   ├── wallet/                   # Client wallet library + CLI
 │   ├── mobile-ffi/               # UniFFI Rust bridge for mobile
 │   ├── javacard/applet/          # JavaCard split-key signing applet
-│   └── simulation/               # Simulation tools (excluded from workspace)
+│   └── simulation/               # Simulation tools (absim, briolettesim, levy_distr, rand_flight)
 └── mobile/                       # KMP mobile apps (Android + iOS)
 ```
 

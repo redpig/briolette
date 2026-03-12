@@ -30,6 +30,12 @@ use std::ops::Add;
 /// Use `ExtendedEpochData.epoch_seconds` to override at runtime.
 pub const DEFAULT_EPOCH_SECONDS: u32 = 86400;
 
+/// ECDSA P-256 recoverable signature length: 64 bytes (r||s) + 1 byte recovery ID.
+/// The recovery ID (0-3) enables public key recovery without transmitting the
+/// full verifying key. Producers append it with `signature.push(rec_id.to_byte())`;
+/// consumers strip it with `sig.pop()` before parsing the 64-byte ECDSA signature.
+pub const RECOVERABLE_SIG_BYTES: usize = 65;
+
 pub trait TokenVerify {
     //  Returns true if the Token is valid. If trusted_mints are supplied, the base will be
     //  verified as well. If trusted_clerks are supplied, then the tickets will be verified as
@@ -238,10 +244,12 @@ impl HistoryVerify for History {
             .as_ref()
             .unwrap()
             .verify_historical(&allowed_ticket_keys, None)?;
+        // Base signature is ECDSA P-256 recoverable: 64 bytes + 1 recovery ID.
         let mut sig: Vec<u8> = self.signature.clone();
-        if sig.len() == 0 {
-            debug!("base missing signature");
-            return Err(BrioletteErrorCode::InvalidMissingFields);
+        if sig.len() != RECOVERABLE_SIG_BYTES {
+            debug!("base signature wrong length: {} (expected {})",
+                   sig.len(), RECOVERABLE_SIG_BYTES);
+            return Err(BrioletteErrorCode::InvalidBaseSignature);
         }
         let rec_id = RecoveryId::try_from(sig.pop().unwrap());
         if rec_id.is_err() {
@@ -573,10 +581,12 @@ impl VerifyTicketSignature for SignedTicket {
             debug!("ticket missing");
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
+        // Ticket signature is ECDSA P-256 recoverable: 64 bytes + 1 recovery ID.
         let mut sig: Vec<u8> = self.signature.clone();
-        if sig.len() == 0 {
-            debug!("ticket missing signature");
-            return Err(BrioletteErrorCode::InvalidMissingFields);
+        if sig.len() != RECOVERABLE_SIG_BYTES {
+            debug!("ticket signature wrong length: {} (expected {})",
+                   sig.len(), RECOVERABLE_SIG_BYTES);
+            return Err(BrioletteErrorCode::UnparseableTicketSignature);
         }
         let rec_id = RecoveryId::try_from(sig.pop().unwrap());
         if rec_id.is_err() {
@@ -907,12 +917,12 @@ mod tests {
         };
         assert_eq!(
             st.verify_signature_and_key(&vec![], None),
-            Err(BrioletteErrorCode::InvalidMissingFields)
+            Err(BrioletteErrorCode::UnparseableTicketSignature)
         );
     }
 
     #[test]
-    fn verify_ticket_bad_recovery_id_returns_error() {
+    fn verify_ticket_wrong_length_signature_returns_error() {
         let st = SignedTicket {
             ticket: Some(Ticket {
                 credential: vec![1, 2, 3],
@@ -922,12 +932,12 @@ mod tests {
                     created_on: 100,
                 }),
             }),
-            // A single byte that's not a valid RecoveryId (0-3 are valid)
+            // Too short — must be exactly RECOVERABLE_SIG_BYTES (65)
             signature: vec![0xFF],
         };
         assert_eq!(
             st.verify_signature_and_key(&vec![], None),
-            Err(BrioletteErrorCode::UnrecoverablePublicKey)
+            Err(BrioletteErrorCode::UnparseableTicketSignature)
         );
     }
 
