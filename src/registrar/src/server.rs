@@ -296,7 +296,7 @@ impl BrioletteRegistrar {
     ) -> Result<RegisterReply, BrioletteError> {
         trace!("register_call: request = {:?}", &request);
         // 1. Validate the version and required fields.
-        if request.version != Version::Current.into() {
+        if request.version != i32::from(Version::Current) {
             return Err(BrioletteError {
                 code: BrioletteErrorCode::InvalidVersion.into(),
             });
