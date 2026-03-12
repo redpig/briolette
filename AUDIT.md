@@ -27,9 +27,9 @@ and impact in the context of eventual production deployment.
 | Severity     | Count |
 |--------------|-------|
 | Critical     |     1 |
-| High         |     3 |
+| High         |     2 |
 | Medium       |    11 |
-| Low          |     6 |
+| Low          |     7 |
 | Informational|     9 |
 
 ---
@@ -304,34 +304,43 @@ trait and adding retry logic in `sign_split()`. The bloom filter parameters
 themselves are reasonable for the card's EEPROM constraints — the recovery
 mechanism is the correct architectural answer rather than enlarging the filter.
 
-### H-5: Token Split Validation Is Incomplete
+### ~~H-5: Token Split Validation Is Incomplete~~ → Downgraded to Low
 
-**Severity:** High
-**Location:** `src/proto/src/briolette/token.rs:140-160`
+**Severity:** ~~High~~ **Low** (conservation is enforced by the TokenMap)
+**Location:** `src/proto/src/briolette/token.rs:140-160`, `src/tokenmap/src/server.rs:650-680`
 
-Split value validation only checks that individual split amounts don't exceed the
-original value, but does not verify that the **sum** of all splits equals the
-original value. The TokenMap performs fork detection, but the token-level
-verification itself does not enforce conservation of value across splits.
+**Original finding:** Split value validation only checks that individual split
+amounts don't exceed the original value, but does not verify the sum.
+
+**Correction:** The TokenMap's `token_is_second_split()` function enforces sum
+conservation when the second half of a split arrives:
 
 ```rust
-// Only checks: split_amount <= original_value (per split)
-// Does NOT check: sum(all_splits) == original_value
-if split_amount.whole > original_value.whole
-    || (split_amount.whole == original_value.whole
-        && split_amount.fractional > original_value.fractional)
-{
-    return Err(BrioletteErrorCode::InvalidSplitExceedsValue);
+// tokenmap/src/server.rs:675-679
+let total = known_amount + unknown_amount;
+let original_total = token.descriptor.clone().unwrap().value.clone().unwrap();
+if total == original_total {
+    return true;  // Valid split
 }
+// Falls through to double-spend detection if sums don't match
 ```
 
-**Impact:** A malicious wallet could create two splits each claiming 80% of the
-token value, inflating the money supply. This is partially mitigated by TokenMap
-fork detection, but only when tokens are eventually validated online.
+This is tested with `token_is_second_split_valid` (6+4=10 passes),
+`token_is_second_split_invalid_amounts` (6+6=12≠10 fails), and
+`token_is_second_split_wrong_currency_code` (mismatched codes fail).
 
-**Recommendation:** Add sum-of-splits conservation check. The token structure
-should track remaining value after each split, and peers should verify the
-invariant during offline transfers.
+Per-token `verify()` correctly checks `split_amount <= original_value` — this is
+all a single token can verify since it only sees one side of the split. The sum
+check inherently requires both halves, which only the TokenMap has.
+
+**Remaining risk:** During purely offline peer-to-peer transfers, a receiving
+wallet cannot verify sum conservation because it only sees one split half. This
+is a fundamental property of the split design, not a bug. The TokenMap catches
+any inflation when tokens are eventually validated online.
+
+**Recommendation:** Consider adding a `remaining_value` hint to the token
+structure so offline peers can do a courtesy check, but this is defense-in-depth
+rather than a security gap.
 
 ---
 
@@ -606,7 +615,7 @@ history entries:
 - Each entry's `previous_signature` links to the prior entry
 - Current holder's ticket expiration is checked
 - Token-level `valid_until` tag is checked
-- Split values are validated (per-split, not sum — see H-5)
+- Split values are validated per-token (`split <= original`); sum conservation is enforced by the TokenMap's `token_is_second_split()` when both halves are presented
 
 ### I-8: ECDAA Pairing Verification Is Standard
 
@@ -635,7 +644,7 @@ operations.
 
 1. **Disable Algorithm::NONE** in production or restrict Low-tier to online-only (C-2)
 2. **Migrate to BLS12-381** (v1) as the default curve (H-1)
-3. **Add value conservation checks** for token splits (H-5)
+3. **Consider adding `remaining_value` hint** for offline split verification (H-5 — conservation already enforced by TokenMap)
 
 ### Short-Term
 
