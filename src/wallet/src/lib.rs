@@ -19,6 +19,9 @@ use briolette_proto::briolette::clerk::{
     EpochRequest, EpochUpdate, EpochVerify, GetTicketsRequest, RefreshTicketsRequest,
     TicketRequest, TicketRequests,
 };
+use briolette_proto::briolette::ErrorCode as BrioletteErrorCode;
+use briolette_proto::briolette::swapper::swapper_client::SwapperClient;
+use briolette_proto::briolette::swapper::AuthorizeSwapRequest;
 use briolette_proto::briolette::mint::mint_client::MintClient;
 use briolette_proto::briolette::mint::GetTokensRequest;
 use briolette_proto::briolette::registrar::registrar_client::RegistrarClient;
@@ -535,6 +538,150 @@ impl WalletData {
             )
         }
     }
+
+    /// Internal transfer implementation that accepts optional swap authorization.
+    /// Returns true on success, false on failure.
+    fn transfer_inner(
+        &mut self,
+        amount: u32,
+        recipient: Vec<u8>,
+        swap_auth: Option<&split::SwapAuthorization>,
+    ) -> bool {
+        if self.tokens.len() < amount as usize {
+            warn!("transfer() called with insufficient tokens");
+            return false;
+        }
+        if let Ok(signed_ticket) = token::SignedTicket::decode(recipient.as_slice()) {
+            let mut tx_amt = amount;
+            while let Some(token_entry) = self.tokens.pop() {
+                if tx_amt == 0 {
+                    break;
+                }
+                tx_amt -= 1;
+                if let Ok(mut token) = token::Token::decode(token_entry.token.as_slice()) {
+                    let result = if let (Some(handle), Some(hsk)) =
+                        (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
+                    {
+                        let mut card = handle.lock().unwrap();
+                        token.transfer_split(
+                            &signed_ticket,
+                            &mut **card,
+                            hsk.clone(),
+                            swap_auth,
+                        )
+                    } else {
+                        token.transfer(
+                            &signed_ticket,
+                            self.transfer_credential.secret_key.clone(),
+                        )
+                    };
+                    match result {
+                        Err(BrioletteErrorCode::BloomFilterHit) => {
+                            warn!("bloom filter hit during transfer — swap auth needed");
+                            // Push token back for retry
+                            self.tokens.push(token_entry);
+                            return false;
+                        }
+                        Err(e) => {
+                            error!("transfer() failed to sign token transfer: {:?}", e);
+                            return false;
+                        }
+                        Ok(_) => {}
+                    }
+                    trace!("token transfer complete: {:?}", token.clone());
+                    self.pending_tokens.push(token.encode_to_vec());
+                } else {
+                    error!(
+                        "failed to decode internally stored token: {:?}",
+                        token_entry.clone()
+                    );
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /// Transfer tokens with automatic bloom filter retry via swap authorization.
+    ///
+    /// If the card's bloom filter rejects a basename (false positive or real
+    /// double-spend prevention), this method requests a swap authorization
+    /// from the swap server and retries the transfer. The swap server signs
+    /// the basename with its private key, and the card verifies this signature
+    /// against the stored swap public key before allowing the bypass.
+    ///
+    /// `swap_uri` is the URI of the swap server's gRPC endpoint.
+    pub async fn transfer_with_swap_retry(
+        &mut self,
+        amount: u32,
+        recipient: Vec<u8>,
+        swap_uri: &Uri,
+    ) -> bool {
+        // First attempt without swap auth
+        if self.transfer_inner(amount, recipient.clone(), None) {
+            return true;
+        }
+        // If no smart card, retry won't help
+        if self.ttc_card.0.is_none() {
+            return false;
+        }
+        info!("transfer failed, attempting swap authorization retry");
+
+        // Get the basename from the last token's last signature
+        // (this is what the bloom filter rejected)
+        let basename = if let Some(token_entry) = self.tokens.last() {
+            if let Ok(token) = token::Token::decode(token_entry.token.as_slice()) {
+                if let Some(last_history) = token.history.last() {
+                    last_history.signature.clone()
+                } else if let Some(base) = &token.base {
+                    base.signature.clone()
+                } else {
+                    error!("token has no base signature for basename");
+                    return false;
+                }
+            } else {
+                error!("failed to decode token for basename extraction");
+                return false;
+            }
+        } else {
+            error!("no tokens available for basename extraction");
+            return false;
+        };
+
+        // Request swap authorization from the swap server
+        let swap_auth = match SwapperClient::multiconnect(swap_uri).await {
+            Ok(mut client) => {
+                let request = AuthorizeSwapRequest {
+                    version: Version::Current as i32,
+                    basename: basename.clone(),
+                };
+                match client.authorize_swap(request).await {
+                    Ok(response) => {
+                        let reply = response.into_inner();
+                        if reply.error.is_some() {
+                            error!("swap server rejected authorization: {:?}", reply.error);
+                            return false;
+                        }
+                        split::SwapAuthorization {
+                            c: reply.challenge,
+                            s: reply.response,
+                        }
+                    }
+                    Err(e) => {
+                        error!("failed to get swap authorization: {:?}", e);
+                        return false;
+                    }
+                }
+            }
+            Err(e) => {
+                error!("failed to connect to swap server: {:?}", e);
+                return false;
+            }
+        };
+
+        // Retry transfer with swap authorization
+        self.transfer_inner(amount, recipient, Some(&swap_auth))
+    }
 }
 
 #[async_trait]
@@ -895,45 +1042,7 @@ impl Wallet for WalletData {
     }
 
     fn transfer(&mut self, amount: u32, recipient: Vec<u8>) -> bool {
-        if self.tokens.len() < amount as usize {
-            warn!("transfer() called with insufficient tokens");
-            return false;
-        }
-        if let Ok(signed_ticket) = token::SignedTicket::decode(recipient.as_slice()) {
-            let mut tx_amt = amount;
-            while let Some(token_entry) = self.tokens.pop() {
-                if tx_amt == 0 {
-                    break;
-                }
-                tx_amt -= 1;
-                if let Ok(mut token) = token::Token::decode(token_entry.token.as_slice()) {
-                    let result = if let (Some(handle), Some(hsk)) =
-                        (&self.ttc_card.0, &self.transfer_credential.host_secret_key)
-                    {
-                        let mut card = handle.lock().unwrap();
-                        token.transfer_split(&signed_ticket, &mut **card, hsk.clone(), None)
-                    } else {
-                        token.transfer(
-                            &signed_ticket,
-                            self.transfer_credential.secret_key.clone(),
-                        )
-                    };
-                    if let Err(e) = result {
-                        error!("transfer() failed to sign token transfer: {:?}", e);
-                        return false;
-                    }
-                    trace!("token transfer complete: {:?}", token.clone());
-                    self.pending_tokens.push(token.encode_to_vec());
-                } else {
-                    error!(
-                        "failed to decode internally stored token: {:?}",
-                        token_entry.clone()
-                    );
-                    return false;
-                }
-            }
-        }
-        return true;
+        self.transfer_inner(amount, recipient, None)
     }
 
     fn self_transfer_expired(&mut self) -> usize {

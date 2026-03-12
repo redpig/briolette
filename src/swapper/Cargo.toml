@@ -16,6 +16,7 @@ path = "src/client.rs"
 tonic = { version = "0.8" }
 prost = "0.11"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+briolette-crypto = { path = "../crypto", version = "*" }
 briolette-proto = { path = "../proto", version = "*" }
 briolette-wallet = { path = "../wallet", version = "*" }
 log = { version = "0.4.17", features = ["max_level_trace", "release_max_level_info"]}

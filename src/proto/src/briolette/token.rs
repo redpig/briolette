@@ -394,12 +394,8 @@ impl TokenTransfer for Token {
         host_secret_key: Vec<u8>,
         swap_auth: Option<&v0::split::SwapAuthorization>,
     ) -> Result<bool, BrioletteErrorCode> {
-        // The swap_auth, if provided, is used by NfcSmartCard to send
-        // SIGN_COMMIT_BSN_SWAP (INS 0x13) with the authorization token.
-        // The card verifies the Schnorr signature against its stored swap
-        // server public key before allowing bloom-filter-bypassed signing.
-        // For MockCard, this has no effect (no bloom filter on mock).
-        let _ = swap_auth;
+        // swap_auth is passed through to sign_split_ext which routes to
+        // the card's swap commit flow (INS 0x13), bypassing the bloom filter.
         // Grab the last signature to use as the basename and in the tx block.
         let last_sig;
         let committed_credential;
@@ -448,7 +444,7 @@ impl TokenTransfer for Token {
         let serialized_transfer = transfer.encode_to_vec();
         let basename = Some(last_sig);
         let mut signature = vec![];
-        if v0::split::sign_split(
+        match v0::split::sign_split_ext(
             card,
             &host_secret_key,
             &serialized_transfer,
@@ -456,9 +452,15 @@ impl TokenTransfer for Token {
             &basename,
             false, // require the committed credential!
             &mut signature,
-        ) == false
-        {
-            return Err(BrioletteErrorCode::FailedToSignTokenTransfer);
+            swap_auth,
+        ) {
+            Ok(()) => {}
+            Err(v0::split::SmartCardError::BloomFilterHit) => {
+                return Err(BrioletteErrorCode::BloomFilterHit);
+            }
+            Err(_) => {
+                return Err(BrioletteErrorCode::FailedToSignTokenTransfer);
+            }
         }
         // Don't duplicate the storage here.
         transfer.previous_signature.clear();

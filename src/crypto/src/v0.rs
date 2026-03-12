@@ -856,6 +856,26 @@ pub fn verify_split_key_proof(combined_pk_bytes: &[u8], card_pk_bytes: &[u8]) ->
 pub mod split {
     use super::*;
 
+    /// Errors from smart card operations that can be distinguished
+    /// for recovery (e.g., bloom filter hit → swap retry).
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum SmartCardError {
+        /// The bloom filter rejected the basename (false positive or real double-spend).
+        /// Recovery: request swap authorization and retry with sign_commit_swap.
+        BloomFilterHit,
+        /// The swap authorization was invalid (bad Schnorr signature).
+        SwapAuthFailed,
+        /// The card doesn't have a swap public key set.
+        NoSwapKey,
+        /// Any other card error (bad version, wrong length, transport failure, etc.)
+        Other(u16),
+    }
+
+    /// Status word constants matching the JavaCard applet.
+    const SW_BASENAME_USED: u16 = 0x6A84;
+    const SW_SWAP_AUTH_FAILED: u16 = 0x6A85;
+    const SW_NO_SWAP_KEY: u16 = 0x6A87;
+
     // Card-side partial outputs from signing
     pub struct CardSignCommitment {
         /// U_card = S * r_card  (G1 point)
@@ -990,6 +1010,18 @@ pub mod split {
         c == c_prime
     }
 
+    /// Generate a swap server keypair: (secret_key, public_key).
+    ///
+    /// Returns (swap_sk: 32 bytes, swap_pk: 65 bytes) where swap_pk = G1 * swap_sk.
+    /// The public key should be installed on JavaCards during personalization
+    /// and shared via the epoch data. The secret key is used by the swap server
+    /// to create swap authorization tokens.
+    pub fn generate_swap_keypair() -> (Vec<u8>, Vec<u8>) {
+        let sk = random_fr();
+        let pk = G1::one() * sk;
+        (serialize_fr(&sk).to_vec(), serialize_g1(&pk).to_vec())
+    }
+
     /// Trait representing the operations a smart card must support.
     /// All operations are G1 scalar multiplications and Fr arithmetic only.
     /// No pairings, no G2 operations, no GT operations.
@@ -1018,6 +1050,28 @@ pub mod split {
         /// Phase 2 of blind join: card produces its Schnorr response share.
         /// Given challenge c, returns s_card = r_card + c * card_sk (serialized scalar).
         fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>>;
+
+        /// Phase 1 of signing with swap authorization (bloom filter bypass).
+        /// The card verifies the Schnorr swap auth before proceeding,
+        /// skipping the bloom filter check entirely.
+        /// Returns Err(SmartCardError) to distinguish bloom filter hits from other errors.
+        fn sign_commit_swap(
+            &mut self,
+            s_point: &[u8],
+            basename_base: &[u8],
+            swap_auth: &SwapAuthorization,
+        ) -> Result<CardSignCommitment, SmartCardError>;
+
+        /// Like sign_commit but returns SmartCardError on failure so callers
+        /// can distinguish bloom filter hits from other errors.
+        fn sign_commit_with_error(
+            &mut self,
+            s_point: &[u8],
+            basename_base: Option<&[u8]>,
+        ) -> Result<CardSignCommitment, SmartCardError> {
+            self.sign_commit(s_point, basename_base)
+                .ok_or(SmartCardError::Other(0))
+        }
 
         /// Returns the card's secret key share serialized (for testing/debugging only).
         /// A real smart card would NEVER expose this.
@@ -1102,6 +1156,18 @@ pub mod split {
             Some(CardSignResponse {
                 s_card: serialize_fr(&s_card).to_vec(),
             })
+        }
+
+        fn sign_commit_swap(
+            &mut self,
+            s_point: &[u8],
+            basename_base: &[u8],
+            _swap_auth: &SwapAuthorization,
+        ) -> Result<CardSignCommitment, SmartCardError> {
+            // MockCard has no bloom filter, so swap auth is a no-op —
+            // just delegate to normal basename signing.
+            self.sign_commit(s_point, Some(basename_base))
+                .ok_or(SmartCardError::Other(0))
         }
 
         fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>> {
@@ -1293,38 +1359,40 @@ pub mod split {
         randomize_cred: bool,
         signature: &mut Vec<u8>,
     ) -> bool {
+        sign_split_ext(card, host_sk, message, credential, basename, randomize_cred, signature, None).is_ok()
+    }
+
+    /// Extended sign_split that accepts optional swap authorization and returns
+    /// SmartCardError on failure, allowing callers to distinguish bloom filter
+    /// hits from other errors.
+    pub fn sign_split_ext(
+        card: &mut dyn SmartCard,
+        host_sk: &Vec<u8>,
+        message: &Vec<u8>,
+        credential: &Vec<u8>,
+        basename: &Option<Vec<u8>>,
+        randomize_cred: bool,
+        signature: &mut Vec<u8>,
+        swap_auth: Option<&SwapAuthorization>,
+    ) -> Result<(), SmartCardError> {
+        let other_err = || SmartCardError::Other(0);
         if message.is_empty() || credential.is_empty() || host_sk.is_empty() {
-            return false;
+            return Err(other_err());
         }
         if let Some(bsn) = basename {
             if bsn.is_empty() {
-                return false;
+                return Err(other_err());
             }
         }
 
         // Deserialize credential (A, B, C, D)
-        let mut a = match credential_get_a(credential) {
-            Some(v) => v,
-            None => return false,
-        };
-        let mut b = match credential_get_b(credential) {
-            Some(v) => v,
-            None => return false,
-        };
-        let mut c_point = match credential_get_c(credential) {
-            Some(v) => v,
-            None => return false,
-        };
-        let mut d = match credential_get_d(credential) {
-            Some(v) => v,
-            None => return false,
-        };
+        let mut a = credential_get_a(credential).ok_or_else(other_err)?;
+        let mut b = credential_get_b(credential).ok_or_else(other_err)?;
+        let mut c_point = credential_get_c(credential).ok_or_else(other_err)?;
+        let mut d = credential_get_d(credential).ok_or_else(other_err)?;
 
         // Deserialize host secret key share
-        let h_sk = match deserialize_fr(host_sk) {
-            Some(v) => v,
-            None => return false,
-        };
+        let h_sk = deserialize_fr(host_sk).ok_or_else(other_err)?;
 
         // Randomize credential if requested (host can do this — no sk needed)
         if randomize_cred {
@@ -1343,18 +1411,18 @@ pub mod split {
         let bsn_base_bytes = bsn_base.as_ref().map(|p| serialize_g1(p).to_vec());
 
         // === Phase 1: Card commits ===
-        let card_commit = match card.sign_commit(
-            &s_bytes,
-            bsn_base_bytes.as_deref(),
-        ) {
-            Some(v) => v,
-            None => return false,
+        // Try normal commit first. If bloom filter rejects and swap auth is
+        // available, retry with swap mode.
+        let card_commit = if let Some(auth) = swap_auth {
+            // Swap auth provided — use swap commit directly (bypasses bloom filter)
+            let bsn = bsn_base_bytes.as_deref().ok_or_else(other_err)?;
+            card.sign_commit_swap(&s_bytes, bsn, auth)?
+        } else {
+            // Normal commit — may fail with BloomFilterHit
+            card.sign_commit_with_error(&s_bytes, bsn_base_bytes.as_deref())?
         };
 
-        let u_card = match deserialize_g1(&card_commit.u_card) {
-            Some(v) => v,
-            None => return false,
-        };
+        let u_card = deserialize_g1(&card_commit.u_card).ok_or_else(other_err)?;
 
         // === Host commits ===
         let r_host = random_fr();
@@ -1374,24 +1442,14 @@ pub mod split {
         let mut k_combined = G1::zero();
         if let Some(bsn_base_pt) = &bsn_base {
             // Combine K shares
-            let k_card = match &card_commit.k_card {
-                Some(bytes) => match deserialize_g1(bytes) {
-                    Some(v) => v,
-                    None => return false,
-                },
-                None => return false,
-            };
+            let k_card_bytes = card_commit.k_card.as_ref().ok_or_else(other_err)?;
+            let k_card = deserialize_g1(k_card_bytes).ok_or_else(other_err)?;
             let k_host = *bsn_base_pt * h_sk;
             k_combined = k_card + k_host;
 
             // Combine K_u shares
-            let k_u_card = match &card_commit.k_u_card {
-                Some(bytes) => match deserialize_g1(bytes) {
-                    Some(v) => v,
-                    None => return false,
-                },
-                None => return false,
-            };
+            let k_u_card_bytes = card_commit.k_u_card.as_ref().ok_or_else(other_err)?;
+            let k_u_card = deserialize_g1(k_u_card_bytes).ok_or_else(other_err)?;
             let k_u_host = *bsn_base_pt * r_host;
             let k_u = k_u_card + k_u_host;
 
@@ -1412,15 +1470,8 @@ pub mod split {
         let sig_c = hash_to_fr(&final_hash_data);
 
         // === Phase 2: Card responds to challenge ===
-        let card_response = match card.sign_respond(&serialize_fr(&sig_c)) {
-            Some(v) => v,
-            None => return false,
-        };
-
-        let s_card = match deserialize_fr(&card_response.s_card) {
-            Some(v) => v,
-            None => return false,
-        };
+        let card_response = card.sign_respond(&serialize_fr(&sig_c)).ok_or_else(other_err)?;
+        let s_card = deserialize_fr(&card_response.s_card).ok_or_else(other_err)?;
 
         // Host response: s_host = r_host + c * host_sk
         let s_host = r_host + sig_c * h_sk;
@@ -1448,7 +1499,7 @@ pub mod split {
             signature.extend_from_slice(&serialize_g1(&k_combined));
         }
 
-        true
+        Ok(())
     }
 
     /// NFC SmartCard transport layer.
@@ -1525,9 +1576,9 @@ pub mod split {
                 Ok(NfcSmartCard { card })
             }
 
-            /// Send an APDU and return the response data (excluding SW bytes).
-            /// Returns None if the card returns a non-success status word.
-            fn send_apdu(&self, ins: u8, p1: u8, data: &[u8]) -> Option<Vec<u8>> {
+            /// Send an APDU and return the response data with the status word.
+            /// Returns Ok(data) on success (SW 9000), Err(sw) on failure.
+            fn send_apdu_raw(&self, ins: u8, p1: u8, data: &[u8]) -> Result<Vec<u8>, u16> {
                 let mut apdu = Vec::with_capacity(5 + data.len() + 1);
                 apdu.push(CLA);
                 apdu.push(ins);
@@ -1541,22 +1592,40 @@ pub mod split {
                 match self.card.transmit(&apdu, &mut recv_buf) {
                     Ok(response) => {
                         if response.len() < 2 {
-                            return None;
+                            return Err(0xFFFF);
                         }
-                        let sw = &response[response.len() - 2..];
-                        if sw != SW_SUCCESS {
+                        let sw1 = response[response.len() - 2];
+                        let sw2 = response[response.len() - 1];
+                        let sw = ((sw1 as u16) << 8) | (sw2 as u16);
+                        if sw != 0x9000 {
                             log::warn!(
-                                "APDU INS={:02x} returned SW={:02x}{:02x}",
-                                ins, sw[0], sw[1]
+                                "APDU INS={:02x} returned SW={:04x}",
+                                ins, sw
                             );
-                            return None;
+                            return Err(sw);
                         }
-                        Some(response[..response.len() - 2].to_vec())
+                        Ok(response[..response.len() - 2].to_vec())
                     }
                     Err(e) => {
                         log::error!("PC/SC transmit error: {:?}", e);
-                        None
+                        Err(0xFFFF)
                     }
+                }
+            }
+
+            /// Send an APDU and return the response data (excluding SW bytes).
+            /// Returns None if the card returns a non-success status word.
+            fn send_apdu(&self, ins: u8, p1: u8, data: &[u8]) -> Option<Vec<u8>> {
+                self.send_apdu_raw(ins, p1, data).ok()
+            }
+
+            /// Convert an APDU status word to a SmartCardError.
+            fn sw_to_error(sw: u16) -> SmartCardError {
+                match sw {
+                    SW_BASENAME_USED => SmartCardError::BloomFilterHit,
+                    SW_SWAP_AUTH_FAILED => SmartCardError::SwapAuthFailed,
+                    SW_NO_SWAP_KEY => SmartCardError::NoSwapKey,
+                    other => SmartCardError::Other(other),
                 }
             }
 
@@ -1571,37 +1640,6 @@ pub mod split {
                 self.send_apdu(INS_RESET_BLOOM, 0x00, &data).is_some()
             }
 
-            /// Sign commit with swap mode.
-            ///
-            /// Requires a swap authorization token (64 bytes: c || s) from
-            /// the swap server, proving the server authorized this specific
-            /// basename for swapping. The card verifies the Schnorr signature
-            /// against its stored swap server public key before proceeding.
-            ///
-            /// APDU data: S(65) || bsn_base(65) || auth_c(32) || auth_s(32) = 194 bytes
-            pub fn sign_commit_swap(
-                &mut self,
-                s_point: &[u8],
-                basename_base: &[u8],
-                swap_auth: &SwapAuthorization,
-            ) -> Option<CardSignCommitment> {
-                let auth_bytes = swap_auth.to_bytes();
-                let mut data = Vec::with_capacity(
-                    s_point.len() + basename_base.len() + auth_bytes.len()
-                );
-                data.extend_from_slice(s_point);
-                data.extend_from_slice(basename_base);
-                data.extend_from_slice(&auth_bytes);
-                let resp = self.send_apdu(INS_SIGN_COMMIT_SWAP, P1_BN254, &data)?;
-                if resp.len() != G1_BYTES * 3 {
-                    return None;
-                }
-                Some(CardSignCommitment {
-                    u_card: resp[..G1_BYTES].to_vec(),
-                    k_card: Some(resp[G1_BYTES..G1_BYTES * 2].to_vec()),
-                    k_u_card: Some(resp[G1_BYTES * 2..G1_BYTES * 3].to_vec()),
-                })
-            }
         }
 
         impl SmartCard for NfcSmartCard {
@@ -1615,13 +1653,22 @@ pub mod split {
                 s_point: &[u8],
                 basename_base: Option<&[u8]>,
             ) -> Option<CardSignCommitment> {
+                self.sign_commit_with_error(s_point, basename_base).ok()
+            }
+
+            fn sign_commit_with_error(
+                &mut self,
+                s_point: &[u8],
+                basename_base: Option<&[u8]>,
+            ) -> Result<CardSignCommitment, SmartCardError> {
                 match basename_base {
                     None => {
-                        let resp = self.send_apdu(INS_SIGN_COMMIT, P1_BN254, s_point)?;
+                        let resp = self.send_apdu_raw(INS_SIGN_COMMIT, P1_BN254, s_point)
+                            .map_err(Self::sw_to_error)?;
                         if resp.len() != G1_BYTES {
-                            return None;
+                            return Err(SmartCardError::Other(0));
                         }
-                        Some(CardSignCommitment {
+                        Ok(CardSignCommitment {
                             u_card: resp,
                             k_card: None,
                             k_u_card: None,
@@ -1631,17 +1678,43 @@ pub mod split {
                         let mut data = Vec::with_capacity(s_point.len() + bsn.len());
                         data.extend_from_slice(s_point);
                         data.extend_from_slice(bsn);
-                        let resp = self.send_apdu(INS_SIGN_COMMIT_BSN, P1_BN254, &data)?;
+                        let resp = self.send_apdu_raw(INS_SIGN_COMMIT_BSN, P1_BN254, &data)
+                            .map_err(Self::sw_to_error)?;
                         if resp.len() != G1_BYTES * 3 {
-                            return None;
+                            return Err(SmartCardError::Other(0));
                         }
-                        Some(CardSignCommitment {
+                        Ok(CardSignCommitment {
                             u_card: resp[..G1_BYTES].to_vec(),
                             k_card: Some(resp[G1_BYTES..G1_BYTES * 2].to_vec()),
                             k_u_card: Some(resp[G1_BYTES * 2..G1_BYTES * 3].to_vec()),
                         })
                     }
                 }
+            }
+
+            fn sign_commit_swap(
+                &mut self,
+                s_point: &[u8],
+                basename_base: &[u8],
+                swap_auth: &SwapAuthorization,
+            ) -> Result<CardSignCommitment, SmartCardError> {
+                let auth_bytes = swap_auth.to_bytes();
+                let mut data = Vec::with_capacity(
+                    s_point.len() + basename_base.len() + auth_bytes.len()
+                );
+                data.extend_from_slice(s_point);
+                data.extend_from_slice(basename_base);
+                data.extend_from_slice(&auth_bytes);
+                let resp = self.send_apdu_raw(INS_SIGN_COMMIT_SWAP, P1_BN254, &data)
+                    .map_err(Self::sw_to_error)?;
+                if resp.len() != G1_BYTES * 3 {
+                    return Err(SmartCardError::Other(0));
+                }
+                Ok(CardSignCommitment {
+                    u_card: resp[..G1_BYTES].to_vec(),
+                    k_card: Some(resp[G1_BYTES..G1_BYTES * 2].to_vec()),
+                    k_u_card: Some(resp[G1_BYTES * 2..G1_BYTES * 3].to_vec()),
+                })
             }
 
             fn sign_respond(&mut self, challenge: &[u8]) -> Option<CardSignResponse> {

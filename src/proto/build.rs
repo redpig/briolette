@@ -81,6 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("briolette.clerk.EpochUpdate", serde_attr)
         .type_attribute("briolette.clerk.EpochVerify", serde_attr)
         .type_attribute("briolette.clerk.ExtendedEpochData", serde_attr)
+        .type_attribute("briolette.clerk.GroupPolicy", serde_attr)
         // bridge types — messages only
         .type_attribute("briolette.bridge.L1Deposit", serde_attr)
         .type_attribute("briolette.bridge.WithdrawRequest", serde_attr)
