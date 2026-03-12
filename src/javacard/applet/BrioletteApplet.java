@@ -408,107 +408,41 @@ public class BrioletteApplet extends Applet {
         short cOff = authOff;
         short sOff = (short)(authOff + BN254Params.FR_BYTES);
 
-        // Step 1: Compute R' = G * s + swap_pk * (-c)
-        // First: tmp1 = G * s
-        ecPointMul(BN254Params.G1_X, (short) 0, // BN254 generator (needs uncompressed form)
+        // We need a second scratch point for swap_pk * (-c).
+        // Allocate temporarily — on real hardware, use a persistent buffer.
+        byte[] scratchPoint2 = new byte[BN254Params.G1_BYTES];
+
+        // Step 1: scratchPoint = G * s
+        ecPointMul(BN254Params.G1_UNCOMPRESSED, (short) 0,
                    authBuf, sOff,
                    scratchPoint, (short) 0);
-
-        // NOTE: In a full implementation with JCMathLib:
-        //   ECPoint g_s = G.multiplication(s);
-        //   BigNat neg_c = SCALAR_ORDER.subtract(c);  // -c mod order
-        //   ECPoint pk_c = swap_pk.multiplication(neg_c);
-        //   ECPoint r_prime = g_s.add(pk_c);
-        //
-        // For this prototype, ecPointMul and ecPointAdd are stubs.
-        // The full verification would be:
-        //   1. scratchPoint = G * s
-        //   2. tmp = swap_pk * negate(c)
-        //   3. R' = scratchPoint + tmp
-        //   4. hash = H(R' || bsn_base || swap_pk)
-        //   5. compare hash with c
 
         // Step 2: Negate c: neg_c = SCALAR_ORDER - c
         scalarNegate(authBuf, cOff, scratchHash, (short) 0);
 
-        // Step 3: Compute swap_pk * (-c) into a temporary area
-        // We need another scratch buffer for this; reuse the APDU buffer
-        // tail area or allocate additional transient memory.
-        // For this prototype, we document the full flow:
+        // Step 3: scratchPoint2 = swap_pk * (-c)
+        ecPointMul(swapPubkey, (short) 0,
+                   scratchHash, (short) 0,
+                   scratchPoint2, (short) 0);
 
-        // Step 4: R' = G*s + swap_pk*(-c) via ECPoint addition
-        // ecPointAdd(scratchPoint, 0, tmpPoint, 0, scratchPoint, 0);
+        // Step 4: R' = G*s + swap_pk*(-c)
+        ecPointAdd(scratchPoint, (short) 0,
+                   scratchPoint2, (short) 0,
+                   scratchPoint, (short) 0);
 
-        // Step 5: Hash: c' = SHA256(R' || bsn_base || swap_pk) reduced to Fr
-        // sha256.reset();
-        // sha256.update(scratchPoint, 0, G1_BYTES);       // R'
-        // sha256.update(bsnBuf, bsnOff, G1_BYTES);        // bsn_base
-        // sha256.doFinal(swapPubkey, 0, G1_BYTES, scratchHash, 0); // swap_pk
-        // reduceModOrder(scratchHash, 0);
+        // Step 5: c' = SHA256(R' || bsn_base || swap_pk) reduced to Fr
+        MessageDigest sha256 = MessageDigest.getInstance(
+            MessageDigest.ALG_SHA_256, false);
+        sha256.reset();
+        sha256.update(scratchPoint, (short) 0, BN254Params.G1_BYTES);
+        sha256.update(bsnBuf, bsnOff, BN254Params.G1_BYTES);
+        sha256.doFinal(swapPubkey, (short) 0, BN254Params.G1_BYTES,
+                       scratchHash, (short) 0);
+        reduceModOrder(scratchHash, (short) 0);
 
         // Step 6: Compare c' with c
-        // return Util.arrayCompare(scratchHash, 0, authBuf, cOff, FR_BYTES) == 0;
-
-        // Full verification stub (returns true for prototype; replace with above)
-        return verifySwapAuthSchnorr(bsnBuf, bsnOff, authBuf, cOff, authBuf, sOff);
-    }
-
-    /**
-     * Full Schnorr verification for swap authorization.
-     *
-     * Verifies: c == H(G*s - swap_pk*c || bsn_base || swap_pk)
-     *
-     * NOTE: Placeholder — requires JCMathLib for actual EC operations.
-     * In a real implementation:
-     *   1. ECPoint r_prime = generator.mult(s).add(swap_pk.mult(negate(c)))
-     *   2. byte[] hash = SHA256(r_prime.getW() || bsn_base || swap_pk)
-     *   3. return hash == c
-     */
-    private boolean verifySwapAuthSchnorr(byte[] bsnBuf, short bsnOff,
-                                           byte[] cBuf, short cOff,
-                                           byte[] sBuf, short sOff) {
-        // Implementation with JCMathLib (pseudocode for actual integration):
-        //
-        // BigNat s_bn = new BigNat(FR_BYTES);
-        // s_bn.fromByteArray(sBuf, sOff, FR_BYTES);
-        //
-        // BigNat c_bn = new BigNat(FR_BYTES);
-        // c_bn.fromByteArray(cBuf, cOff, FR_BYTES);
-        //
-        // BigNat order = new BigNat(FR_BYTES);
-        // order.fromByteArray(BN254Params.SCALAR_ORDER, 0, FR_BYTES);
-        //
-        // // Negate c: neg_c = order - c
-        // BigNat neg_c = new BigNat(FR_BYTES);
-        // neg_c.clone(order);
-        // neg_c.subtract(c_bn);
-        //
-        // // R' = G * s + swap_pk * (-c)
-        // ECPoint g_s = new ECPoint(BN254_CURVE);
-        // g_s.setW(G1_GENERATOR_UNCOMPRESSED);
-        // g_s.multiplication(s_bn);
-        //
-        // ECPoint pk_neg_c = new ECPoint(BN254_CURVE);
-        // pk_neg_c.setW(swapPubkey, 0, G1_BYTES);
-        // pk_neg_c.multiplication(neg_c);
-        //
-        // g_s.add(pk_neg_c);  // g_s is now R'
-        //
-        // // c' = H(R' || bsn_base || swap_pk)
-        // sha256.reset();
-        // byte[] r_prime_buf = new byte[G1_BYTES];
-        // g_s.getW(r_prime_buf, 0);
-        // sha256.update(r_prime_buf, 0, G1_BYTES);
-        // sha256.update(bsnBuf, bsnOff, G1_BYTES);
-        // byte[] hash_out = new byte[32];
-        // sha256.doFinal(swapPubkey, 0, G1_BYTES, hash_out, 0);
-        // reduceModOrder(hash_out, 0);
-        //
-        // return Util.arrayCompare(hash_out, 0, cBuf, cOff, FR_BYTES) == 0;
-
-        // Stub: always returns false (secure default — swap disabled until
-        // JCMathLib is integrated). Override for simulator testing.
-        return false;
+        return Util.arrayCompare(scratchHash, (short) 0,
+                                 authBuf, cOff, BN254Params.FR_BYTES) == 0;
     }
 
     // ========================================================================
@@ -729,98 +663,70 @@ public class BrioletteApplet extends Applet {
      * Compute result = a + b * c (mod SCALAR_ORDER).
      * This is the core Fr arithmetic operation for Schnorr responses.
      *
-     * NOTE: Placeholder — replace with JCMathLib BigNat operations.
+     * NOTE: Uses ECMath (BigInteger) for jCardSim. For production JavaCard
+     * hardware, replace with JCMathLib BigNat operations:
+     *   BigNat tmp = b.modMult(c, order);
+     *   BigNat result = a.modAdd(tmp, order);
      */
     private void scalarMulAdd(byte[] aBuf, short aOff,
                                byte[] bBuf, short bOff,
                                byte[] cBuf, short cOff,
                                byte[] outBuf, short outOff) {
-        // In a real implementation:
-        //   BigNat a = fromByteArray(aBuf, aOff, FR_BYTES);
-        //   BigNat b = fromByteArray(bBuf, bOff, FR_BYTES);
-        //   BigNat c = fromByteArray(cBuf, cOff, FR_BYTES);
-        //   BigNat order = fromByteArray(SCALAR_ORDER);
-        //   BigNat tmp = b.modMult(c, order);
-        //   BigNat result = a.modAdd(tmp, order);
-        //   result.toByteArray(outBuf, outOff, FR_BYTES);
-
-        // Stub: output zeros (will be replaced with JCMathLib)
-        Util.arrayFillNonAtomic(outBuf, outOff, BN254Params.FR_BYTES, (byte) 0);
+        ECMath.scalarMulAdd(aBuf, aOff, bBuf, bOff, cBuf, cOff, outBuf, outOff);
     }
 
     /**
      * Compute result_point = input_point * scalar.
      * G1 scalar multiplication — the core EC operation.
      *
-     * NOTE: Placeholder — replace with JCMathLib ECPoint.multiplication().
+     * NOTE: Uses ECMath (BigInteger) for jCardSim. For production JavaCard
+     * hardware, replace with JCMathLib:
+     *   ECPoint pt = new ECPoint(curve);
+     *   pt.setW(pointBuf, pointOff, G1_BYTES);
+     *   BigNat s = new BigNat(curve.rBN.length(), MEMORY_TYPE, rm);
+     *   s.fromByteArray(scalarBuf, scalarOff, FR_BYTES);
+     *   pt.multiplication(s);
+     *   pt.getW(outBuf, outOff);
      */
     private void ecPointMul(byte[] pointBuf, short pointOff,
                             byte[] scalarBuf, short scalarOff,
                             byte[] outBuf, short outOff) {
-        // In a real implementation using JCMathLib:
-        //   ECPoint pt = new ECPoint(BN254_CURVE);
-        //   pt.setW(pointBuf, pointOff, G1_BYTES);
-        //   BigNat s = new BigNat(FR_BYTES);
-        //   s.fromByteArray(scalarBuf, scalarOff, FR_BYTES);
-        //   pt.multiplication(s);
-        //   pt.getW(outBuf, outOff);
-
-        // Stub: output the input point unchanged (will be replaced with JCMathLib)
-        Util.arrayCopy(pointBuf, pointOff, outBuf, outOff, BN254Params.G1_BYTES);
+        ECMath.ecPointMul(pointBuf, pointOff, scalarBuf, scalarOff, outBuf, outOff);
     }
 
     /**
      * Reduce a 32-byte big-endian value modulo the scalar field order.
      * Ensures card_sk and r_card are valid Fr elements.
      *
-     * NOTE: Placeholder — replace with JCMathLib BigNat.mod().
+     * NOTE: Uses ECMath (BigInteger) for jCardSim. For production JavaCard
+     * hardware, replace with JCMathLib: BigNat.mod(order).
      */
     private void reduceModOrder(byte[] buf, short offset) {
-        // In a real implementation:
-        //   BigNat val = fromByteArray(buf, offset, FR_BYTES);
-        //   BigNat order = fromByteArray(SCALAR_ORDER);
-        //   val.mod(order);
-        //   val.toByteArray(buf, offset, FR_BYTES);
-
-        // Stub: leave value as-is (statistically < order for random 256-bit values
-        // since order is close to 2^254)
+        ECMath.reduceModOrder(buf, offset);
     }
 
     /**
      * Compute result = SCALAR_ORDER - input (mod SCALAR_ORDER).
      * Negation in the scalar field.
      *
-     * NOTE: Placeholder — replace with JCMathLib BigNat.subtract().
+     * NOTE: Uses ECMath (BigInteger) for jCardSim. For production JavaCard
+     * hardware, replace with JCMathLib: order.subtract(val).
      */
     private void scalarNegate(byte[] inBuf, short inOff,
                                byte[] outBuf, short outOff) {
-        // In a real implementation:
-        //   BigNat val = fromByteArray(inBuf, inOff, FR_BYTES);
-        //   BigNat order = fromByteArray(SCALAR_ORDER);
-        //   BigNat result = order.subtract(val);  // order - val = -val mod order
-        //   result.toByteArray(outBuf, outOff, FR_BYTES);
-
-        // Stub: output zeros
-        Util.arrayFillNonAtomic(outBuf, outOff, BN254Params.FR_BYTES, (byte) 0);
+        ECMath.scalarNegate(inBuf, inOff, outBuf, outOff);
     }
 
     /**
      * Compute result_point = point_a + point_b (EC point addition on G1).
      *
-     * NOTE: Placeholder — replace with JCMathLib ECPoint.add().
+     * NOTE: Uses ECMath (BigInteger) for jCardSim. For production JavaCard
+     * hardware, replace with JCMathLib:
+     *   ECPoint a = new ECPoint(curve); a.setW(...); a.add(b); a.getW(...);
      */
     private void ecPointAdd(byte[] aBuf, short aOff,
                             byte[] bBuf, short bOff,
                             byte[] outBuf, short outOff) {
-        // In a real implementation using JCMathLib:
-        //   ECPoint a = new ECPoint(BN254_CURVE);
-        //   a.setW(aBuf, aOff, G1_BYTES);
-        //   ECPoint b = new ECPoint(BN254_CURVE);
-        //   b.setW(bBuf, bOff, G1_BYTES);
-        //   a.add(b);
-        //   a.getW(outBuf, outOff);
-
-        // Stub: copy first point
-        Util.arrayCopy(aBuf, aOff, outBuf, outOff, BN254Params.G1_BYTES);
+        ECMath.ecPointAdd(aBuf, aOff, bBuf, bOff, outBuf, outOff);
     }
 }

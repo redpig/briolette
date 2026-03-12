@@ -347,14 +347,9 @@ public class BrioletteAppletTest {
         System.arraycopy(dummyG1Point, 0, input, G1_BYTES, G1_BYTES);
 
         ResponseAPDU resp = send(INS_SIGN_COMMIT_SWAP, input);
-        // The stub verifySwapAuth calls ecPointMul with BN254Params.G1_X (32 bytes)
-        // but the ecPointMul stub copies G1_BYTES (65 bytes), causing an
-        // ArrayIndexOutOfBoundsException (SW 0x6F00). Once JCMathLib is integrated
-        // and the generator point is stored as a full 65-byte uncompressed point,
-        // this should return SW_SWAP_AUTH_FAILED (0x6A85) instead.
-        int sw = resp.getSW();
-        assertTrue("Should fail with swap auth error or internal error",
-                   sw == SW_SWAP_AUTH_FAILED || sw == 0x6F00);
+        // Real EC math: dummy auth token doesn't verify against swap pubkey
+        assertEquals("Should fail with invalid auth",
+                     SW_SWAP_AUTH_FAILED, resp.getSW());
     }
 
     @Test
@@ -725,6 +720,78 @@ public class BrioletteAppletTest {
         send(INS_SIGN_COMMIT, dummyG1Point);
         ResponseAPDU resp2 = send(INS_SIGN_RESPOND, dummyScalar);
         assertEquals(SW_OK, resp2.getSW());
+    }
+
+    // ========================================================================
+    // EC math correctness tests (real crypto, not stubs)
+    // ========================================================================
+
+    @Test
+    public void testPublicKeyShare_producesValidPoint() {
+        generateKey();
+
+        // Use the BN254 generator as base point
+        ResponseAPDU resp = send(INS_PUBLIC_KEY_SHARE, BN254Params.G1_UNCOMPRESSED);
+        assertEquals(SW_OK, resp.getSW());
+
+        byte[] q = resp.getData();
+        assertEquals(G1_BYTES, q.length);
+        assertEquals("Should have uncompressed prefix", 0x04, q[0] & 0xFF);
+
+        // Q_card = G * card_sk should NOT be the identity or the generator
+        // (overwhelmingly unlikely for a random card_sk)
+        boolean allZero = true;
+        for (int i = 1; i < G1_BYTES; i++) {
+            if (q[i] != 0) { allZero = false; break; }
+        }
+        assertFalse("Q_card should not be identity point", allZero);
+    }
+
+    @Test
+    public void testPublicKeyShare_deterministic() {
+        generateKey();
+
+        // Same base point should produce same Q_card (card_sk is fixed)
+        ResponseAPDU resp1 = send(INS_PUBLIC_KEY_SHARE, BN254Params.G1_UNCOMPRESSED);
+        ResponseAPDU resp2 = send(INS_PUBLIC_KEY_SHARE, BN254Params.G1_UNCOMPRESSED);
+
+        assertArrayEquals("Same base should give same Q_card",
+                          resp1.getData(), resp2.getData());
+    }
+
+    @Test
+    public void testSignRespond_producesNonTrivialScalar() {
+        generateKey();
+
+        send(INS_SIGN_COMMIT, dummyG1Point);
+        ResponseAPDU resp = send(INS_SIGN_RESPOND, dummyScalar);
+        assertEquals(SW_OK, resp.getSW());
+
+        // s_card = r_card + c * card_sk should not be all zeros
+        byte[] sCard = resp.getData();
+        boolean allZero = true;
+        for (byte b : sCard) {
+            if (b != 0) { allZero = false; break; }
+        }
+        assertFalse("s_card should not be zero", allZero);
+    }
+
+    @Test
+    public void testSignCommit_producesDistinctPointsPerSession() {
+        generateKey();
+
+        // Each commit generates a new random r_card, so U_card should differ
+        ResponseAPDU commit1 = send(INS_SIGN_COMMIT, dummyG1Point);
+        // Need to complete the session before starting a new one
+        send(INS_SIGN_RESPOND, dummyScalar);
+
+        ResponseAPDU commit2 = send(INS_SIGN_COMMIT, dummyG1Point);
+
+        // Different r_card -> different U_card (with overwhelming probability)
+        // This could theoretically fail if both r_card values happen to be equal,
+        // but that's a 1/2^256 chance.
+        assertFalse("Different sessions should produce different U_card",
+                    java.util.Arrays.equals(commit1.getData(), commit2.getData()));
     }
 
     @Test
