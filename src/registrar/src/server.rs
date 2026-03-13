@@ -217,6 +217,22 @@ impl BrioletteRegistrar {
     /// Verify the hardware attestation based on the algorithm type.
     /// Returns the full attestation result (security level + hardware nonce).
     ///
+    /// The attestation gates NAC credential issuance: the security level
+    /// determines which NAC group the wallet is issued into, which in turn
+    /// controls policy (ticket lifetime, etc.).  See docs/design/nac_attestation.md.
+    ///
+    /// Currently the attestation is a P-256 key attested by the platform
+    /// keystore (Android TEE/StrongBox or iOS Secure Enclave).  The ECDAA
+    /// keys themselves are BLS12-381 and cannot be generated inside these
+    /// keystores.  The attestation challenge binds the P-256 attestation
+    /// to the specific ECDAA public keys via:
+    ///   challenge = SHA-256(hw_id || nac_pk || ttc_pk)
+    ///
+    /// Future: if platform keystores add pairing-friendly curve support,
+    /// the ECDAA keys could be attested directly.  Alternatively, smartcard
+    /// manufacturer DAA credentials (ECDAA issued at card personalization)
+    /// can prove the card is genuine hardware — see nac_attestation.md.
+    ///
     /// `credential_public_keys` are the ECDAA NAC and TTC public keys from
     /// the registration request. They must be cryptographically bound in the
     /// attestation challenge to prevent attestation replay attacks.
@@ -333,9 +349,14 @@ impl BrioletteRegistrar {
         let attestation_result = self.verify_attestation(&hwid, &hwid_signature, &credential_pks)?;
 
         // 3. Determine the effective security level.
-        //    Attestation alone caps at Medium.  To reach High, the wallet
-        //    must also provide a valid split-key proof showing a smartcard
-        //    contributed to both credential keys.
+        //    P-256 platform attestation alone caps at Medium.  To reach High,
+        //    the wallet must also provide a valid split-key proof showing a
+        //    smartcard contributed to both credential keys.
+        //
+        //    Future (HIGH+): when smartcards carry manufacturer DAA
+        //    credentials, the registrar can also verify the card is genuine
+        //    hardware, not just that "something" contributed a key share.
+        //    See docs/design/nac_attestation.md for the full roadmap.
         let mut effective_level = attestation_result.security_level;
         if effective_level >= SecurityLevel::Medium {
             if let Some(proof) = &request.split_key_proof {
