@@ -1,0 +1,612 @@
+(kicad_pcb
+  (version 20240108)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (general
+    (thickness 1.6)
+    (legacy_teardrops no)
+  )
+  (paper "A4")
+  (title_block
+    (title "Briolette Credstick Rev1")
+    (date "2026-03-13")
+    (rev "1.0")
+    (comment 1 "60x30mm, 4-layer, keychain form factor")
+    (comment 2 "Bottom layer: NFC antenna trace coil")
+  )
+
+  ;; ============================================================
+  ;; 4-Layer Stackup
+  ;; ============================================================
+  (layers
+    (0 "F.Cu" signal)
+    (1 "In1.Cu" signal "GND")
+    (2 "In2.Cu" signal "PWR")
+    (31 "B.Cu" signal)
+    (32 "B.Adhes" user "B.Adhesive")
+    (33 "F.Adhes" user "F.Adhesive")
+    (34 "B.Paste" user)
+    (35 "F.Paste" user)
+    (36 "B.SilkS" user "B.Silkscreen")
+    (37 "F.SilkS" user "F.Silkscreen")
+    (38 "B.Mask" user "B.Mask")
+    (39 "F.Mask" user "F.Mask")
+    (40 "Dwgs.User" user "User.Drawings")
+    (41 "Cmts.User" user "User.Comments")
+    (42 "Eco1.User" user "User.Eco1")
+    (43 "Eco2.User" user "User.Eco2")
+    (44 "Edge.Cuts" user)
+    (45 "Margin" user)
+    (46 "B.CrtYd" user "B.Courtyard")
+    (47 "F.CrtYd" user "F.Courtyard")
+    (48 "B.Fab" user "B.Fabrication")
+    (49 "F.Fab" user "F.Fabrication")
+  )
+
+  (setup
+    (stackup
+      (layer "F.SilkS" (type "Top Silk Screen"))
+      (layer "F.Paste" (type "Top Solder Paste"))
+      (layer "F.Mask" (type "Top Solder Mask") (thickness 0.01))
+      (layer "F.Cu" (type "copper") (thickness 0.035))
+      (layer "dielectric 1" (type "prepreg") (thickness 0.2) (material "FR4") (epsilon_r 4.5) (loss_tangent 0.02))
+      (layer "In1.Cu" (type "copper") (thickness 0.035))
+      (layer "dielectric 2" (type "core") (thickness 1.065) (material "FR4") (epsilon_r 4.5) (loss_tangent 0.02))
+      (layer "In2.Cu" (type "copper") (thickness 0.035))
+      (layer "dielectric 3" (type "prepreg") (thickness 0.2) (material "FR4") (epsilon_r 4.5) (loss_tangent 0.02))
+      (layer "B.Cu" (type "copper") (thickness 0.035))
+      (layer "B.Mask" (type "Bottom Solder Mask") (thickness 0.01))
+      (layer "B.Paste" (type "Bottom Solder Paste"))
+      (layer "B.SilkS" (type "Bottom Silk Screen"))
+      (copper_finish "HASL with lead")
+      (dielectric_constraints no)
+    )
+    (pad_to_mask_clearance 0.05)
+    (allow_soldermask_bridges_in_footprints no)
+    (pcbplotparams
+      (layerselection 0x00010fc_ffffffff)
+      (plot_on_all_layers_selection 0x0000000_00000000)
+      (disableapertmacros no)
+      (usegerberextensions yes)
+      (usegerberattributes yes)
+      (usegerberadvancedattributes yes)
+      (creategerberjobfile yes)
+      (dashed_line_dash_ratio 12.000000)
+      (dashed_line_gap_ratio 3.000000)
+      (svgprecision 4)
+      (plotframeref no)
+      (viasonmask no)
+      (mode 1)
+      (useauxorigin no)
+      (hpglpennumber 1)
+      (hpglpenspeed 20)
+      (hpglpendiameter 15.000000)
+      (pdf_front_fp_property_popups yes)
+      (pdf_back_fp_property_popups yes)
+      (dxfpolygonmode yes)
+      (dxfimperialunits yes)
+      (dxfusepcbnewfont yes)
+      (psnegative no)
+      (psa4output no)
+      (plotreference yes)
+      (plotvalue yes)
+      (plotfptext yes)
+      (plotinvisibletext no)
+      (sketchpadsonfab no)
+      (subtractmaskfromsilk no)
+      (outputformat 1)
+      (mirror no)
+      (drillshape 1)
+      (scaleselection 1)
+      (outputdirectory "../gerbers/")
+    )
+  )
+
+  ;; ============================================================
+  ;; Net definitions
+  ;; ============================================================
+  (net 0 "")
+  (net 1 "GND")
+  (net 2 "VCC")
+  (net 3 "VBUS")
+  (net 4 "VSCAP")
+  (net 5 "SDA")
+  (net 6 "SCL")
+  (net 7 "SPI_SCK")
+  (net 8 "SPI_MOSI")
+  (net 9 "SPI_CS")
+  (net 10 "EPD_DC")
+  (net 11 "EPD_RST")
+  (net 12 "EPD_BUSY")
+  (net 13 "NFC1")
+  (net 14 "NFC2")
+  (net 15 "USB_DP")
+  (net 16 "USB_DM")
+  (net 17 "BTN_L")
+  (net 18 "BTN_R")
+  (net 19 "LED")
+  (net 20 "VDDH")
+  (net 21 "~{RESET}")
+  (net 22 "PIEZO_P")
+  (net 23 "PIEZO_N")
+  (net 24 "NFC_ANT1")
+  (net 25 "NFC_ANT2")
+  (net 26 "CC1")
+  (net 27 "CC2")
+  (net 28 "CHARGE_EN")
+
+  ;; ============================================================
+  ;; Board outline (60mm x 30mm with rounded corners)
+  ;; Origin at board center
+  ;; ============================================================
+
+  ;; Top edge
+  (gr_line (start -28.0 -15.0) (end 28.0 -15.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+  ;; Right edge
+  (gr_line (start 30.0 -13.0) (end 30.0 13.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+  ;; Bottom edge
+  (gr_line (start 28.0 15.0) (end -28.0 15.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+  ;; Left edge
+  (gr_line (start -30.0 13.0) (end -30.0 -13.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+
+  ;; Rounded corners (2mm radius arcs)
+  (gr_arc (start -28.0 -15.0) (mid -29.414 -14.414) (end -30.0 -13.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+  (gr_arc (start 30.0 -13.0) (mid 29.414 -14.414) (end 28.0 -15.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+  (gr_arc (start 28.0 15.0) (mid 29.414 14.414) (end 30.0 13.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+  (gr_arc (start -30.0 13.0) (mid -29.414 14.414) (end -28.0 15.0)
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+
+  ;; ============================================================
+  ;; Keyring hole (3mm plated, left end)
+  ;; ============================================================
+  (footprint "MountingHole:MountingHole_3.2mm_M3"
+    (layer "F.Cu")
+    (at -25.0 0)
+    (property "Reference" "H1"
+      (at 0 -3.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 1 1) (thickness 0.15)))
+    )
+    (property "Value" "Keyring"
+      (at 0 3.5 0)
+      (layer "F.Fab")
+      (effects (font (size 1 1) (thickness 0.15)))
+    )
+    (pad "1" thru_hole circle (at 0 0) (size 4.0 4.0) (drill 3.2)
+      (layers "*.Cu" "*.Mask"))
+  )
+
+  ;; ============================================================
+  ;; Component placement (top layer)
+  ;; All coordinates relative to board center (0,0)
+  ;; ============================================================
+
+  ;; --- USB-C connector: right edge, centered vertically ---
+  (footprint "stick-lib:USB_C_GCT_USB4135"
+    (layer "F.Cu")
+    (at 27.0 0 0)
+    (property "Reference" "J1"
+      (at 0 -7.0 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (property "Value" "USB4135-GF-A"
+      (at 0 7.0 0)
+      (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+  )
+
+  ;; --- ESD protection: near USB-C ---
+  (footprint "Package_SO:TSSOP-16_4.4x5mm_P0.65mm"
+    (layer "F.Cu")
+    (at 20.0 0 0)
+    (property "Reference" "U1"
+      (at 0 -4.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (property "Value" "IP4292CZ12"
+      (at 0 4.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+  )
+
+  ;; --- Charge current limiter: between USB and supercaps ---
+  (footprint "Package_TO_SOT_SMD:SOT-23-6"
+    (layer "F.Cu")
+    (at 14.0 -5.0 0)
+    (property "Reference" "U2"
+      (at 0 -3.0 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (property "Value" "TPS2553"
+      (at 0 3.0 0)
+      (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+  )
+
+  ;; --- LDO regulator: center-right area ---
+  (footprint "Package_TO_SOT_SMD:SOT-23-5"
+    (layer "F.Cu")
+    (at 14.0 5.0 0)
+    (property "Reference" "U3"
+      (at 0 -3.0 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (property "Value" "AP2112K-3.3"
+      (at 0 3.0 0)
+      (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+  )
+
+  ;; --- nRF52840 MCU: board center ---
+  (footprint "stick-lib:QFN-48-6x6mm"
+    (layer "F.Cu")
+    (at 0 0 0)
+    (property "Reference" "U4"
+      (at 0 -5.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (property "Value" "nRF52840"
+      (at 0 5.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+  )
+
+  ;; --- ATECC608B: near MCU, I2C side ---
+  (footprint "stick-lib:UDFN-8-2x3mm"
+    (layer "F.Cu")
+    (at -8.0 -8.0 0)
+    (property "Reference" "U5"
+      (at 0 -2.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "ATECC608B"
+      (at 0 2.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+  )
+
+  ;; --- 32MHz crystal: close to MCU XC1/XC2 pins ---
+  (footprint "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm"
+    (layer "F.Cu")
+    (at -8.0 4.0 0)
+    (property "Reference" "Y1"
+      (at 0 -2.0 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "32MHz"
+      (at 0 2.0 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+  )
+
+  ;; --- 32.768kHz crystal: close to MCU XL1/XL2 pins ---
+  (footprint "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm"
+    (layer "F.Cu")
+    (at -8.0 8.0 0)
+    (property "Reference" "Y2"
+      (at 0 -2.0 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "32.768kHz"
+      (at 0 2.0 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+  )
+
+  ;; --- E-Ink FPC connector: upper-left area (display on top face) ---
+  (footprint "stick-lib:FPC_24pin_0.5mm"
+    (layer "F.Cu")
+    (at -10.0 -12.0 0)
+    (property "Reference" "J2"
+      (at 0 -3.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "GDEY0154D67"
+      (at 0 3.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+  )
+
+  ;; --- Left button: below display, left side ---
+  (footprint "Button_Switch_SMD:SW_SPST_PTS810"
+    (layer "F.Cu")
+    (at -15.0 10.0 0)
+    (property "Reference" "SW1"
+      (at 0 -2.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "BTN_L"
+      (at 0 2.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+  )
+
+  ;; --- Right button: below display, right side ---
+  (footprint "Button_Switch_SMD:SW_SPST_PTS810"
+    (layer "F.Cu")
+    (at -5.0 10.0 0)
+    (property "Reference" "SW2"
+      (at 0 -2.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "BTN_R"
+      (at 0 2.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+  )
+
+  ;; --- BAT54S piezo rectifier: lower-left area ---
+  (footprint "Package_TO_SOT_SMD:SOT-23"
+    (layer "F.Cu")
+    (at -18.0 2.0 0)
+    (property "Reference" "D1"
+      (at 0 -2.0 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "BAT54S"
+      (at 0 2.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+  )
+
+  ;; ============================================================
+  ;; NFC Antenna Trace (Bottom copper layer)
+  ;; Rectangular spiral: ~25mm x 20mm, 4.5 turns
+  ;; Trace width: 0.3mm, spacing: 0.3mm, pitch: 0.6mm
+  ;; Centered at (0, 2) on the bottom layer
+  ;; ============================================================
+
+  ;; Turn 1 (outermost): 25x20mm
+  (gr_line (start -12.5 -7.5) (end 12.5 -7.5)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 12.5 -7.5) (end 12.5 12.5)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 12.5 12.5) (end -12.5 12.5)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start -12.5 12.5) (end -12.5 -7.5)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+
+  ;; Turn 2: inset by 0.6mm (24.8x19.8 → ±11.9, ±6.9/±11.9)
+  (gr_line (start -11.9 -6.9) (end 11.9 -6.9)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 11.9 -6.9) (end 11.9 11.9)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 11.9 11.9) (end -11.9 11.9)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start -11.9 11.9) (end -11.9 -6.9)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+
+  ;; Turn 3: inset by another 0.6mm
+  (gr_line (start -11.3 -6.3) (end 11.3 -6.3)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 11.3 -6.3) (end 11.3 11.3)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 11.3 11.3) (end -11.3 11.3)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start -11.3 11.3) (end -11.3 -6.3)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+
+  ;; Turn 4: inset by another 0.6mm
+  (gr_line (start -10.7 -5.7) (end 10.7 -5.7)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 10.7 -5.7) (end 10.7 10.7)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start 10.7 10.7) (end -10.7 10.7)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start -10.7 10.7) (end -10.7 -5.7)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+
+  ;; Turn 5 (innermost half-turn, connects to NFC2 via)
+  (gr_line (start -10.1 -5.1) (end 10.1 -5.1)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 25))
+  (gr_line (start 10.1 -5.1) (end 10.1 10.1)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 25))
+
+  ;; Spiral interconnects (short jumps between turns)
+  ;; Outer start → Turn 1 connects via trace to NFC1 pad via
+  (gr_line (start -12.5 -7.5) (end -12.5 -8.5)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  ;; Inner end connects via to NFC2 pad
+  (gr_line (start 10.1 10.1) (end 10.1 11.0)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 25))
+
+  ;; NFC vias (connect bottom antenna to top-layer NFC pads)
+  (via (at -12.5 -8.5) (size 0.6) (drill 0.3)
+    (layers "F.Cu" "B.Cu") (net 24))
+  (via (at 10.1 11.0) (size 0.6) (drill 0.3)
+    (layers "F.Cu" "B.Cu") (net 25))
+
+  ;; ============================================================
+  ;; Ground plane zones (In1.Cu = full ground pour)
+  ;; ============================================================
+  (zone
+    (net 1)
+    (net_name "GND")
+    (layer "In1.Cu")
+    (uuid "zone-gnd-in1")
+    (hatch edge 0.5)
+    (connect_pads (clearance 0.3))
+    (min_thickness 0.2)
+    (filled_areas_thickness no)
+    (fill yes (thermal_gap 0.3) (thermal_bridge_width 0.3))
+    (polygon
+      (pts
+        (xy -30 -15)
+        (xy 30 -15)
+        (xy 30 15)
+        (xy -30 15)
+      )
+    )
+  )
+
+  ;; ============================================================
+  ;; Power plane zone (In2.Cu = VCC pour)
+  ;; ============================================================
+  (zone
+    (net 2)
+    (net_name "VCC")
+    (layer "In2.Cu")
+    (uuid "zone-vcc-in2")
+    (hatch edge 0.5)
+    (connect_pads (clearance 0.3))
+    (min_thickness 0.2)
+    (filled_areas_thickness no)
+    (fill yes (thermal_gap 0.3) (thermal_bridge_width 0.3))
+    (polygon
+      (pts
+        (xy -30 -15)
+        (xy 30 -15)
+        (xy 30 15)
+        (xy -30 15)
+      )
+    )
+  )
+
+  ;; ============================================================
+  ;; Ground plane zone (B.Cu — around the NFC antenna area)
+  ;; Note: keep-out around antenna, ground pour fills the rest
+  ;; ============================================================
+  (zone
+    (net 1)
+    (net_name "GND")
+    (layer "B.Cu")
+    (uuid "zone-gnd-bcu")
+    (hatch edge 0.5)
+    (connect_pads (clearance 0.3))
+    (min_thickness 0.2)
+    (filled_areas_thickness no)
+    (fill yes (thermal_gap 0.3) (thermal_bridge_width 0.3))
+    (polygon
+      (pts
+        (xy -30 -15)
+        (xy 30 -15)
+        (xy 30 15)
+        (xy -30 15)
+      )
+    )
+  )
+
+  ;; ============================================================
+  ;; Keep-out zone: No copper on In1.Cu under NFC antenna
+  ;; (ground plane opening to avoid detuning the antenna)
+  ;; ============================================================
+  (zone
+    (net 0)
+    (net_name "")
+    (layer "In1.Cu")
+    (uuid "zone-keepout-nfc-gnd")
+    (hatch edge 0.5)
+    (connect_pads (clearance 0))
+    (min_thickness 0.2)
+    (keepout (tracks not_allowed) (vias not_allowed) (pads not_allowed)
+      (copperpour not_allowed) (footprints allowed))
+    (fill (thermal_gap 0.3) (thermal_bridge_width 0.3))
+    (polygon
+      (pts
+        (xy -14 -10)
+        (xy 14 -10)
+        (xy 14 14)
+        (xy -14 14)
+      )
+    )
+  )
+
+  ;; ============================================================
+  ;; Keep-out zone: No copper on In2.Cu under NFC antenna
+  ;; ============================================================
+  (zone
+    (net 0)
+    (net_name "")
+    (layer "In2.Cu")
+    (uuid "zone-keepout-nfc-pwr")
+    (hatch edge 0.5)
+    (connect_pads (clearance 0))
+    (min_thickness 0.2)
+    (keepout (tracks not_allowed) (vias not_allowed) (pads not_allowed)
+      (copperpour not_allowed) (footprints allowed))
+    (fill (thermal_gap 0.3) (thermal_bridge_width 0.3))
+    (polygon
+      (pts
+        (xy -14 -10)
+        (xy 14 -10)
+        (xy 14 14)
+        (xy -14 14)
+      )
+    )
+  )
+
+  ;; ============================================================
+  ;; Fabrication notes on F.Fab
+  ;; ============================================================
+  (gr_text "Briolette Credstick Rev1"
+    (at 0 -17.0 0)
+    (layer "F.SilkS")
+    (effects (font (size 1.5 1.5) (thickness 0.2) bold))
+  )
+
+  (gr_text "NFC ANTENNA — DO NOT PLACE COPPER ON INNER LAYERS UNDER THIS AREA"
+    (at 0 2.5 0)
+    (layer "Cmts.User")
+    (effects (font (size 1.0 1.0) (thickness 0.15)))
+  )
+
+  (gr_text "Layer Stack:\nF.Cu  — Components\nIn1   — GND plane\nIn2   — VCC plane (keep-out under antenna)\nB.Cu  — NFC antenna spiral"
+    (at -20.0 -20.0 0)
+    (layer "Cmts.User")
+    (effects (font (size 0.8 0.8) (thickness 0.12)))
+  )
+
+  ;; ============================================================
+  ;; Dimension annotations
+  ;; ============================================================
+  (dimension (type aligned)
+    (layer "Dwgs.User")
+    (pts (xy -30.0 16.5) (xy 30.0 16.5))
+    (height 3.0)
+    (format (units 3) (units_format 1) (precision 1))
+    (style (thickness 0.1) (arrow_length 1.0) (text_position_mode 0)
+      (extension_height 0.5) (extension_offset 0.5)
+      (keep_text_aligned yes))
+  )
+
+  (dimension (type aligned)
+    (layer "Dwgs.User")
+    (pts (xy 32.0 -15.0) (xy 32.0 15.0))
+    (height 3.0)
+    (format (units 3) (units_format 1) (precision 1))
+    (style (thickness 0.1) (arrow_length 1.0) (text_position_mode 0)
+      (extension_height 0.5) (extension_offset 0.5)
+      (keep_text_aligned yes))
+  )
+)

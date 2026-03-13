@@ -1,0 +1,419 @@
+(kicad_sch
+  (version 20231120)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (uuid "a1b2c3d4-0002-4000-8000-000000000002")
+  (paper "A4")
+  (title_block
+    (title "Briolette Credstick — MCU")
+    (date "2026-03-13")
+    (rev "1.0")
+    (comment 1 "nRF52840 QFN-48 with crystals and decoupling")
+  )
+
+  (lib_symbols)
+
+  ;; ============================================================
+  ;; Hierarchical labels
+  ;; ============================================================
+  (hierarchical_label "VCC"
+    (shape input)
+    (at 25.4 50.8 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-mcu-0001")
+  )
+  (hierarchical_label "GND"
+    (shape passive)
+    (at 25.4 152.4 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-mcu-0002")
+  )
+  (hierarchical_label "SDA"
+    (shape bidirectional)
+    (at 200.66 76.2 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-mcu-0003")
+  )
+  (hierarchical_label "SCL"
+    (shape output)
+    (at 200.66 78.74 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-mcu-0004")
+  )
+  (hierarchical_label "SPI_SCK"
+    (shape output)
+    (at 200.66 88.9 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-mcu-0005")
+  )
+  (hierarchical_label "SPI_MOSI"
+    (shape output)
+    (at 200.66 91.44 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-mcu-0006")
+  )
+  (hierarchical_label "SPI_CS"
+    (shape output)
+    (at 200.66 93.98 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-mcu-0007")
+  )
+  (hierarchical_label "EPD_DC"
+    (shape output)
+    (at 200.66 96.52 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-mcu-0008")
+  )
+  (hierarchical_label "EPD_RST"
+    (shape output)
+    (at 200.66 99.06 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-mcu-0009")
+  )
+  (hierarchical_label "NFC1"
+    (shape bidirectional)
+    (at 25.4 109.22 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-mcu-000a")
+  )
+  (hierarchical_label "NFC2"
+    (shape bidirectional)
+    (at 25.4 111.76 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-mcu-000b")
+  )
+  (hierarchical_label "D+"
+    (shape bidirectional)
+    (at 25.4 116.84 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-mcu-000c")
+  )
+  (hierarchical_label "D-"
+    (shape bidirectional)
+    (at 25.4 119.38 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-mcu-000d")
+  )
+
+  ;; ============================================================
+  ;; U4: nRF52840 MCU
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:nRF52840-QIAA")
+    (at 114.3 101.6 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0001-4000-8000-000000000001")
+    (property "Reference" "U4"
+      (at 114.3 45.72 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "nRF52840-QIAA-R7"
+      (at 114.3 157.48 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:QFN-48-6x6mm"
+      (at 114.3 160.02 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Y1: 32 MHz Crystal (ABM8-32.000MHZ-B2-T)
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:Crystal")
+    (at 63.5 68.58 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0002-4000-8000-000000000001")
+    (property "Reference" "Y1"
+      (at 63.5 60.96 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "32MHz"
+      (at 63.5 73.66 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm"
+      (at 63.5 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "MPN" "ABM8-32.000MHZ-B2-T"
+      (at 63.5 78.74 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C6, C7: 32MHz crystal load caps (12pF typical for ABM8)
+  (symbol
+    (lib_id "Device:C")
+    (at 55.88 78.74 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0003-4000-8000-000000000001")
+    (property "Reference" "C6"
+      (at 58.42 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "12pF"
+      (at 58.42 78.74 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 55.88 78.74 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Device:C")
+    (at 71.12 78.74 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0004-4000-8000-000000000001")
+    (property "Reference" "C7"
+      (at 73.66 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "12pF"
+      (at 73.66 78.74 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 71.12 78.74 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Y2: 32.768 kHz Crystal (ABS07-32.768KHZ-T)
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:Crystal")
+    (at 63.5 93.98 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0005-4000-8000-000000000001")
+    (property "Reference" "Y2"
+      (at 63.5 86.36 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "32.768kHz"
+      (at 63.5 99.06 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm"
+      (at 63.5 101.6 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "MPN" "ABS07-32.768KHZ-T"
+      (at 63.5 104.14 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C8, C9: 32.768kHz crystal load caps (6.8pF typical)
+  (symbol
+    (lib_id "Device:C")
+    (at 55.88 104.14 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0006-4000-8000-000000000001")
+    (property "Reference" "C8"
+      (at 58.42 101.6 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "6.8pF"
+      (at 58.42 104.14 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 55.88 104.14 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Device:C")
+    (at 71.12 104.14 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0007-4000-8000-000000000001")
+    (property "Reference" "C9"
+      (at 73.66 101.6 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "6.8pF"
+      (at 73.66 104.14 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 71.12 104.14 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Decoupling capacitors for nRF52840
+  ;; ============================================================
+  ;; C10-C15: VDD decoupling (100nF x6)
+  (symbol
+    (lib_id "Device:C")
+    (at 76.2 55.88 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0010-4000-8000-000000000001")
+    (property "Reference" "C10"
+      (at 78.74 53.34 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "100nF"
+      (at 78.74 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 76.2 55.88 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Device:C")
+    (at 83.82 55.88 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0011-4000-8000-000000000001")
+    (property "Reference" "C11"
+      (at 86.36 53.34 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "100nF"
+      (at 86.36 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 83.82 55.88 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C16: DEC1 (100nF required by Nordic)
+  (symbol
+    (lib_id "Device:C")
+    (at 76.2 129.54 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0016-4000-8000-000000000001")
+    (property "Reference" "C16"
+      (at 78.74 127 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "100nF"
+      (at 78.74 129.54 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 76.2 129.54 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Description" "DEC1 decoupling (required, place <10mm from pin 30)"
+      (at 76.2 134.62 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; R5: RESET pull-up (10k to VCC)
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:R")
+    (at 76.2 119.38 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000002-0020-4000-8000-000000000001")
+    (property "Reference" "R5"
+      (at 78.74 119.38 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "10k"
+      (at 78.74 121.92 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 76.2 119.38 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Text annotations
+  ;; ============================================================
+  (text "nRF52840 MCU + CRYSTAL + DECOUPLING"
+    (exclude_from_sim no)
+    (at 25.4 25.4 0)
+    (effects (font (size 2.54 2.54) bold))
+    (uuid "txt-mcu-0001")
+  )
+
+  (text "32MHz crystal: ABM8 series, 12pF load caps"
+    (exclude_from_sim no)
+    (at 25.4 30.48 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-mcu-0002")
+  )
+
+  (text "32.768kHz crystal: ABS07 series, 6.8pF load caps, for RTC + BLE timing"
+    (exclude_from_sim no)
+    (at 25.4 33.02 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-mcu-0003")
+  )
+
+  (text "DEC1-DEC6: Place decoupling caps within 10mm of respective pins per Nordic datasheet"
+    (exclude_from_sim no)
+    (at 25.4 35.56 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-mcu-0004")
+  )
+
+  (text "Pin assignments: P0.26/P0.27=I2C, P0.13-P0.18=SPI+EPD, P0.19/P0.20=Buttons, P0.21=LED"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-mcu-0005")
+  )
+)

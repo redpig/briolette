@@ -1,0 +1,374 @@
+(kicad_sch
+  (version 20231120)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (uuid "a1b2c3d4-0003-4000-8000-000000000003")
+  (paper "A4")
+  (title_block
+    (title "Briolette Credstick — Peripherals")
+    (date "2026-03-13")
+    (rev "1.0")
+    (comment 1 "ATECC608B, E-Ink Display, Buttons, NFC Antenna Matching")
+  )
+
+  (lib_symbols)
+
+  ;; ============================================================
+  ;; Hierarchical labels
+  ;; ============================================================
+  (hierarchical_label "VCC"
+    (shape input)
+    (at 25.4 50.8 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-per-0001")
+  )
+  (hierarchical_label "GND"
+    (shape passive)
+    (at 25.4 152.4 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-per-0002")
+  )
+  (hierarchical_label "SDA"
+    (shape bidirectional)
+    (at 25.4 63.5 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-per-0003")
+  )
+  (hierarchical_label "SCL"
+    (shape input)
+    (at 25.4 66.04 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-per-0004")
+  )
+  (hierarchical_label "SPI_SCK"
+    (shape input)
+    (at 25.4 101.6 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-per-0005")
+  )
+  (hierarchical_label "SPI_MOSI"
+    (shape input)
+    (at 25.4 104.14 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-per-0006")
+  )
+  (hierarchical_label "SPI_CS"
+    (shape input)
+    (at 25.4 106.68 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-per-0007")
+  )
+  (hierarchical_label "NFC1"
+    (shape bidirectional)
+    (at 200.66 50.8 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-per-0008")
+  )
+  (hierarchical_label "NFC2"
+    (shape bidirectional)
+    (at 200.66 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-per-0009")
+  )
+
+  ;; ============================================================
+  ;; U5: ATECC608B Secure Element
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:ATECC608B")
+    (at 76.2 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0001-4000-8000-000000000001")
+    (property "Reference" "U5"
+      (at 76.2 50.8 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "ATECC608B-MAHDA-S"
+      (at 76.2 76.2 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:UDFN-8-2x3mm"
+      (at 76.2 78.74 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C17: ATECC608B decoupling (100nF)
+  (symbol
+    (lib_id "Device:C")
+    (at 55.88 55.88 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0002-4000-8000-000000000001")
+    (property "Reference" "C17"
+      (at 58.42 53.34 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "100nF"
+      (at 58.42 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 55.88 55.88 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; R6, R7: I2C pull-ups (4.7kΩ)
+  (symbol
+    (lib_id "Device:R")
+    (at 40.64 55.88 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0003-4000-8000-000000000001")
+    (property "Reference" "R6"
+      (at 43.18 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "4.7k"
+      (at 43.18 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 40.64 55.88 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Device:R")
+    (at 48.26 55.88 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0004-4000-8000-000000000001")
+    (property "Reference" "R7"
+      (at 50.8 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "4.7k"
+      (at 50.8 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 48.26 55.88 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; J2: E-Ink Display FPC Connector (24-pin, 0.5mm pitch)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:EINK_FPC_24")
+    (at 76.2 119.38 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0005-4000-8000-000000000001")
+    (property "Reference" "J2"
+      (at 76.2 83.82 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "GDEY0154D67"
+      (at 76.2 154.94 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:FPC_24pin_0.5mm"
+      (at 76.2 157.48 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; SW1, SW2: Tactile Switches (Left/Right buttons)
+  ;; ============================================================
+  (symbol
+    (lib_id "Switch:SW_Push")
+    (at 152.4 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0006-4000-8000-000000000001")
+    (property "Reference" "SW1"
+      (at 152.4 71.12 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "BTN_LEFT"
+      (at 152.4 81.28 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Button_Switch_SMD:SW_SPST_PTS810"
+      (at 152.4 83.82 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Switch:SW_Push")
+    (at 177.8 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0007-4000-8000-000000000001")
+    (property "Reference" "SW2"
+      (at 177.8 71.12 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "BTN_RIGHT"
+      (at 177.8 81.28 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Button_Switch_SMD:SW_SPST_PTS810"
+      (at 177.8 83.82 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; NFC Antenna Matching Network
+  ;; ============================================================
+
+  ;; L1: NFC series inductor (390nH)
+  (symbol
+    (lib_id "Device:L")
+    (at 165.1 50.8 90)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0010-4000-8000-000000000001")
+    (property "Reference" "L1"
+      (at 165.1 45.72 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "390nH"
+      (at 165.1 55.88 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Inductor_SMD:L_0402_1005Metric"
+      (at 165.1 50.8 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C18: NFC matching cap 1 (180pF, tuned)
+  (symbol
+    (lib_id "Device:C")
+    (at 152.4 60.96 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0011-4000-8000-000000000001")
+    (property "Reference" "C18"
+      (at 154.94 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "180pF"
+      (at 154.94 60.96 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 152.4 60.96 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Description" "NFC tuning cap — adjust to tune 13.56 MHz resonance"
+      (at 152.4 66.04 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C19: NFC matching cap 2 (180pF, tuned)
+  (symbol
+    (lib_id "Device:C")
+    (at 177.8 60.96 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0012-4000-8000-000000000001")
+    (property "Reference" "C19"
+      (at 180.34 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "180pF"
+      (at 180.34 60.96 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 177.8 60.96 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Description" "NFC tuning cap — adjust to tune 13.56 MHz resonance"
+      (at 177.8 66.04 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Text annotations
+  ;; ============================================================
+  (text "PERIPHERALS — Secure Element, Display, Buttons, NFC Antenna"
+    (exclude_from_sim no)
+    (at 25.4 25.4 0)
+    (effects (font (size 2.54 2.54) bold))
+    (uuid "txt-per-0001")
+  )
+
+  (text "I2C Bus: SDA/SCL with 4.7kΩ pull-ups to VCC"
+    (exclude_from_sim no)
+    (at 25.4 30.48 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0002")
+  )
+
+  (text "E-Ink SPI: CS, D/C, RST, BUSY, SCK, MOSI (no MISO — write-only display)"
+    (exclude_from_sim no)
+    (at 25.4 33.02 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0003")
+  )
+
+  (text "NFC Antenna: PCB trace on B.Cu (bottom layer), 25x20mm rectangular spiral"
+    (exclude_from_sim no)
+    (at 25.4 35.56 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0004")
+  )
+
+  (text "Matching network: L1 (390nH) in series, C18/C19 (180pF) shunt to GND — tune for 13.56 MHz"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0005")
+  )
+
+  (text "Buttons: Internal pull-up via nRF52840 GPIO config, active-low with hardware debounce"
+    (exclude_from_sim no)
+    (at 25.4 40.64 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0006")
+  )
+)

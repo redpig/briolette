@@ -1,0 +1,65 @@
+(footprint "USB_C_GCT_USB4135"
+  (version 20240108)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (layer "F.Cu")
+  (descr "GCT USB4135-GF-A USB Type-C receptacle, mid-mount SMD, USB 2.0")
+  (tags "USB USB-C Type-C GCT USB4135")
+  (property "Reference" "REF**"
+    (at 0 -6.5 0)
+    (layer "F.SilkS")
+    (effects (font (size 1 1) (thickness 0.15)))
+  )
+  (property "Value" "USB_C_GCT_USB4135"
+    (at 0 6.5 0)
+    (layer "F.Fab")
+    (effects (font (size 1 1) (thickness 0.15)))
+  )
+  (attr smd)
+
+  ;; Courtyard
+  (fp_rect
+    (start -5.0 -5.5)
+    (end 5.0 5.5)
+    (stroke (width 0.05) (type default))
+    (fill none)
+    (layer "F.CrtYd")
+  )
+
+  ;; Fab outline (connector body)
+  (fp_rect
+    (start -4.47 -4.65)
+    (end 4.47 4.65)
+    (stroke (width 0.1) (type default))
+    (fill none)
+    (layer "F.Fab")
+  )
+
+  ;; Signal pads (USB 2.0 subset)
+  ;; A1/B12 GND (left)
+  (pad "A1" smd rect (at -3.25 -2.75) (size 0.6 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; B1/A12 GND (right)
+  (pad "B1" smd rect (at 3.25 -2.75) (size 0.6 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; A4/B9 VBUS
+  (pad "A4" smd rect (at -2.25 -2.75) (size 0.6 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; B4/A9 VBUS
+  (pad "B4" smd rect (at 2.25 -2.75) (size 0.6 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; A5 CC1
+  (pad "A5" smd rect (at -1.5 -2.75) (size 0.3 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; B5 CC2
+  (pad "B5" smd rect (at 1.5 -2.75) (size 0.3 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; A6 D+
+  (pad "A6" smd rect (at -0.75 -2.75) (size 0.3 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; A7 D-
+  (pad "A7" smd rect (at -0.25 -2.75) (size 0.3 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; B6 D+
+  (pad "B6" smd rect (at 0.75 -2.75) (size 0.3 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; B7 D-
+  (pad "B7" smd rect (at 0.25 -2.75) (size 0.3 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
+
+  ;; Shield / mounting pads
+  (pad "S1" smd rect (at -4.32 -1.0) (size 1.0 2.5) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "S1" smd rect (at 4.32 -1.0) (size 1.0 2.5) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "S1" smd rect (at -4.32 3.0) (size 1.0 2.0) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "S1" smd rect (at 4.32 3.0) (size 1.0 2.0) (layers "F.Cu" "F.Paste" "F.Mask"))
+)

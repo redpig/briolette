@@ -1,0 +1,470 @@
+(kicad_sch
+  (version 20231120)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (uuid "a1b2c3d4-0001-4000-8000-000000000001")
+  (paper "A4")
+  (title_block
+    (title "Briolette Credstick — Power Supply")
+    (date "2026-03-13")
+    (rev "1.0")
+    (comment 1 "USB-C → ESD → Current Limiter → Supercaps → LDO → VCC")
+    (comment 2 "Piezo harvester trickle-charges supercaps")
+  )
+
+  (lib_symbols)
+
+  ;; ============================================================
+  ;; Hierarchical labels (interface to parent sheet)
+  ;; ============================================================
+  (hierarchical_label "VBUS"
+    (shape input)
+    (at 25.4 50.8 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-pwr-0001")
+  )
+  (hierarchical_label "VCC"
+    (shape output)
+    (at 200.66 50.8 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-pwr-0002")
+  )
+  (hierarchical_label "GND"
+    (shape passive)
+    (at 25.4 127 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-pwr-0003")
+  )
+  (hierarchical_label "VSCAP"
+    (shape output)
+    (at 200.66 76.2 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-pwr-0004")
+  )
+
+  ;; ============================================================
+  ;; J1: USB-C Connector (USB4135-GF-A)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:USB_C_2.0")
+    (at 38.1 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0001-4000-8000-000000000001")
+    (property "Reference" "J1"
+      (at 38.1 45.72 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "USB4135-GF-A"
+      (at 38.1 81.28 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:USB_C_GCT_USB4135"
+      (at 38.1 83.82 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; U1: ESD Protection (IP4292CZ12)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:IP4292CZ12")
+    (at 71.12 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0002-4000-8000-000000000001")
+    (property "Reference" "U1"
+      (at 71.12 48.26 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "IP4292CZ12"
+      (at 71.12 78.74 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_SO:TSSOP-16_4.4x5mm_P0.65mm"
+      (at 71.12 81.28 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; U2: Charge Current Limiter (TPS2553)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:TPS2553")
+    (at 106.68 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0003-4000-8000-000000000001")
+    (property "Reference" "U2"
+      (at 106.68 52.07 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "TPS2553"
+      (at 106.68 74.93 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:SOT-23-6"
+      (at 106.68 77.47 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; R1: Current limit set resistor (sets ~1A USB charge)
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:R")
+    (at 96.52 78.74 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0004-4000-8000-000000000001")
+    (property "Reference" "R1"
+      (at 99.06 78.74 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "10k"
+      (at 99.06 81.28 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 99.06 83.82 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; C1, C2: Supercapacitors (2x 5F 3V Kyocera AVX SCC)
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:CP")
+    (at 134.62 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0005-4000-8000-000000000001")
+    (property "Reference" "C1"
+      (at 137.16 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5F 3V"
+      (at 137.16 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" ""
+      (at 134.62 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "MPN" "SCCR14E505SRB"
+      (at 134.62 81.28 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Device:CP")
+    (at 144.78 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0006-4000-8000-000000000001")
+    (property "Reference" "C2"
+      (at 147.32 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5F 3V"
+      (at 147.32 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" ""
+      (at 144.78 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "MPN" "SCCR14E505SRB"
+      (at 144.78 81.28 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; U3: LDO Regulator (AP2112K-3.3)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:AP2112K-3.3")
+    (at 170.18 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0007-4000-8000-000000000001")
+    (property "Reference" "U3"
+      (at 170.18 52.07 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "AP2112K-3.3"
+      (at 170.18 74.93 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:SOT-23-5"
+      (at 170.18 77.47 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; C3: LDO input bypass cap
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:C")
+    (at 157.48 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0008-4000-8000-000000000001")
+    (property "Reference" "C3"
+      (at 160.02 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "10uF"
+      (at 160.02 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 157.48 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; C4: LDO output bypass cap
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:C")
+    (at 190.5 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0009-4000-8000-000000000001")
+    (property "Reference" "C4"
+      (at 193.04 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "10uF"
+      (at 193.04 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 190.5 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Piezo Harvester + Rectifier (BAT54S + buffer cap)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:BAT54S")
+    (at 134.62 106.68 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000a-4000-8000-000000000001")
+    (property "Reference" "D1"
+      (at 134.62 99.06 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "BAT54S"
+      (at 134.62 114.3 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:SOT-23"
+      (at 134.62 116.84 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C5: Piezo buffer cap
+  (symbol
+    (lib_id "Device:C")
+    (at 152.4 111.76 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000b-4000-8000-000000000001")
+    (property "Reference" "C5"
+      (at 154.94 109.22 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "100uF"
+      (at 154.94 111.76 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
+      (at 152.4 111.76 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; LED1: Charge status LED
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:LED")
+    (at 119.38 88.9 270)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000c-4000-8000-000000000001")
+    (property "Reference" "LED1"
+      (at 114.3 88.9 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "Green"
+      (at 124.46 88.9 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "LED_SMD:LED_0402_1005Metric"
+      (at 119.38 88.9 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; R2: LED series resistor
+  (symbol
+    (lib_id "Device:R")
+    (at 119.38 96.52 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000d-4000-8000-000000000001")
+    (property "Reference" "R2"
+      (at 121.92 96.52 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "1k"
+      (at 121.92 99.06 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 119.38 96.52 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; R3, R4: USB CC pull-down resistors (5.1k for UFP)
+  ;; ============================================================
+  (symbol
+    (lib_id "Device:R")
+    (at 55.88 88.9 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000e-4000-8000-000000000001")
+    (property "Reference" "R3"
+      (at 58.42 88.9 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5.1k"
+      (at 58.42 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 55.88 88.9 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Device:R")
+    (at 63.5 88.9 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000f-4000-8000-000000000001")
+    (property "Reference" "R4"
+      (at 66.04 88.9 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5.1k"
+      (at 66.04 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 63.5 88.9 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Net annotations
+  ;; ============================================================
+  (text "POWER SUPPLY CHAIN"
+    (exclude_from_sim no)
+    (at 25.4 25.4 0)
+    (effects (font (size 2.54 2.54) bold))
+    (uuid "txt-pwr-0001")
+  )
+
+  (text "USB-C VBUS (5V) → ESD clamp → TPS2553 (1A limit) → Supercaps (2×5F 3V parallel = 10F)"
+    (exclude_from_sim no)
+    (at 25.4 30.48 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0002")
+  )
+
+  (text "Supercap voltage (VSCAP, 2.0-3.0V) → AP2112K LDO → VCC (3.3V regulated)"
+    (exclude_from_sim no)
+    (at 25.4 33.02 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0003")
+  )
+
+  (text "Piezo harvester (BAT54S rectifier + 100µF buffer) trickle-charges supercaps"
+    (exclude_from_sim no)
+    (at 25.4 35.56 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0004")
+  )
+
+  (text "CC1/CC2: 5.1kΩ pull-downs identify device as USB UFP (sink)"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0005")
+  )
+)
