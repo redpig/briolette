@@ -12,8 +12,9 @@ Prices as of early 2026; check links for current pricing.
 | 3 | Secure element | Adafruit ATECC608 Breakout (STEMMA QT) | 1 | $4.95 | [Adafruit #4314](https://www.adafruit.com/product/4314) |
 | 4 | I2C cable | STEMMA QT / Qwiic cable 100mm | 1 | $0.95 | [Adafruit](https://www.adafruit.com/product/4210) |
 | 5 | NFC antenna | 13.56 MHz flex PCB antenna or hand-wound coil | 1 | $2-5 | [Molex via DigiKey](https://www.digikey.com/) |
-| 6 | Battery (optional) | 3.7V LiPo 400mAh (JST-PH connector) | 1 | $6 | [Adafruit](https://www.adafruit.com/) |
-|   | **Total** | | | **~$30** | |
+| 6 | Supercapacitor | 5F 3V cylindrical (or 10F 2.7V) | 1-2 | $3-6 | [DigiKey](https://www.digikey.com/) |
+| 7 | Piezo element (opt.) | Piezo disc or cantilever for energy harvesting tests | 1 | $2-5 | [Adafruit](https://www.adafruit.com/) / [Piezo.com](https://piezo.com/) |
+|   | **Total** | | | **~$30-35** | |
 
 ## Option B: Standalone XIAO + Separate Display
 
@@ -25,8 +26,9 @@ Prices as of early 2026; check links for current pricing.
 | 4 | I2C cable | STEMMA QT / Qwiic cable 100mm | 1 | $0.95 | [Adafruit](https://www.adafruit.com/product/4210) |
 | 5 | NFC antenna | 13.56 MHz flex PCB antenna or hand-wound coil | 1 | $2-5 | [Molex via DigiKey](https://www.digikey.com/) |
 | 6 | Jumper wires | Female-female dupont wires (SPI for display) | 6 | $2 | Any supplier |
-| 7 | Battery (optional) | 3.7V LiPo 400mAh | 1 | $6 | [Adafruit](https://www.adafruit.com/) |
-|   | **Total** | | | **~$33** | |
+| 7 | Supercapacitor | 5F 3V cylindrical | 1-2 | $3-6 | [DigiKey](https://www.digikey.com/) |
+| 8 | Piezo element (opt.) | Piezo disc or cantilever for energy harvesting tests | 1 | $2-5 | [Piezo.com](https://piezo.com/) |
+|   | **Total** | | | **~$35** | |
 
 ## Notes
 

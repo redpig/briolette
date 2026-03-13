@@ -42,27 +42,37 @@ keychain or USB-stick form factor.
                     USB-C
                       │
               ┌───────┴───────┐
-              │  ESD + Charge  │
+              │  ESD Protect   │
               │  (IP4292CZ12)  │
-              │  + MCP73831    │
               └───────┬───────┘
-                      │ VBUS/VBAT
-              ┌───────┴───────┐     ┌────────────┐
-              │   nRF52840    │─I2C─│  ATECC608B │
-              │   (QFN-48)    │     │  (UDFN-8)  │
-              │               │     └────────────┘
-              │  CryptoCell   │
-              │  NFC1/NFC2 ───┼──── PCB Trace Antenna
-              │               │
-              │  SPI ─────────┼──── E-Ink Display (FPC)
-              │               │
-              │  GPIO ────────┼──── Button(s)
-              └───────────────┘
-                      │
-              ┌───────┴───────┐
-              │  Supercap     │
-              │  (100mF 3.3V) │
-              └───────────────┘
+                      │ VBUS
+              ┌───────┴───────┐     ┌──────────────────┐
+              │  Charge path   │     │ Supercaps        │
+              │  (current-     │─────│ 2× 5F 3V (par.) │
+              │  limited)      │     │ = 10F total      │
+              └───────────────┘     └────────┬─────────┘
+                                             │ VSCAP (2.0-3.0V)
+              ┌──────────────────────────────┴─┐
+              │  LDO or buck-boost               │
+              │  (3.0V → stable 3.3V or direct)  │
+              └───────────┬─────────────────────┘
+                          │ VCC
+              ┌───────────┴───────────┐
+              │       nRF52840        │     ┌────────────┐
+              │       (QFN-48)        │─I2C─│  ATECC608B │
+              │                       │     │  (UDFN-8)  │
+              │  CryptoCell 310       │     └────────────┘
+              │  NFC1/NFC2 ───────────┼──── PCB Trace Antenna
+              │                       │
+              │  SPI ─────────────────┼──── E-Ink Display (FPC)
+              │                       │
+              │  GPIO ────────────────┼──── Button(s) + Piezo
+              └───────────────────────┘
+
+              ┌───────────────────────┐
+              │  Piezo Harvester      │
+              │  (cantilever + rect.) │──── VSCAP (trickle)
+              └───────────────────────┘
 ```
 
 ## Design Files
@@ -90,9 +100,18 @@ rev1-pcb/
 - **NFC as PCB trace**: Eliminates a discrete antenna component. The
   bottom copper layer has a rectangular spiral trace tuned to 13.56 MHz
   with a matching network (two capacitors).
-- **Supercapacitor**: Allows the device to complete a transaction even
-  if the NFC field drops briefly. Also buffers the e-ink refresh surge
-  current (~40mA peak for ~1s).
+- **Supercapacitors (2× 5F 3V in parallel = 10F)**: Primary energy
+  storage. Infinite cycle life (>1M cycles), no degradation, no fire
+  risk, wide temperature range. 25J stored, ~96 transactions per full
+  charge. Self-discharge (~5-10%/day) offset by piezo harvesting.
+  USB-C recharge takes seconds, not hours.
+- **Piezo energy harvester**: Cantilever-mounted piezoelectric element
+  converts keychain motion into electrical energy. Passive carry offsets
+  supercap self-discharge; deliberate shaking adds ~10-50mJ in 10s.
+  Rectified via a Schottky bridge + small buffer cap into VSCAP rail.
+- **No battery**: Deliberate choice for infinite device lifetime. No
+  capacity fade, no swelling, no replacement needed. The supercap +
+  piezo + USB-C combination covers all use cases.
 - **1.02" e-ink preferred**: Smaller display fits the keychain target.
   128x80 pixels is enough for balance + 2-line status. The 1.54" is an
   option if we relax to credit-card size.

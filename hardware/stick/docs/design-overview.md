@@ -47,12 +47,56 @@ Plugged into a computer or charger:
 - ATECC608B sleep: ~30nA
 - **Total idle: <1µA**
 
-With a 100mF supercap charged to 3.3V:
-- Energy stored: 0.5 × 0.1F × 3.3² = 0.54J
-- At 1µA idle: lasts ~150 hours (theoretical, self-discharge dominates)
-- At 78mAs per transaction: supports ~7 transactions from full charge
+### Power: Supercap-Primary (No Battery)
 
-With an optional LiPo (e.g., 50mAh coin cell): hundreds of transactions.
+LiPo batteries degrade over time (~500 cycles, capacity fade, swelling
+risk). Supercapacitors have effectively infinite cycle life (>1M cycles),
+no degradation, wider temperature range, and no fire risk. The tradeoff
+is lower energy density — but with the right supercap sizing, it works.
+
+**Supercap sizing (2× Kyocera AVX SCC 5F 3V in parallel = 10F):**
+- Stored energy: 0.5 × 10F × 3.0² = 45J
+- Usable energy (3.0V → 2.0V cutoff): 0.5 × 10 × (3.0² - 2.0²) = 25J
+- At ~260mJ per transaction: **~96 transactions** per full charge
+- USB-C charge time: seconds (supercaps charge at high current)
+
+**Self-discharge** is the main concern. A good supercap loses ~5-10%
+per day at room temperature. After a week idle: ~50% charge remaining
+(~48 transactions). After a month: marginal. This is where the piezo
+helps — ambient motion on a keychain keeps topping it off.
+
+### Piezo Energy Harvesting
+
+A piezoelectric cantilever mounted inside the enclosure converts
+keychain motion (walking, pocket jostling, deliberate shaking) into
+electrical energy to trickle-charge the supercap.
+
+**Energy budget from motion:**
+- Typical piezo harvester output: 50-200µW average from walking
+- Deliberate shake: 1-5mW peak
+- Per day of normal keychain carry: ~5-15mJ (passive)
+- Per 10-second shake: ~10-50mJ
+- Transaction cost: ~260mJ each
+
+So passive carry alone won't fully charge a transaction, but it
+**fights self-discharge** and keeps the supercap topped off. A
+10-second deliberate shake before a transaction adds meaningful
+charge. Combined with periodic USB-C top-ups, the supercap stays
+usable indefinitely.
+
+**The shake-to-pay UX:**
+1. Credstick sits on keychain, piezo harvests ambient motion all day
+2. Supercap self-discharge roughly offset by passive harvesting
+3. Before a transaction: user shakes the credstick for a few seconds
+4. Tap to pay — supercap has enough for the transaction + display update
+5. If fully depleted: 5-second USB-C charge restores full capacity
+
+### Alternative: Thin-Film Supercap (PrizmaCap)
+
+For a thinner form factor, the Kyocera AVX PrizmaCap (SCP series)
+offers 15F in a 48×45×0.8mm prismatic package — but at only 2.1V,
+needs a boost converter to reach 3.0V for the nRF52840. Adds
+complexity and conversion losses, but enables a credit-card thickness.
 
 ## Security Architecture
 
