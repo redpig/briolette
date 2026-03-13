@@ -163,6 +163,103 @@ This would be the simplest possible architecture:
 Until platform vendors add pairing-friendly curve support, the P-256
 attestation and split-key/manufacturer-DAA approaches remain necessary.
 
+## Decloaking and Auditability
+
+The NAC attestation architecture is inseparable from the revocation system's
+decloaking mechanism. When a double-spend is detected, the system must be
+able to trace the ECDAA pseudonym back to a device identity — and this
+trace must be externally auditable so the operator cannot silently target
+individual wallets.
+
+### How Decloaking Works
+
+1. **Detection**: A double-spend produces two ECDAA signatures sharing the
+   same pseudonym `K = H(basename)^sk` (Invariant 1 in security_model.md).
+
+2. **Identity revelation**: The registrar issued the NAC credential with a
+   `hw_nonce` derived from the device's attestation. For Algorithm::NONE,
+   this is just `hw_id`. For Android/iOS attestation, it's extracted from
+   the attestation certificate chain. The registrar can map the revealed
+   pseudonym back to this `hw_nonce`, identifying the device.
+
+3. **Revocation**: The operator publishes the revocation in the next epoch.
+   All wallets see this in the epoch data. The card's bloom filter prevents
+   the revoked wallet from signing with any basename in the revoked group.
+
+### Public Auditability Requirement
+
+The decloaking mechanism must be **externally auditable**: the operator
+cannot selectively decloak a wallet without it being observable to all
+participants in the same NAC group.
+
+The key property is that **basenames are public and uniform within a group**.
+When the clerk issues tickets, the basenames used for NAC signatures come
+from the epoch data, which is broadcast to all wallets. If the clerk wants
+to force a credential to decloak (by requiring a repeated basename that
+would link two signatures), it must offer that basename to every wallet in
+the NAC group — not just the target.
+
+This works because:
+
+- **Epoch data is signed and public**: All wallets in the group see the same
+  epoch, including any basename constraints. A clerk cannot send different
+  epoch data to different wallets without detection (wallets can compare
+  epochs via gossip during peer-to-peer transactions).
+
+- **Bloom filter enforces uniformity**: The JavaCard's bloom filter tracks
+  which basenames the card has already signed. If the clerk re-issues a
+  basename, the card refuses to sign it again (the bloom filter returns a
+  hit). This means:
+  - The clerk cannot trick a card into double-signing with the same basename
+  - The only way to get a repeated basename is to reset the bloom filter
+    via an epoch transition (which is visible to all participants)
+
+- **Group-wide impact**: If the clerk forces basename repetition to decloak
+  one wallet, ALL wallets in that NAC group are affected — they all face
+  the same basename set. This makes targeted surveillance expensive and
+  visible: the operator would have to accept linkability across the entire
+  group, not just one wallet.
+
+### Attestation Strengthens Decloaking
+
+The stronger the attestation, the more meaningful the decloaked identity:
+
+| Tier | What `hw_nonce` resolves to |
+|------|----------------------------|
+| LOW | Self-reported `hw_id` (unverified, easily spoofed) |
+| MEDIUM | Attested device identity (TEE/SE-bound, manufacturer-verifiable) |
+| HIGH | Attested device + card contribution (phone alone can't sign) |
+| HIGH+ | Attested device + attested card (both are genuine hardware) |
+
+At LOW tier, decloaking reveals an `hw_id` that the wallet chose — it
+could be fake. At MEDIUM+, the `hw_nonce` is derived from a hardware
+attestation that the registrar verified at registration, so the decloaked
+identity is cryptographically bound to genuine hardware.
+
+With manufacturer DAA credentials (HIGH+), decloaking can identify both
+the device (via P-256 attestation) and the card manufacturer/batch (via
+the DAA credential's group), giving the operator a complete picture of
+the compromised hardware for enforcement and potential recall.
+
+### Privacy vs. Accountability Balance
+
+The system achieves accountability without routine surveillance:
+
+- **Normal operation**: ECDAA signatures are unlinkable across different
+  basenames. The clerk learns nothing about which wallet signed what.
+
+- **Double-spend**: The repeated basename (from the forked token history)
+  produces a linkable pseudonym, revealing the cheater — but ONLY the
+  cheater, and only because they violated the protocol.
+
+- **Forced decloaking**: Possible, but publicly auditable. The clerk must
+  broadcast repeated basenames to the entire NAC group via epoch data,
+  making any attempt at surveillance visible to all participants and
+  degrading privacy for the whole group (not just the target).
+
+This is the fundamental design invariant: **the cost of decloaking one
+wallet is proportional to the privacy cost imposed on the entire group**.
+
 ## Security Level Summary
 
 | Tier | Phone Attestation | Card Proof | Guarantee |
