@@ -39,7 +39,15 @@ two credsticks and optionally hosts the transaction details.
      │                     │                      │
      │──── Tap A ──────────│                      │
      │  TRANSFER(ticket,   │                      │
-     │    amount, tokens)  │                      │
+     │    amount)           │                      │
+     │                     │                      │
+     │  E-ink shows:       │                      │
+     │  "Pay 3 tokens?"    │                      │
+     │  "◄ No    Yes ►"    │                      │
+     │                     │                      │
+     │  User presses ► to  │                      │
+     │  confirm on credstick                      │
+     │                     │                      │
      │  [BLS sign + attest]│                      │
      │────► signed tokens ─│                      │
      │                     │                      │
@@ -53,6 +61,12 @@ two credsticks and optionally hosts the transaction details.
      ▼                     ▼                      ▼
   "-3 tokens"          "Done!"             "+3 tokens"
 ```
+
+**Important**: The sender's credstick displays the proposed amount on its
+e-ink screen and waits for the user to press the confirm button before
+signing any tokens. This prevents a malicious relay from altering the
+amount — the credstick independently shows what it's being asked to sign.
+See `button-pin-auth.md` for the full button interaction model.
 
 ### APDU Protocol (New Commands for Credstick)
 

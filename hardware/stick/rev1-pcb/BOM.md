@@ -37,7 +37,7 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 | # | Component | Description | Qty | ~$1 | ~$1k |
 |---|-----------|-------------|-----|-----|------|
 | 20 | FPC connector | 24-pin 0.5mm pitch (for e-ink) | 1 | $0.30 | $0.15 |
-| 21 | Tactile switch | 3x3mm SMD button | 1 | $0.15 | $0.08 |
+| 21 | Tactile switches | 3x3mm SMD button (L/R) | 2 | $0.30 | $0.16 |
 | 22 | Keyring hole | 3mm plated through-hole in PCB | 1 | $0 | $0 |
 | 23 | Enclosure | 3D-printed or injection-molded shell | 1 | $3 | $0.50 |
 

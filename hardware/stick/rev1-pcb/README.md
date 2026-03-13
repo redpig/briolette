@@ -19,13 +19,18 @@ keychain or USB-stick form factor.
   │ring │    E-Ink Display    │  │ USB-C  │ │
   │     │     1.02" / 1.54"   │  └────────┘ │
   │     └─────────────────────┘             │
-  │                                          │
+  │     [◄]                 [►]             │
   │    ╔══════════════════════════╗          │
   │    ║   NFC Trace Antenna     ║          │
   │    ╚══════════════════════════╝          │
   └─────────────────────────────────────────┘
          ~60mm x 30mm (top view)
 ```
+
+The two buttons [◄] [►] sit below the display, aligned with the
+"No" and "Yes" labels shown during transaction confirmation. They
+also serve as PIN entry (left/right + timing), balance navigation,
+and general UI control. See `docs/button-pin-auth.md` for details.
 
 ## Layer Stack (4-layer PCB)
 

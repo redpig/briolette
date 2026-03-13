@@ -162,6 +162,16 @@ complexity and conversion losses, but enables a credit-card thickness.
 └────────────────┘
 ```
 
+### Transaction Confirmation (Sender)
+```
+┌────────────────┐
+│  Pay 5 tokens?  │
+│  "Coffee"       │
+│                 │
+│  ◄ No    Yes ►  │
+└────────────────┘
+```
+
 ### Waiting for Tap
 ```
 ┌────────────────┐
