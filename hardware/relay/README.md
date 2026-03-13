@@ -131,32 +131,41 @@ Power LED blinks once every 10s to show charge state:
 
 ### 2. Transaction Mode (Button Press)
 
-User presses button 1 to start a relay session:
+User presses button 1 to start a relay session. The flow mirrors
+`receiver.proto` (Initiate → Transact → Transfer):
 
 ```
-Press [1] → Green LED on → "Ready, tap receiver credstick"
-Tap receiver → Blue LED blinks → reading ticket...
-              → Blue LED solid → got ticket, tap sender
-Tap sender   → Relay sends ticket + amount to credstick
-              → Credstick e-ink shows: "Pay 5 tokens? ◄No Yes►"
-              → User presses Right button on CREDSTICK to confirm
-              → Credstick signs tokens, returns to relay
-              → Blue LED solid → got tokens, tap receiver again
-Tap receiver → Blue LED blinks → delivering...
+Press [1] → Green LED on → "Ready"
+
+Tap receiver → Blue LED blinks → READ_TICKET (0x11)
+              → Blue LED solid → got ticket
+
+Tap sender   → Relay sends INITIATE (0x10) + TRANSACT (0x20)
+(tap 1)      → Credstick e-ink shows: "Pay 5 tokens?"
+              → Returns unsigned tokens (proposal)
+              → Blue LED solid → got proposal
+
+              [User lifts credstick, reads display, enters PIN
+               if required — all off the relay]
+
+Tap sender   → Relay sends TRANSFER (0x30) with accept=true
+(tap 2)      → Credstick checks PIN was entered (if needed)
+              → BLS signs tokens, returns signatures
+              → Blue LED solid → got signed tokens
+
+Tap receiver → Relay sends RECEIVE (0x31) with signed tokens
               → Green LED flash 3x → done!
               → (or Red LED flash 3x → failed)
 ```
 
 **Critical UX: the sender's credstick displays the proposed amount
-and requires explicit button confirmation before signing.** The relay
-cannot forge the amount because the credstick independently shows
-what it's being asked to sign. This is the same user-confirmation
-flow described in `button-pin-auth.md` — the credstick never
-auto-signs without the user seeing and approving the amount.
+on its e-ink screen during tap 1, and the user enters PIN between
+taps.** The relay cannot forge the amount because the credstick
+independently shows the actual APDU payload amount. The user
+confirms by choosing to tap again — the physical tap IS consent.
+No button press during NFC contact is ever required.
 
-The 4-tap sequence is guided by LED color only on the relay — no
-screen needed on the relay because the credstick's own e-ink display
-handles the critical user-facing confirmation.
+See `button-pin-auth.md` for the full PIN-between-taps flow.
 
 ### 3. Fixed-Amount Mode (Merchant Use)
 

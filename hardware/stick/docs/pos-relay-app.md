@@ -58,9 +58,17 @@ configured once, not re-entered per sale.
 └─────────────────────────────────────────────────────┘
 ```
 
-### Transaction Flow (2 Taps, Not 4)
+### Transaction Modes
 
-Since the receiver credstick isn't present, the flow simplifies:
+The credstick supports two transaction modes that separate the act of
+**proposing** payment from **committing** to it. This separation means
+the user never needs to press a button while in the NFC field — the
+physical act of tapping again IS the confirmation.
+
+### Mode 1: 2-Tap (Fast, Less Private)
+
+The default mode. Optimized for speed at the cost of revealing which
+tokens would be spent before the user commits.
 
 ```
   Customer          PoS App (Phone)         Tokenmap (if online)
@@ -69,26 +77,140 @@ Since the receiver credstick isn't present, the flow simplifies:
      │                    │  [Stored ticket +      │
      │                    │   epoch data ready]    │
      │                    │                        │
-     │──── Tap ──────────│                        │
-     │  TRANSFER(ticket,  │                        │
-     │    amount, tokens)  │                        │
-     │  [BLS sign + attest]│                        │
-     │────► signed tokens ─│                        │
+     │──── Tap 1 ────────│                        │
+     │  INITIATE(ticket,  │                        │
+     │    items, epoch)   │                        │
+     │  + TRANSACT        │                        │
      │                    │                        │
-     │                    │── Online? ─────────────│
-     │                    │   Validate tokens      │
-     │                    │   Check double-spend   │
-     │                    │◄── valid / invalid ────│
+     │  Credstick e-ink:  │                        │
+     │  "Pay 5 tokens?"   │                        │
      │                    │                        │
-     │──── Tap ──────────│                        │
-     │  CONFIRM(result)   │                        │
+     │  Returns UNSIGNED  │                        │
+     │  proposed tokens ──│                        │
+     │                    │                        │
+     │  [User lifts       │── Online? ─────────────│
+     │   credstick,       │   Validate tokens      │
+     │   reads display,   │   Check double-spend   │
+     │   decides]         │◄── valid / invalid ────│
+     │                    │                        │
+     │──── Tap 2 ────────│                        │
+     │  TRANSFER(tx_id,   │                        │
+     │   accept=true)     │                        │
+     │  (tapping again    │                        │
+     │   = consent)       │                        │
+     │                    │                        │
+     │  [BLS sign + attest]                        │
+     │────► signed tokens─│                        │
      │  [updates display] │                        │
      ▼                    ▼                        ▼
   "-5 tokens"        "✓ Received 5"
 ```
 
-**Only 2 taps needed** (not 4), because the receiver credstick isn't
-involved at transaction time.
+**How it works:**
+1. **Tap 1**: PoS sends proposal (ticket + amount). Credstick displays
+   the amount on e-ink and returns **unsigned tokens** that would fulfill
+   the payment. The PoS can immediately begin online validation.
+2. **Between taps**: User lifts credstick, reads their display ("Pay 5
+   tokens?"), and decides. Meanwhile, the PoS validates the unsigned
+   tokens against the tokenmap if online.
+3. **Tap 2**: User taps again — this physical action IS consent. The PoS
+   sends accept/reject. If accepted, the credstick signs and returns
+   the signatures. If rejected (e.g., double-spend detected), the
+   credstick is informed and no signing occurs.
+
+**Privacy tradeoff**: The PoS sees which specific tokens would be spent
+before the user commits. This allows the merchant (or tokenmap) to check
+for double-spends, but also reveals token history to the PoS before
+finalization. The unsigned tokens are cryptographically useless — they
+can't be spent without signatures — but the metadata is exposed.
+
+**No button needed**: The user confirms by tapping again. If they don't
+want to pay (wrong amount, changed their mind), they simply walk away.
+The e-ink display retains the "Pay 5 tokens?" message until the next
+interaction, so there's no time pressure.
+
+### Mode 2: 3-Tap (Private, More Friction)
+
+For privacy-sensitive users. Tokens aren't revealed until after the
+user has seen and accepted the proposal.
+
+```
+  Customer          PoS App (Phone)         Tokenmap (if online)
+  Credstick
+     │                    │                        │
+     │──── Tap 1 ────────│                        │
+     │  INITIATE(ticket,  │                        │
+     │    items, epoch)   │                        │
+     │                    │                        │
+     │  Credstick e-ink:  │                        │
+     │  "Pay 5 tokens?"   │                        │
+     │                    │                        │
+     │  Returns: tx_id    │                        │
+     │  (no tokens yet)   │                        │
+     │                    │                        │
+     │  [User reads       │                        │
+     │   display, decides]│                        │
+     │                    │                        │
+     │──── Tap 2 ────────│                        │
+     │  TRANSACT(tx_id)   │                        │
+     │  (consent to       │                        │
+     │   reveal tokens)   │                        │
+     │                    │                        │
+     │  Returns UNSIGNED  │                        │
+     │  proposed tokens ──│── Online? ─────────────│
+     │                    │   Validate tokens      │
+     │  [Long hold: stay  │   Check double-spend   │
+     │   on reader while  │◄── valid / invalid ────│
+     │   PoS validates]   │                        │
+     │                    │                        │
+     │  TRANSFER(tx_id,   │                        │
+     │   accept=true)     │                        │
+     │  [BLS sign + attest]                        │
+     │────► signed tokens─│                        │
+     │                    │                        │
+     ▼                    ▼                        ▼
+  "-5 tokens"        "✓ Received 5"
+
+
+  Alternative: Taps 2+3 separate if PoS validation is slow
+
+     │──── Tap 2 ────────│                        │
+     │  TRANSACT(tx_id)   │                        │
+     │  unsigned tokens ──│── Online? ─────────────│
+     │                    │   Validate tokens      │
+     │                    │◄── valid / invalid ────│
+     │                    │                        │
+     │──── Tap 3 ────────│                        │
+     │  TRANSFER(tx_id,   │                        │
+     │   accept=true)     │                        │
+     │  [BLS sign + attest]                        │
+     │────► signed tokens─│                        │
+     ▼                    ▼                        ▼
+```
+
+**Tap 2+3 merge (long hold)**: In practice, the user can hold the
+credstick on the reader during tap 2. The credstick sends unsigned
+tokens, the PoS validates (possibly just milliseconds for local crypto
+check), and immediately requests signatures — all in one sustained
+contact. The user experiences this as a single "long tap" (~3-5 seconds)
+rather than three separate taps. If validation takes longer (online
+check), the user lifts and does a third tap.
+
+**Privacy advantage**: No token data is revealed until tap 2, after the
+user has explicitly consented. A malicious PoS that sends a bogus
+proposal gets nothing — just an "OK, I see the proposal" from tap 1.
+
+### Mode Selection
+
+The credstick's privacy mode is a user preference set during setup:
+
+| Mode | Taps | Privacy | Speed | Default For |
+|------|------|---------|-------|-------------|
+| Fast (2-tap) | 2 | Lower | ~3s total | Small amounts, daily use |
+| Private (3-tap) | 2-3 | Higher | ~5-8s total | Large amounts, sensitive |
+
+The credstick can auto-select based on amount threshold: fast mode
+below N tokens, private mode above. Configurable via USB setup.
 
 ### Screen 1: Transaction Setup
 
@@ -113,7 +235,7 @@ involved at transaction time.
 └─────────────────────────┘
 ```
 
-### Screen 2: Tap to Pay (Single Tap)
+### Screen 2: Waiting for Taps
 
 ```
 ┌─────────────────────────┐
@@ -121,11 +243,26 @@ involved at transaction time.
 │      💳 ──→ 📱          │
 │                         │
 │  Tap customer's         │
-│  credstick to pay       │
+│  credstick (tap 1/2)    │
 │                         │
 │  Amount: 5 tokens       │
 │                         │
-│  ● Online (validating)  │  ← or "○ Offline (trust)"
+│  ● Online (will check)  │  ← or "○ Offline"
+└─────────────────────────┘
+```
+
+After tap 1 (proposal sent, unsigned tokens received):
+
+```
+┌─────────────────────────┐
+│  Validating tokens...   │
+│  ✓ Crypto valid         │
+│  ● Checking tokenmap... │
+│                         │
+│  Tap again to confirm   │
+│      💳 ──→ 📱          │
+│                         │
+│  Amount: 5 tokens       │
 └─────────────────────────┘
 ```
 
@@ -213,19 +350,116 @@ the same protocol but adapted for NFC instead of gRPC:
 
 ## APDU Protocol
 
-| Step | Command | INS | Data In | Data Out |
-|------|---------|-----|---------|----------|
-| 1 | TRANSFER | 0x20 | amount + items | ticket + epoch (PoS → credstick) |
-| 1b | TRANSFER_RESP | — | — | signed Token[] (credstick → PoS) |
-| 2 | CONFIRM | 0x40 | accepted (bool) + validation_status | — |
-| — | READ_TICKET | 0x10 | — | SignedTicket (setup only) |
-| — | SWEEP | 0x50 | Token[] | accepted (bool) (collection) |
+The APDU protocol mirrors the existing `receiver.proto` RPC protocol
+directly. Each RPC maps to an APDU command — the PoS is translating
+between gRPC semantics and NFC APDUs, not inventing a new protocol.
 
-The TRANSFER command is a two-phase exchange within a single NFC session:
-1. PoS sends the stored ticket + amount to the credstick
-2. Credstick signs and returns tokens in the same session
-3. PoS validates (online or offline)
-4. PoS sends CONFIRM with result
+### Mapping: receiver.proto → APDU
+
+| Receiver RPC | APDU | INS | Direction | Purpose |
+|--------------|------|-----|-----------|---------|
+| `Initiate` | INITIATE | 0x10 | PoS → credstick | Send ticket + items + epoch; get tx_id |
+| `Gossip` | GOSSIP | 0x12 | bidirectional | Exchange epoch updates if mismatched |
+| `Transact` | TRANSACT | 0x20 | credstick → PoS | Propose unsigned tokens for settlement |
+| `Transfer` | TRANSFER | 0x30 | credstick → PoS | Send final signatures to commit |
+
+### Setup / Management APDUs
+
+| Command | INS | Data In | Data Out |
+|---------|-----|---------|----------|
+| READ_TICKET | 0x11 | — | SignedTicket (merchant setup) |
+| SWEEP | 0x50 | Token[] | accepted (bool) (token collection) |
+| GET_BALANCE | 0x51 | — | Amount (protobuf) |
+
+### 2-Tap Flow (Fast Mode)
+
+Maps to: Initiate + Transact in one tap, Transfer in the second.
+
+```
+Tap 1: SELECT AID
+       → INITIATE(ticket, epoch, items)    -- mirrors InitiateReply
+       ← tx_id + epoch
+       → TRANSACT(tx_id, methods[])        -- credstick selects tokens
+       ← unsigned Token[] per method       -- mirrors TransactRequest
+       (e-ink updated: "Pay N tokens?")
+       (user lifts credstick, enters PIN if needed)
+
+       [PoS validates unsigned tokens online if connected]
+
+Tap 2: SELECT AID
+       → TRANSFER(tx_id, accept/reject)    -- mirrors TransactReply
+       ← signed Token[] (final History)    -- mirrors TransferRequest
+       (e-ink updated: "-N tokens")
+```
+
+The credstick returns unsigned tokens during TRANSACT (the proposal).
+On tap 2, the PoS tells the credstick whether it accepts, and if so,
+the credstick signs and returns the final signatures. This directly
+parallels the gRPC flow where `Transact` proposes and `Transfer`
+finalizes.
+
+### 3-Tap Flow (Private Mode)
+
+Maps to: Initiate on tap 1, Transact on tap 2, Transfer on tap 2/3.
+
+```
+Tap 1: SELECT AID
+       → INITIATE(ticket, epoch, items)
+       ← tx_id + epoch
+       (e-ink updated: "Pay N tokens?" — no tokens revealed yet)
+       (user lifts credstick, enters PIN if needed)
+
+Tap 2: SELECT AID
+       → TRANSACT(tx_id, methods[])
+       ← unsigned Token[] per method
+       [PoS validates; if long hold, continues in same session:]
+       → TRANSFER(tx_id, accept/reject)
+       ← signed Token[]
+
+ -- OR, if PoS needs time to validate online: --
+
+Tap 2: → TRANSACT → ← unsigned tokens
+       (user lifts; PoS validates async)
+
+Tap 3: → TRANSFER(tx_id, accept) → ← signed tokens
+```
+
+Taps 2+3 merge naturally via long hold: the credstick sends unsigned
+tokens on TRANSACT, the PoS validates (milliseconds for local crypto),
+then immediately sends TRANSFER in the same NFC session. The user
+experiences a single ~3-5s "long tap."
+
+### State Machine
+
+The credstick tracks protocol state across NFC sessions, mirroring
+the Receiver server's transaction state tracking:
+
+```
+IDLE ──INITIATE──▶ INITIATED ──TRANSACT──▶ PROPOSED
+  ▲                     │                      │
+  │                     │ (timeout 5min)       │ (timeout 5min)
+  │                     ▼                      ▼
+  └──────────── EXPIRED ◄──────────────── EXPIRED
+
+PROPOSED ──TRANSFER(accept)──▶ COMPLETE ──▶ IDLE
+PROPOSED ──TRANSFER(reject)──▶ IDLE (no signing)
+INITIATED ──GOSSIP──▶ INITIATED (epoch updated, retry Initiate)
+```
+
+State is persisted in RAM (supercap-backed). If the credstick fully
+loses power between taps, the proposal expires and the user starts
+over. The 5-minute timeout prevents stale proposals from lingering.
+
+### Note on TransactRequest Adaptation
+
+In the gRPC protocol, the **sender** calls `Transact` on the
+**receiver** to propose tokens. In the APDU protocol, the roles are
+inverted for the credstick-as-sender case: the PoS (acting as
+receiver) sends INITIATE to the credstick, and the credstick responds
+to TRANSACT by selecting and returning its own tokens. The message
+formats (`TransactionItemMethod`, `Token`) remain identical — only the
+transport direction changes from client-initiated gRPC to
+reader-initiated APDU.
 
 ## Token Accumulation and Sweep
 

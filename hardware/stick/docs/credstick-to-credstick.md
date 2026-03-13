@@ -29,54 +29,88 @@ two credsticks and optionally hosts the transaction details.
 
 ### Flow: Credstick A Pays Credstick B
 
+The flow mirrors the `Initiate → Transact → Transfer` protocol from
+`receiver.proto`. The phone relays APDUs that map directly to those RPCs.
+
 ```
   Credstick A           Phone (PoS)          Credstick B
   (sender)              (relay)               (receiver)
      │                     │                      │
      │                     │──── Tap B ───────────│
-     │                     │  READ_TICKET          │
+     │                     │  READ_TICKET (0x11)   │
      │                     │◄──── SignedTicket ────│
      │                     │                      │
-     │──── Tap A ──────────│                      │
-     │  TRANSFER(ticket,   │                      │
-     │    amount)           │                      │
+     │──── Tap A (1) ─────│                      │
+     │  INITIATE (0x10)    │                      │
+     │  [ticket + items    │                      │
+     │   + epoch]          │                      │
+     │  ◄── tx_id + epoch  │                      │
+     │  TRANSACT (0x20)    │                      │
+     │  ◄── unsigned       │                      │
+     │      Token[]        │                      │
      │                     │                      │
      │  E-ink shows:       │                      │
      │  "Pay 3 tokens?"    │                      │
-     │  "◄ No    Yes ►"    │                      │
+     │  "Enter PIN: ____"  │                      │
      │                     │                      │
-     │  User presses ► to  │                      │
-     │  confirm on credstick                      │
+     │  [user lifts,       │                      │
+     │   enters PIN,       │                      │
+     │   e-ink: "Tap to    │                      │
+     │   confirm"]         │                      │
      │                     │                      │
+     │──── Tap A (2) ─────│                      │
+     │  TRANSFER (0x30)    │                      │
+     │  [accept=true]      │                      │
      │  [BLS sign + attest]│                      │
      │────► signed tokens ─│                      │
      │                     │                      │
      │                     │──── Tap B ───────────│
-     │                     │  RECEIVE(tokens)      │
+     │                     │  RECEIVE (0x31)       │
+     │                     │  [signed tokens]      │
      │                     │◄──── accepted ───────│
      │                     │                      │
-     │──── Tap A ──────────│                      │
-     │  CONFIRM(accepted)  │                      │
-     │  [updates display]  │                      │
      ▼                     ▼                      ▼
   "-3 tokens"          "Done!"             "+3 tokens"
+  (e-ink auto-         (phone shows        (e-ink shows
+   updates on           result)             "+3 tokens
+   Transfer)                                (unvalidated)")
 ```
 
-**Important**: The sender's credstick displays the proposed amount on its
-e-ink screen and waits for the user to press the confirm button before
-signing any tokens. This prevents a malicious relay from altering the
-amount — the credstick independently shows what it's being asked to sign.
-See `button-pin-auth.md` for the full button interaction model.
+**Key points:**
+- **Tap A (1)**: INITIATE + TRANSACT in one session. The credstick sees
+  the proposal and returns unsigned tokens, but does NOT sign yet.
+  E-ink updates to show the amount. PIN entry happens off the reader.
+- **Tap A (2)**: TRANSFER with accept=true. The credstick checks PIN was
+  entered (if required), signs the tokens, and returns signatures.
+  The physical act of tapping again IS the user's consent.
+- **No button press during NFC**: PIN entry happens between taps while
+  the user holds the credstick in their hand. See `button-pin-auth.md`.
+- **Unsigned tokens during Transact**: These let the PoS validate (if
+  online) while the user decides. Privacy-sensitive users can use
+  3-tap mode where tokens aren't revealed until after consent.
 
-### APDU Protocol (New Commands for Credstick)
+### APDU Protocol (Mirrors receiver.proto)
 
-| Command | INS | Data In | Data Out |
-|---------|-----|---------|----------|
-| READ_TICKET | 0x10 | — | SignedTicket (protobuf) |
-| TRANSFER | 0x20 | ticket + amount | signed Token[] (protobuf) |
-| RECEIVE | 0x30 | Token[] (protobuf) | accepted (bool) |
-| CONFIRM | 0x40 | accepted (bool) | — (updates display) |
-| GET_BALANCE | 0x50 | — | Amount (protobuf) |
+The APDU commands map directly to the existing Receiver service RPCs.
+The phone/relay translates between the two credsticks using the same
+message formats.
+
+**Sender credstick APDUs:**
+
+| Command | INS | Maps to | Data In | Data Out |
+|---------|-----|---------|---------|----------|
+| INITIATE | 0x10 | `InitiateReply` | ticket + items + epoch | tx_id + epoch |
+| GOSSIP | 0x12 | `Gossip` | EpochUpdate | EpochUpdate |
+| TRANSACT | 0x20 | `TransactRequest` | tx_id | unsigned Token[] (proposal) |
+| TRANSFER | 0x30 | `TransferRequest` | tx_id + accept/reject | signed Token[] (if accepted) |
+
+**Receiver credstick APDUs:**
+
+| Command | INS | Maps to | Data In | Data Out |
+|---------|-----|---------|---------|----------|
+| READ_TICKET | 0x11 | `InitiateReply.ticket` | — | SignedTicket (protobuf) |
+| RECEIVE | 0x31 | `Transfer` (incoming) | signed Token[] | accepted (bool) |
+| GET_BALANCE | 0x51 | — | — | Amount (protobuf) |
 
 ### What the Phone PoS App Does
 
