@@ -6,19 +6,43 @@ import com.briolette.wallet.data.*
 import com.briolette.wallet.ui.components.QrCodeGenerator
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
 import kotlinx.cinterop.usePinned
+import kotlinx.cinterop.value
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
+import platform.CoreFoundation.CFDictionaryRef
 import platform.CoreGraphics.*
 import platform.CoreImage.CIContext
 import platform.CoreImage.CIFilter
 import platform.CoreImage.filterWithName
+import platform.Foundation.CFBridgingRelease
+import platform.Foundation.CFBridgingRetain
+import platform.Foundation.NSData
 import platform.Foundation.NSString
-import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.create
 import platform.Foundation.dataUsingEncoding
 import platform.Foundation.setValue
+import platform.Security.SecItemAdd
+import platform.Security.SecItemCopyMatching
+import platform.Security.SecItemDelete
+import platform.Security.SecItemUpdate
+import platform.Security.errSecItemNotFound
+import platform.Security.errSecSuccess
+import platform.Security.kSecAttrAccessible
+import platform.Security.kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+import platform.Security.kSecAttrAccount
+import platform.Security.kSecAttrService
+import platform.Security.kSecClass
+import platform.Security.kSecClassGenericPassword
+import platform.Security.kSecMatchLimit
+import platform.Security.kSecMatchLimitOne
+import platform.Security.kSecReturnData
+import platform.Security.kSecValueData
 
 /**
  * iOS QR code generator using CoreImage CIQRCodeGenerator filter.
@@ -79,24 +103,85 @@ class IosQrCodeGenerator : QrCodeGenerator {
 }
 
 /**
- * iOS wallet persistence using NSUserDefaults.
+ * iOS wallet persistence using the iOS Keychain.
+ *
+ * Stores the wallet JSON as a generic password item in the Keychain with
+ * `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`. This means:
+ *   - Data is encrypted at rest by the Secure Enclave's class keys
+ *   - Data is only accessible when the device is unlocked
+ *   - Data does not migrate to new devices (non-transferable)
+ *
+ * This replaces the previous NSUserDefaults storage, which kept wallet
+ * secrets (ECDAA private keys) in a plaintext plist on disk.
  */
 class IosWalletPersistence : WalletPersistence {
-    private val defaults = NSUserDefaults.standardUserDefaults
-    private val key = "briolette_wallet_json"
 
+    @OptIn(ExperimentalForeignApi::class)
     override suspend fun save(json: String) {
-        defaults.setObject(json, forKey = key)
-        defaults.synchronize()
+        val data = (json as NSString).dataUsingEncoding(NSUTF8StringEncoding)
+            ?: throw IllegalStateException("Failed to encode wallet JSON to UTF-8 data")
+
+        val query = baseQuery()
+        // Try to update first; if the item doesn't exist, add it.
+        val updateAttrs = mapOf<Any?, Any?>(
+            kSecValueData to data,
+        )
+
+        @Suppress("UNCHECKED_CAST")
+        val status = SecItemUpdate(
+            query as CFDictionaryRef,
+            updateAttrs as CFDictionaryRef,
+        )
+        if (status == errSecItemNotFound) {
+            val addQuery = query.toMutableMap().apply {
+                put(kSecValueData, data)
+                put(kSecAttrAccessible, kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+            }
+            @Suppress("UNCHECKED_CAST")
+            val addStatus = SecItemAdd(addQuery as CFDictionaryRef, null)
+            if (addStatus != errSecSuccess) {
+                throw IllegalStateException("Keychain SecItemAdd failed with status $addStatus")
+            }
+        } else if (status != errSecSuccess) {
+            throw IllegalStateException("Keychain SecItemUpdate failed with status $status")
+        }
     }
 
+    @OptIn(ExperimentalForeignApi::class)
     override suspend fun load(): String? {
-        return defaults.stringForKey(key)
+        val query = baseQuery().toMutableMap().apply {
+            put(kSecReturnData, true)
+            put(kSecMatchLimit, kSecMatchLimitOne)
+        }
+        return memScoped {
+            val result = alloc<kotlinx.cinterop.ObjCObjectVar<Any?>>()
+            @Suppress("UNCHECKED_CAST")
+            val status = SecItemCopyMatching(query as CFDictionaryRef, result.ptr)
+            if (status == errSecSuccess) {
+                val data = result.value as? NSData ?: return@memScoped null
+                NSString.create(data = data, encoding = NSUTF8StringEncoding) as? String
+            } else {
+                null
+            }
+        }
     }
 
+    @OptIn(ExperimentalForeignApi::class)
     override suspend fun clear() {
-        defaults.removeObjectForKey(key)
-        defaults.synchronize()
+        val query = baseQuery()
+        @Suppress("UNCHECKED_CAST")
+        SecItemDelete(query as CFDictionaryRef)
+    }
+
+    private fun baseQuery(): Map<Any?, Any?> = mapOf(
+        kSecClass to kSecClassGenericPassword,
+        kSecAttrService to KEYCHAIN_SERVICE,
+        kSecAttrAccount to KEYCHAIN_ACCOUNT,
+    )
+
+    companion object {
+        private const val KEYCHAIN_SERVICE = "com.briolette.wallet"
+        private const val KEYCHAIN_ACCOUNT = "wallet_state"
     }
 }
 
