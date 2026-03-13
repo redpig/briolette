@@ -1,0 +1,67 @@
+(footprint "Piezo_Cantilever_25x5mm"
+  (version 20240108)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (layer "F.Cu")
+  (descr "Piezoelectric cantilever harvester solder pads, ~25x5mm beam, Mide PPA-1014 equivalent")
+  (tags "piezo harvester energy cantilever PPA-1014")
+  (property "Reference" "REF**"
+    (at 0 -5.0 0)
+    (layer "F.SilkS")
+    (effects (font (size 1 1) (thickness 0.15)))
+  )
+  (property "Value" "Piezo_Cantilever_25x5mm"
+    (at 0 5.0 0)
+    (layer "F.Fab")
+    (effects (font (size 1 1) (thickness 0.15)))
+  )
+  (attr smd)
+
+  ;; Courtyard (beam outline + clearance)
+  (fp_rect
+    (start -14.0 -4.0)
+    (end 14.0 4.0)
+    (stroke (width 0.05) (type default))
+    (fill none)
+    (layer "F.CrtYd")
+  )
+
+  ;; Beam outline on fab layer
+  (fp_rect
+    (start -12.5 -2.5)
+    (end 12.5 2.5)
+    (stroke (width 0.1) (type default))
+    (fill none)
+    (layer "F.Fab")
+  )
+
+  ;; Mounting / anchor area (fixed end, right side)
+  (fp_rect
+    (start 10.0 -3.0)
+    (end 13.0 3.0)
+    (stroke (width 0.1) (type solid))
+    (fill solid)
+    (layer "F.SilkS")
+  )
+
+  ;; Solder pads at the fixed (anchor) end of the cantilever
+  ;; These connect to the piezo electrode wires
+  (pad "1" smd rect
+    (at 11.0 -1.5)
+    (size 2.0 1.5)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+  )
+  (pad "2" smd rect
+    (at 11.0 1.5)
+    (size 2.0 1.5)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+  )
+
+  ;; Mechanical mounting hole for clamping the cantilever base
+  (pad "MP" thru_hole circle
+    (at 12.0 0)
+    (size 1.6 1.6)
+    (drill 1.0)
+    (layers "*.Cu" "*.Mask")
+  )
+)

@@ -1,0 +1,5 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "relay-lib")(type "KiCad")(uri "${KIPRJMOD}/relay-lib.kicad_sym")(options "")(descr "Briolette Relay custom symbols"))
+  (lib (name "stick-lib")(type "KiCad")(uri "${KIPRJMOD}/../../stick/rev1-pcb/kicad/stick-lib.kicad_sym")(options "")(descr "Shared credstick symbols"))
+)
