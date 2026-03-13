@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 rootProject.name = "BrioletteWallet"
 include(":shared")
 include(":androidApp")
+include(":pos:shared")
+include(":pos:androidApp")
