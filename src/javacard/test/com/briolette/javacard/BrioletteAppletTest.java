@@ -51,6 +51,9 @@ public class BrioletteAppletTest {
     private static final byte INS_SET_SWAP_PUBKEY = (byte) 0x31;
     private static final byte INS_SET_RESET_PUBKEY = (byte) 0x32;
     private static final byte INS_GET_STATUS = (byte) 0x40;
+    private static final byte INS_MFR_GENERATE_KEY = (byte) 0x60;
+    private static final byte INS_MFR_SET_CERT = (byte) 0x61;
+    private static final byte INS_MFR_ATTEST = (byte) 0x62;
 
     // Status words
     private static final int SW_OK = 0x9000;
@@ -65,6 +68,8 @@ public class BrioletteAppletTest {
     private static final int SW_RESET_AUTH_FAILED = 0x6A88;
     private static final int SW_NO_RESET_KEY = 0x6A89;
     private static final int SW_PERSONALIZED = 0x6A8A;
+    private static final int SW_MFR_NOT_READY = 0x6A8B;
+    private static final int SW_MFR_NO_CERT = 0x6A8C;
 
     private static final int FR_BYTES = 32;
     private static final int BN254_G1_BYTES = 65;
@@ -1081,5 +1086,224 @@ public class BrioletteAppletTest {
         ResponseAPDU resp = send(INS_RESET_BLOOM, data);
         assertEquals("Invalid auth should fail",
                      SW_RESET_AUTH_FAILED, resp.getSW());
+    }
+
+    // ========================================================================
+    // Manufacturer attestation tests
+    // ========================================================================
+
+    /** Helper: send a manufacturer attestation APDU (P1=0, no curve dependency). */
+    private ResponseAPDU sendMfr(byte ins, byte[] data) {
+        return send(ins, (byte) 0x00, data);
+    }
+
+    private ResponseAPDU sendMfr(byte ins) {
+        return send(ins, (byte) 0x00, null);
+    }
+
+    @Test
+    public void testMfrGenerateKey_success() {
+        ResponseAPDU resp = sendMfr(INS_MFR_GENERATE_KEY);
+        assertEquals(SW_OK, resp.getSW());
+
+        byte[] pubKey = resp.getData();
+        assertEquals("P-256 uncompressed public key should be 65 bytes",
+                     65, pubKey.length);
+        assertEquals("Should have uncompressed prefix",
+                     0x04, pubKey[0] & 0xFF);
+    }
+
+    @Test
+    public void testMfrGenerateKey_onlyOnce() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+        ResponseAPDU resp = sendMfr(INS_MFR_GENERATE_KEY);
+        assertEquals("Second keygen should fail",
+                     SW_CONDITIONS_NOT_SATISFIED, resp.getSW());
+    }
+
+    @Test
+    public void testMfrGenerateKey_setsStatusFlag() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        ResponseAPDU status = send(INS_GET_STATUS);
+        byte flags = status.getData()[0];
+        assertNotEquals("Mfr key flag (0x20) should be set", 0, flags & 0x20);
+        assertEquals("Mfr cert flag (0x40) should NOT be set", 0, flags & 0x40);
+    }
+
+    @Test
+    public void testMfrSetCert_beforeKeygen_fails() {
+        byte[] dummyCert = new byte[64];
+        ResponseAPDU resp = sendMfr(INS_MFR_SET_CERT, dummyCert);
+        assertEquals("Should fail without keygen",
+                     SW_MFR_NOT_READY, resp.getSW());
+    }
+
+    @Test
+    public void testMfrSetCert_success() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] dummyCert = new byte[64];
+        for (int i = 0; i < 64; i++) dummyCert[i] = (byte)(i + 1);
+        ResponseAPDU resp = sendMfr(INS_MFR_SET_CERT, dummyCert);
+        assertEquals(SW_OK, resp.getSW());
+    }
+
+    @Test
+    public void testMfrSetCert_setsStatusFlag() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] dummyCert = new byte[64];
+        sendMfr(INS_MFR_SET_CERT, dummyCert);
+
+        ResponseAPDU status = send(INS_GET_STATUS);
+        byte flags = status.getData()[0];
+        assertNotEquals("Mfr cert flag (0x40) should be set", 0, flags & 0x40);
+    }
+
+    @Test
+    public void testMfrSetCert_rejectedAfterPersonalization() {
+        generateKey();
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        // Personalize by performing a sign
+        send(INS_SIGN_COMMIT, dummyBN254Point);
+        send(INS_SIGN_RESPOND, dummyScalar);
+
+        byte[] dummyCert = new byte[64];
+        ResponseAPDU resp = sendMfr(INS_MFR_SET_CERT, dummyCert);
+        assertEquals("Should reject cert after personalization",
+                     SW_PERSONALIZED, resp.getSW());
+    }
+
+    @Test
+    public void testMfrSetCert_tooLong() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] tooBig = new byte[100];
+        ResponseAPDU resp = sendMfr(INS_MFR_SET_CERT, tooBig);
+        assertEquals(SW_WRONG_LENGTH, resp.getSW());
+    }
+
+    @Test
+    public void testMfrAttest_beforeKeygen_fails() {
+        byte[] challenge = new byte[32];
+        ResponseAPDU resp = sendMfr(INS_MFR_ATTEST, challenge);
+        assertEquals(SW_MFR_NOT_READY, resp.getSW());
+    }
+
+    @Test
+    public void testMfrAttest_withoutCert_fails() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] challenge = new byte[32];
+        ResponseAPDU resp = sendMfr(INS_MFR_ATTEST, challenge);
+        assertEquals(SW_MFR_NO_CERT, resp.getSW());
+    }
+
+    @Test
+    public void testMfrAttest_success() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] dummyCert = new byte[64];
+        for (int i = 0; i < 64; i++) dummyCert[i] = (byte)(i + 1);
+        sendMfr(INS_MFR_SET_CERT, dummyCert);
+
+        byte[] challenge = new byte[32];
+        for (int i = 0; i < 32; i++) challenge[i] = (byte)(0xAA ^ i);
+        ResponseAPDU resp = sendMfr(INS_MFR_ATTEST, challenge);
+        assertEquals(SW_OK, resp.getSW());
+
+        byte[] data = resp.getData();
+        // Parse response: [1B sig_len] [sig] [1B cert_len] [cert] [65B pubkey]
+        assertTrue("Response should have at least overhead bytes",
+                   data.length > 2 + 65);
+
+        int sigLen = data[0] & 0xFF;
+        assertTrue("Signature should be valid DER length",
+                   sigLen >= 68 && sigLen <= 72);
+
+        int off = 1 + sigLen;
+        int certLen = data[off] & 0xFF;
+        assertEquals("Cert should match what was loaded", 64, certLen);
+        off += 1 + certLen;
+
+        // Remaining bytes should be the 65-byte public key
+        int remainingLen = data.length - off;
+        assertEquals("Should end with 65-byte P-256 public key",
+                     65, remainingLen);
+        assertEquals("Public key should have uncompressed prefix",
+                     0x04, data[off] & 0xFF);
+    }
+
+    @Test
+    public void testMfrAttest_wrongChallengeLength() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] dummyCert = new byte[64];
+        sendMfr(INS_MFR_SET_CERT, dummyCert);
+
+        byte[] shortChallenge = new byte[16];
+        ResponseAPDU resp = sendMfr(INS_MFR_ATTEST, shortChallenge);
+        assertEquals(SW_WRONG_LENGTH, resp.getSW());
+    }
+
+    @Test
+    public void testMfrAttest_differentChallengesProduceDifferentSigs() {
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] dummyCert = new byte[64];
+        sendMfr(INS_MFR_SET_CERT, dummyCert);
+
+        byte[] challenge1 = new byte[32];
+        challenge1[0] = 0x01;
+        ResponseAPDU resp1 = sendMfr(INS_MFR_ATTEST, challenge1);
+        assertEquals(SW_OK, resp1.getSW());
+
+        byte[] challenge2 = new byte[32];
+        challenge2[0] = 0x02;
+        ResponseAPDU resp2 = sendMfr(INS_MFR_ATTEST, challenge2);
+        assertEquals(SW_OK, resp2.getSW());
+
+        assertFalse("Different challenges should produce different attestations",
+                    java.util.Arrays.equals(resp1.getData(), resp2.getData()));
+    }
+
+    @Test
+    public void testMfrGenerateKey_independentOfECDAAKey() {
+        // Manufacturer key can be generated without ECDAA key
+        ResponseAPDU resp = sendMfr(INS_MFR_GENERATE_KEY);
+        assertEquals(SW_OK, resp.getSW());
+
+        // ECDAA key can still be generated after
+        generateKey();
+
+        // Both should work
+        ResponseAPDU status = send(INS_GET_STATUS);
+        byte flags = status.getData()[0];
+        assertNotEquals("ECDAA key should be initialized", 0, flags & 0x01);
+        assertNotEquals("Mfr key should be initialized", 0, flags & 0x20);
+    }
+
+    @Test
+    public void testMfrAttest_worksAfterPersonalization() {
+        // Unlike SET_CERT, ATTEST should work after personalization
+        // (the card needs to attest during registration, which happens
+        // after the first JOIN_COMMIT).
+        sendMfr(INS_MFR_GENERATE_KEY);
+
+        byte[] dummyCert = new byte[64];
+        sendMfr(INS_MFR_SET_CERT, dummyCert);
+
+        // Personalize via ECDAA keygen + sign
+        generateKey();
+        send(INS_SIGN_COMMIT, dummyBN254Point);
+        send(INS_SIGN_RESPOND, dummyScalar);
+
+        // Attestation should still work
+        byte[] challenge = new byte[32];
+        ResponseAPDU resp = sendMfr(INS_MFR_ATTEST, challenge);
+        assertEquals("MFR_ATTEST should work after personalization",
+                     SW_OK, resp.getSW());
     }
 }

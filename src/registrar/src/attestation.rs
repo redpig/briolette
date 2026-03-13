@@ -652,6 +652,129 @@ fn find_cbor_array<'a>(
     })
 }
 
+// ============================================================================
+// Card P-256 Manufacturer Attestation
+// ============================================================================
+
+/// Verify a card manufacturer P-256 attestation.
+///
+/// The card carries a P-256 keypair and a certificate (ECDSA signature by
+/// a manufacturer CA over the card's uncompressed public key).  During
+/// registration, the phone sends a challenge to the card via the MFR_ATTEST
+/// APDU.  The card signs the challenge and returns:
+///
+///   [1B sig_len][DER ECDSA sig][1B cert_len][DER cert][65B pubkey]
+///
+/// The registrar verifies:
+/// 1. The attestation signature was produced by the card's key over the
+///    correct challenge (binding to the ECDAA public keys).
+/// 2. The certificate is a valid ECDSA signature by a trusted manufacturer
+///    CA over the card's public key (proving the card is genuine hardware).
+///
+/// # Arguments
+/// * `hwid` - The hardware ID from the registration request
+/// * `sig` - The Signature containing the card attestation response
+/// * `trusted_ca_keys` - Trusted manufacturer CA P-256 verifying keys
+/// * `credential_public_keys` - ECDAA public keys (NAC, TTC) bound in the challenge
+pub fn verify_card_p256_attestation(
+    hwid: &HardwareId,
+    sig: &Signature,
+    trusted_ca_keys: &[p256::ecdsa::VerifyingKey],
+    credential_public_keys: &[&[u8]],
+) -> Result<AttestationResult, AttestationError> {
+    use p256::ecdsa::{signature::Verifier, DerSignature, VerifyingKey};
+
+    let data = &sig.signature;
+
+    // Parse the attestation response: [1B sig_len][sig][1B cert_len][cert][65B pubkey]
+    if data.is_empty() {
+        return Err(AttestationError::MalformedData(
+            "empty card attestation".into(),
+        ));
+    }
+
+    let sig_len = data[0] as usize;
+    if data.len() < 1 + sig_len + 1 {
+        return Err(AttestationError::MalformedData(
+            "attestation too short for signature".into(),
+        ));
+    }
+    let attest_sig_bytes = &data[1..1 + sig_len];
+
+    let cert_offset = 1 + sig_len;
+    let cert_len = data[cert_offset] as usize;
+    if data.len() < cert_offset + 1 + cert_len + 65 {
+        return Err(AttestationError::MalformedData(
+            "attestation too short for cert + pubkey".into(),
+        ));
+    }
+    let cert_bytes = &data[cert_offset + 1..cert_offset + 1 + cert_len];
+    let pubkey_bytes = &data[cert_offset + 1 + cert_len..];
+    if pubkey_bytes.len() != 65 {
+        return Err(AttestationError::MalformedData(format!(
+            "expected 65-byte public key, got {}",
+            pubkey_bytes.len()
+        )));
+    }
+
+    // 1. Parse the card's public key.
+    let card_vk = VerifyingKey::from_sec1_bytes(pubkey_bytes).map_err(|e| {
+        AttestationError::MalformedData(format!("invalid card public key: {}", e))
+    })?;
+
+    // 2. Verify the attestation signature (card signed the challenge).
+    //    The challenge is SHA-256(hw_id || nac_pk || ttc_pk), matching the
+    //    platform attestation challenge derivation for binding consistency.
+    let mut challenge_preimage = hwid.hw_id.clone();
+    for pk in credential_public_keys {
+        challenge_preimage.extend_from_slice(pk);
+    }
+    let expected_challenge = Sha256::digest(&challenge_preimage);
+
+    let attest_sig = DerSignature::try_from(attest_sig_bytes).map_err(|e| {
+        AttestationError::MalformedData(format!("invalid attestation DER signature: {}", e))
+    })?;
+
+    card_vk
+        .verify(expected_challenge.as_slice(), &attest_sig)
+        .map_err(|_| {
+            error!("card attestation signature verification failed");
+            AttestationError::ChallengeMismatch
+        })?;
+
+    // 3. Verify the manufacturer certificate (CA signed the card's public key).
+    let cert_sig = DerSignature::try_from(cert_bytes).map_err(|e| {
+        AttestationError::MalformedData(format!("invalid certificate DER signature: {}", e))
+    })?;
+
+    let ca_verified = trusted_ca_keys.iter().any(|ca_vk| {
+        ca_vk.verify(pubkey_bytes, &cert_sig).is_ok()
+    });
+
+    if !ca_verified {
+        if trusted_ca_keys.is_empty() {
+            // Development mode: no trusted CAs configured, accept any cert.
+            warn!("no trusted manufacturer CAs configured; accepting card attestation without cert verification");
+        } else {
+            error!("card certificate not signed by any trusted manufacturer CA");
+            return Err(AttestationError::UntrustedRoot);
+        }
+    }
+
+    // 4. Derive hardware nonce from the card's public key.
+    let hw_nonce = Sha256::digest(pubkey_bytes).to_vec();
+
+    info!("card P-256 attestation verified");
+
+    // Card attestation alone doesn't determine the tier — it's combined
+    // with platform attestation and split-key proof in register_call_impl.
+    // Return Medium as the baseline; the caller upgrades to High/High+.
+    Ok(AttestationResult {
+        security_level: SecurityLevel::Medium,
+        hw_nonce,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,5 +841,184 @@ mod tests {
             &[hw_id.as_slice(), public_key.as_slice()].concat(),
         );
         assert_eq!(client_data_hash.len(), 32);
+    }
+
+    /// Helper: build a card attestation response matching the MFR_ATTEST format.
+    fn build_card_attestation(
+        card_sk: &p256::ecdsa::SigningKey,
+        ca_sk: &p256::ecdsa::SigningKey,
+        challenge: &[u8],
+    ) -> Vec<u8> {
+        use ecdsa::signature::Signer;
+        use p256::ecdsa::DerSignature;
+
+        // Card signs the challenge
+        let attest_sig: DerSignature = card_sk.sign(challenge);
+        let attest_sig_bytes = attest_sig.to_bytes();
+
+        // CA signs the card's uncompressed public key
+        let card_pk_bytes = card_sk.verifying_key().to_encoded_point(false);
+        let card_pk = card_pk_bytes.as_bytes();
+        let cert_sig: DerSignature = ca_sk.sign(card_pk);
+        let cert_sig_bytes = cert_sig.to_bytes();
+
+        // Build response: [1B sig_len][sig][1B cert_len][cert][65B pubkey]
+        let mut resp = Vec::new();
+        resp.push(attest_sig_bytes.len() as u8);
+        resp.extend_from_slice(&attest_sig_bytes);
+        resp.push(cert_sig_bytes.len() as u8);
+        resp.extend_from_slice(&cert_sig_bytes);
+        resp.extend_from_slice(card_pk);
+        resp
+    }
+
+    #[test]
+    fn card_p256_attestation_valid() {
+        let card_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        let ca_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        let ca_vk = *ca_sk.verifying_key();
+
+        let hw_id = b"test-device-card".to_vec();
+        let nac_pk = b"fake-nac-pk";
+        let ttc_pk = b"fake-ttc-pk";
+
+        // Build the challenge the same way the registrar would
+        let mut challenge_preimage = hw_id.clone();
+        challenge_preimage.extend_from_slice(nac_pk);
+        challenge_preimage.extend_from_slice(ttc_pk);
+        let challenge = Sha256::digest(&challenge_preimage);
+
+        let attest_data = build_card_attestation(&card_sk, &ca_sk, &challenge);
+
+        let hwid = HardwareId {
+            vendor_id: 1,
+            software_id: 0,
+            hardware_id: 1,
+            hw_id,
+            security: SecurityLevel::Medium.into(),
+        };
+        let sig = Signature {
+            algorithm: 3, // CARD_P256_ATTESTATION
+            signature: attest_data,
+            public_key: vec![],
+        };
+
+        let result = verify_card_p256_attestation(
+            &hwid,
+            &sig,
+            &[ca_vk],
+            &[nac_pk.as_slice(), ttc_pk.as_slice()],
+        );
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.security_level, SecurityLevel::Medium);
+        assert_eq!(result.hw_nonce.len(), 32);
+    }
+
+    #[test]
+    fn card_p256_attestation_wrong_challenge() {
+        let card_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        let ca_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        let ca_vk = *ca_sk.verifying_key();
+
+        // Sign a different challenge than expected
+        let wrong_challenge = Sha256::digest(b"wrong challenge");
+        let attest_data = build_card_attestation(&card_sk, &ca_sk, &wrong_challenge);
+
+        let hwid = HardwareId {
+            vendor_id: 1,
+            software_id: 0,
+            hardware_id: 1,
+            hw_id: b"device".to_vec(),
+            security: SecurityLevel::Medium.into(),
+        };
+        let sig = Signature {
+            algorithm: 3,
+            signature: attest_data,
+            public_key: vec![],
+        };
+
+        let result = verify_card_p256_attestation(
+            &hwid,
+            &sig,
+            &[ca_vk],
+            &[b"nac".as_slice(), b"ttc".as_slice()],
+        );
+        assert!(matches!(result, Err(AttestationError::ChallengeMismatch)));
+    }
+
+    #[test]
+    fn card_p256_attestation_untrusted_ca() {
+        let card_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        let ca_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        // Use a different CA for the trusted list
+        let other_ca_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        let other_ca_vk = *other_ca_sk.verifying_key();
+
+        let hw_id = b"device".to_vec();
+        let mut challenge_preimage = hw_id.clone();
+        challenge_preimage.extend_from_slice(b"nac");
+        challenge_preimage.extend_from_slice(b"ttc");
+        let challenge = Sha256::digest(&challenge_preimage);
+
+        let attest_data = build_card_attestation(&card_sk, &ca_sk, &challenge);
+
+        let hwid = HardwareId {
+            vendor_id: 1,
+            software_id: 0,
+            hardware_id: 1,
+            hw_id: hw_id,
+            security: SecurityLevel::Medium.into(),
+        };
+        let sig = Signature {
+            algorithm: 3,
+            signature: attest_data,
+            public_key: vec![],
+        };
+
+        // Trusted CA list has a different key than the one that signed
+        let result = verify_card_p256_attestation(
+            &hwid,
+            &sig,
+            &[other_ca_vk],
+            &[b"nac".as_slice(), b"ttc".as_slice()],
+        );
+        assert!(matches!(result, Err(AttestationError::UntrustedRoot)));
+    }
+
+    #[test]
+    fn card_p256_attestation_dev_mode_no_trusted_cas() {
+        let card_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+        let ca_sk = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+
+        let hw_id = b"device".to_vec();
+        let mut challenge_preimage = hw_id.clone();
+        challenge_preimage.extend_from_slice(b"nac");
+        challenge_preimage.extend_from_slice(b"ttc");
+        let challenge = Sha256::digest(&challenge_preimage);
+
+        let attest_data = build_card_attestation(&card_sk, &ca_sk, &challenge);
+
+        let hwid = HardwareId {
+            vendor_id: 1,
+            software_id: 0,
+            hardware_id: 1,
+            hw_id: hw_id,
+            security: SecurityLevel::Medium.into(),
+        };
+        let sig = Signature {
+            algorithm: 3,
+            signature: attest_data,
+            public_key: vec![],
+        };
+
+        // Empty trusted CA list → development mode, should succeed
+        let result = verify_card_p256_attestation(
+            &hwid,
+            &sig,
+            &[],
+            &[b"nac".as_slice(), b"ttc".as_slice()],
+        );
+        assert!(result.is_ok());
     }
 }

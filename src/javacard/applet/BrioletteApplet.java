@@ -20,8 +20,13 @@ import javacard.framework.ISO7816;
 import javacard.framework.ISOException;
 import javacard.framework.JCSystem;
 import javacard.framework.Util;
+import javacard.security.ECPublicKey;
+import javacard.security.ECPrivateKey;
+import javacard.security.KeyBuilder;
+import javacard.security.KeyPair;
 import javacard.security.MessageDigest;
 import javacard.security.RandomData;
+import javacard.security.Signature;
 
 /**
  * Briolette ECDAA split-key signing applet for JavaCard.
@@ -54,6 +59,11 @@ import javacard.security.RandomData;
  *   INS 0x31: SET_SWAP_PUBKEY    - Set swap server public key
  *   INS 0x32: SET_RESET_PUBKEY   - Set epoch reset authorization public key
  *   INS 0x40: GET_STATUS         - Query card status
+ *
+ *   Manufacturer attestation (P-256 ECDSA, curve-independent):
+ *   INS 0x60: MFR_GENERATE_KEY   - Generate P-256 attestation keypair
+ *   INS 0x61: MFR_SET_CERT       - Load manufacturer certificate (CA sig over card pk)
+ *   INS 0x62: MFR_ATTEST         - Sign challenge, return sig + cert + pubkey
  */
 public class BrioletteApplet extends Applet {
 
@@ -73,6 +83,11 @@ public class BrioletteApplet extends Applet {
     private static final byte INS_SET_RESET_PUBKEY   = (byte) 0x32;
     private static final byte INS_GET_STATUS         = (byte) 0x40;
 
+    // Manufacturer attestation (P-256 ECDSA)
+    private static final byte INS_MFR_GENERATE_KEY  = (byte) 0x60;
+    private static final byte INS_MFR_SET_CERT      = (byte) 0x61;
+    private static final byte INS_MFR_ATTEST        = (byte) 0x62;
+
     // ========================================================================
     // Curve version constants
     // ========================================================================
@@ -89,6 +104,8 @@ public class BrioletteApplet extends Applet {
     private static final short SW_RESET_AUTH_FAILED  = (short) 0x6A88;
     private static final short SW_NO_RESET_KEY       = (short) 0x6A89;
     private static final short SW_PERSONALIZED       = (short) 0x6A8A;
+    private static final short SW_MFR_NOT_READY      = (short) 0x6A8B;
+    private static final short SW_MFR_NO_CERT        = (short) 0x6A8C;
 
     /** Size of swap authorization token: c (32B) + s (32B). */
     private static final short SWAP_AUTH_BYTES       = (short) 64;
@@ -127,6 +144,29 @@ public class BrioletteApplet extends Applet {
 
     /** Set on first signing/join operation; locks pubkey configuration. */
     private boolean personalized;
+
+    // ---- Manufacturer attestation (P-256 ECDSA) ----
+
+    /** P-256 keypair for manufacturer attestation. */
+    private KeyPair mfrKeyPair;
+
+    /** Whether the manufacturer P-256 key has been generated. */
+    private boolean mfrKeyGenerated;
+
+    /**
+     * Manufacturer certificate: the manufacturer's ECDSA-SHA256 signature
+     * over this card's P-256 public key (DER-encoded, max ~72 bytes).
+     */
+    private byte[] mfrCert;
+
+    /** Actual length of the stored manufacturer certificate. */
+    private short mfrCertLen;
+
+    /** Whether a manufacturer certificate has been loaded. */
+    private boolean mfrCertSet;
+
+    /** ECDSA signature instance for attestation signing. */
+    private Signature mfrSigner;
 
     /** Locked curve version (set at GENERATE_KEY time). */
     private byte activeCurveVersion;
@@ -184,6 +224,14 @@ public class BrioletteApplet extends Applet {
 
         rng = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
 
+        // Manufacturer attestation: P-256 ECDSA
+        mfrKeyPair = new KeyPair(KeyPair.ALG_EC_FP, KeyBuilder.LENGTH_EC_FP_256);
+        mfrKeyGenerated = false;
+        mfrCert = new byte[72]; // Max DER-encoded ECDSA-SHA256 signature
+        mfrCertLen = 0;
+        mfrCertSet = false;
+        mfrSigner = Signature.getInstance(Signature.ALG_ECDSA_SHA_256, false);
+
         register();
     }
 
@@ -205,8 +253,12 @@ public class BrioletteApplet extends Applet {
             ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
         }
 
-        // Version check for curve-dependent operations
-        if (ins != INS_RESET_BLOOM && ins != INS_GET_STATUS) {
+        // Version check for curve-dependent operations.
+        // Manufacturer attestation APDUs (0x60-0x62) use P-256 natively
+        // and don't depend on the BN254/BLS381 curve selection.
+        if (ins != INS_RESET_BLOOM && ins != INS_GET_STATUS
+                && ins != INS_MFR_GENERATE_KEY && ins != INS_MFR_SET_CERT
+                && ins != INS_MFR_ATTEST) {
             if (ins == INS_GENERATE_KEY) {
                 // GENERATE_KEY accepts BN254 or BLS381 to select the curve
                 if (p1 != VERSION_BN254 && p1 != VERSION_BLS381) {
@@ -260,6 +312,15 @@ public class BrioletteApplet extends Applet {
                 break;
             case INS_GET_STATUS:
                 processGetStatus(apdu);
+                break;
+            case INS_MFR_GENERATE_KEY:
+                processMfrGenerateKey(apdu);
+                break;
+            case INS_MFR_SET_CERT:
+                processMfrSetCert(apdu);
+                break;
+            case INS_MFR_ATTEST:
+                processMfrAttest(apdu);
                 break;
             default:
                 ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
@@ -619,6 +680,8 @@ public class BrioletteApplet extends Applet {
         if (swapPubkeySet) flags |= 0x04;
         if (resetPubkeySet) flags |= 0x08;
         if (personalized) flags |= 0x10;
+        if (mfrKeyGenerated) flags |= 0x20;
+        if (mfrCertSet) flags |= 0x40;
         buffer[0] = flags;
 
         int epoch = bloomFilter.getEpoch();
@@ -630,6 +693,119 @@ public class BrioletteApplet extends Applet {
         buffer[5] = keyInitialized ? activeCurveVersion : VERSION_BN254;
 
         apdu.setOutgoingAndSend((short) 0, (short) 6);
+    }
+
+    // ========================================================================
+    // INS 0x60: MFR_GENERATE_KEY — Generate P-256 attestation keypair
+    // ========================================================================
+
+    /**
+     * Generate the card's P-256 manufacturer attestation keypair.
+     * Returns the uncompressed public key (65 bytes: 0x04 || x || y).
+     * Can only be called once; the key is permanent.
+     */
+    private void processMfrGenerateKey(APDU apdu) {
+        if (mfrKeyGenerated) {
+            ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        }
+
+        mfrKeyPair.genKeyPair();
+        mfrKeyGenerated = true;
+
+        // Export the public key (uncompressed P-256 = 65 bytes)
+        byte[] buffer = apdu.getBuffer();
+        ECPublicKey pub = (ECPublicKey) mfrKeyPair.getPublic();
+        short len = pub.getW(buffer, (short) 0);
+        apdu.setOutgoingAndSend((short) 0, len);
+    }
+
+    // ========================================================================
+    // INS 0x61: MFR_SET_CERT — Load manufacturer certificate
+    // ========================================================================
+
+    /**
+     * Load the manufacturer's ECDSA-SHA256 signature over this card's
+     * P-256 public key.  This is the "certificate" proving the card was
+     * personalized by a trusted manufacturer.
+     *
+     * Must be called after MFR_GENERATE_KEY and before personalization
+     * (first SIGN_COMMIT or JOIN_COMMIT).
+     *
+     * Input: DER-encoded ECDSA signature (up to 72 bytes).
+     */
+    private void processMfrSetCert(APDU apdu) {
+        if (!mfrKeyGenerated) {
+            ISOException.throwIt(SW_MFR_NOT_READY);
+        }
+        if (personalized) {
+            ISOException.throwIt(SW_PERSONALIZED);
+        }
+
+        byte[] buffer = apdu.getBuffer();
+        short dataLen = apdu.setIncomingAndReceive();
+
+        if (dataLen < 1 || dataLen > (short) mfrCert.length) {
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        }
+
+        Util.arrayCopy(buffer, ISO7816.OFFSET_CDATA,
+                       mfrCert, (short) 0, dataLen);
+        mfrCertLen = dataLen;
+        mfrCertSet = true;
+    }
+
+    // ========================================================================
+    // INS 0x62: MFR_ATTEST — Sign a challenge with the attestation key
+    // ========================================================================
+
+    /**
+     * Sign a challenge with the card's P-256 attestation key.
+     *
+     * Input:  32-byte challenge (typically SHA-256 of registration data).
+     * Output: [1-byte sig_len] [DER ECDSA signature] [1-byte cert_len]
+     *         [manufacturer certificate] [65-byte public key]
+     *
+     * The verifier checks:
+     *   1. Manufacturer cert is valid: ECDSA_Verify(mfr_ca_pk, card_pk, cert)
+     *   2. Attestation sig is valid: ECDSA_Verify(card_pk, challenge, sig)
+     *
+     * Requires both MFR_GENERATE_KEY and MFR_SET_CERT to have been called.
+     */
+    private void processMfrAttest(APDU apdu) {
+        if (!mfrKeyGenerated) {
+            ISOException.throwIt(SW_MFR_NOT_READY);
+        }
+        if (!mfrCertSet) {
+            ISOException.throwIt(SW_MFR_NO_CERT);
+        }
+
+        byte[] buffer = apdu.getBuffer();
+        short dataLen = apdu.setIncomingAndReceive();
+
+        if (dataLen != 32) {
+            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        }
+
+        // Sign the challenge with the card's P-256 private key
+        ECPrivateKey priv = (ECPrivateKey) mfrKeyPair.getPrivate();
+        mfrSigner.init(priv, Signature.MODE_SIGN);
+        short sigLen = mfrSigner.sign(buffer, ISO7816.OFFSET_CDATA, (short) 32,
+                                       buffer, (short) 1);
+        buffer[0] = (byte) sigLen;
+        short off = (short)(1 + sigLen);
+
+        // Append the manufacturer certificate
+        buffer[off] = (byte) mfrCertLen;
+        off++;
+        Util.arrayCopy(mfrCert, (short) 0, buffer, off, mfrCertLen);
+        off += mfrCertLen;
+
+        // Append the card's public key
+        ECPublicKey pub = (ECPublicKey) mfrKeyPair.getPublic();
+        short pkLen = pub.getW(buffer, off);
+        off += pkLen;
+
+        apdu.setOutgoingAndSend((short) 0, off);
     }
 
     // ========================================================================

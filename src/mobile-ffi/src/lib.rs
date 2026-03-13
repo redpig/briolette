@@ -203,6 +203,7 @@ pub fn register_wallet_with_attestation(
     attestation: AttestationData,
     nac_card_public_key_b64: String,
     ttc_card_public_key_b64: String,
+    card_attestation_b64: String,
 ) -> Result<String, WalletError> {
     let rt = runtime()?;
     rt.block_on(async {
@@ -230,8 +231,19 @@ pub fn register_wallet_with_attestation(
             None
         };
 
+        let card_attest = if !card_attestation_b64.is_empty() {
+            Some(B64.decode(&card_attestation_b64)
+                .map_err(|_| WalletError::InvalidData)?)
+        } else {
+            None
+        };
+
         let registered = client
-            .register_with_attestation(&att, proof.as_ref())
+            .register_with_attestation_and_card(
+                &att,
+                proof.as_ref(),
+                card_attest.as_deref(),
+            )
             .await
             .map_err(WalletError::from)?;
 

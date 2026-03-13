@@ -80,6 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             public_key: transfer_req.public_key,
         }),
         split_key_proof: None,
+        card_attestation: None,
     });
 
     let response = client.register_call(request).await?;

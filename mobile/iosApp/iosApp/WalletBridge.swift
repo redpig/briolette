@@ -239,7 +239,8 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
         signatureB64: String,
         publicKeyB64: String,
         nacCardPublicKeyB64: String,
-        ttcCardPublicKeyB64: String
+        ttcCardPublicKeyB64: String,
+        cardAttestationB64: String
     ) -> String {
         do {
             let attestation = briolette.AttestationData(
@@ -251,7 +252,8 @@ class SwiftWalletDelegate: NSObject, IosWalletDelegate {
                 walletJson: walletJson,
                 attestation: attestation,
                 nacCardPublicKeyB64: nacCardPublicKeyB64,
-                ttcCardPublicKeyB64: ttcCardPublicKeyB64
+                ttcCardPublicKeyB64: ttcCardPublicKeyB64,
+                cardAttestationB64: cardAttestationB64
             )
         } catch {
             return "{}"

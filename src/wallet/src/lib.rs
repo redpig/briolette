@@ -252,6 +252,11 @@ pub struct WalletData {
     nac_card_public_key: Vec<u8>,
     #[serde(skip)]
     ttc_card_public_key: Vec<u8>,
+    // Card manufacturer attestation data (runtime only).
+    // Set via set_card_attestation() before calling initialize_credential().
+    // Contains the raw MFR_ATTEST response from a personalized card.
+    #[serde(skip)]
+    card_attestation_data: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
@@ -459,6 +464,14 @@ impl WalletData {
     ) {
         self.nac_card_public_key = nac_card_pk;
         self.ttc_card_public_key = ttc_card_pk;
+    }
+
+    /// Set card manufacturer attestation data.
+    /// Call this before `initialize_credential()` when using a personalized
+    /// NFC card that has manufacturer P-256 attestation.
+    /// `data` is the raw MFR_ATTEST response from the card.
+    pub fn set_card_attestation(&mut self, data: Vec<u8>) {
+        self.card_attestation_data = data;
     }
 
     pub fn load(wallet_file: &Path) -> Result<Self, WalletDataError> {
@@ -745,6 +758,15 @@ impl Wallet for WalletData {
                 public_key: self.transfer_credential.public_key.clone(),
             }),
             split_key_proof,
+            card_attestation: if self.card_attestation_data.is_empty() {
+                None
+            } else {
+                Some(RegistrarSignature {
+                    algorithm: 3, // CARD_P256_ATTESTATION
+                    signature: self.card_attestation_data.clone(),
+                    public_key: vec![],
+                })
+            },
         });
         match RegistrarClient::multiconnect(&self.network_credential.issuer_uri).await {
             Ok(mut client) => {

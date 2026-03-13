@@ -38,12 +38,15 @@ interface WalletBridge {
     }
 
     /** Phase 2: complete registration with cryptographically-bound attestation.
-     *  Card public key fields are empty for MEDIUM mode, populated for HIGH mode. */
+     *  Card public key fields are empty for MEDIUM mode, populated for HIGH mode.
+     *  cardAttestationB64 is the base64-encoded MFR_ATTEST response from a
+     *  personalized NFC card (empty if no card attestation). */
     suspend fun registerWalletWithAttestation(
         walletJson: String,
         attestation: HwAttestationData,
         nacCardPublicKeyB64: String = "",
         ttcCardPublicKeyB64: String = "",
+        cardAttestationB64: String = "",
     ): WalletState {
         throw UnsupportedOperationException("2-phase registration not supported")
     }
@@ -206,12 +209,16 @@ class WalletRepository(
         val attestation = attestationProvider.generate(keyInit.challengePreimageB64)
             ?: throw Exception("Hardware attestation required for HIGH security mode")
 
-        // Register with attestation + card public key shares
+        // Request card manufacturer attestation (if card supports it)
+        val cardAttestB64 = nfcCardProvider.getCardAttestation(keyInit.challengePreimageB64) ?: ""
+
+        // Register with attestation + card public key shares + optional card attestation
         return bridge.registerWalletWithAttestation(
             keyInit.walletJson,
             attestation,
             nacCardPublicKeyB64 = keyInit.nacCardPublicKeyB64,
             ttcCardPublicKeyB64 = keyInit.ttcCardPublicKeyB64,
+            cardAttestationB64 = cardAttestB64,
         )
     }
 

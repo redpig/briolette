@@ -52,6 +52,8 @@ pub struct BrioletteRegistrar {
     pub ios_app_id: String,
     /// Whether to require hardware attestation (reject Algorithm::NONE).
     pub require_attestation: bool,
+    /// Trusted manufacturer CA P-256 verifying keys for card attestation.
+    pub card_trusted_ca_keys: Vec<p256::ecdsa::VerifyingKey>,
 }
 
 impl BrioletteRegistrar {
@@ -246,6 +248,7 @@ impl BrioletteRegistrar {
             x if x == Algorithm::None as i32 => Algorithm::None,
             x if x == Algorithm::AndroidKmAttestation as i32 => Algorithm::AndroidKmAttestation,
             x if x == Algorithm::IosAppAttest as i32 => Algorithm::IosAppAttest,
+            x if x == Algorithm::CardP256Attestation as i32 => Algorithm::CardP256Attestation,
             _ => Algorithm::None,
         };
         match algorithm {
@@ -303,6 +306,26 @@ impl BrioletteRegistrar {
                     }
                     Err(e) => {
                         error!("iOS App Attest verification failed: {}", e);
+                        Err(BrioletteError {
+                            code: BrioletteErrorCode::InvalidHwidSignature.into(),
+                        })
+                    }
+                }
+            }
+            Algorithm::CardP256Attestation => {
+                info!("verifying card P-256 manufacturer attestation");
+                match attestation::verify_card_p256_attestation(
+                    hwid,
+                    sig,
+                    &self.card_trusted_ca_keys,
+                    credential_public_keys,
+                ) {
+                    Ok(result) => {
+                        info!("card P-256 attestation verified");
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        error!("card P-256 attestation verification failed: {}", e);
                         Err(BrioletteError {
                             code: BrioletteErrorCode::InvalidHwidSignature.into(),
                         })
@@ -371,6 +394,36 @@ impl BrioletteRegistrar {
                 if nac_valid && ttc_valid {
                     info!("split-key proof verified — upgrading to High");
                     effective_level = SecurityLevel::High;
+
+                    // If card attestation is also present, verify it.
+                    // This proves the card is genuine manufacturer hardware,
+                    // not just "something" that contributed a key share.
+                    // Combined with split-key + platform attestation = HIGH+ tier.
+                    if let Some(card_attest) = &request.card_attestation {
+                        match attestation::verify_card_p256_attestation(
+                            &hwid,
+                            card_attest,
+                            &self.card_trusted_ca_keys,
+                            &credential_pks,
+                        ) {
+                            Ok(_) => {
+                                info!(
+                                    "card manufacturer attestation verified — \
+                                     HIGH+ tier (platform + card + split-key)"
+                                );
+                                // Still SecurityLevel::High in the enum; HIGH+ is
+                                // informational.  The registrar logs it and could
+                                // record it for audit/policy purposes.
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "card attestation failed ({}); proceeding at HIGH \
+                                     without card attestation",
+                                    e
+                                );
+                            }
+                        }
+                    }
                 } else {
                     warn!(
                         "split-key proof invalid (nac={}, ttc={}) — staying at {:?}",
@@ -504,6 +557,7 @@ mod tests {
                 public_key: ttc_pk,
             }),
             split_key_proof: None,
+            card_attestation: None,
         }
     }
 

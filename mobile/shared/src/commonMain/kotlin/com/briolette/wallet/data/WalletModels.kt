@@ -158,6 +158,21 @@ interface NfcCardProvider {
      * @return pair of (s_card_ttc_b64, s_card_nac_b64)
      */
     suspend fun respondWithCard(challengeTtcB64: String, challengeNacB64: String): Pair<String, String>
+
+    /**
+     * Request manufacturer attestation from the card.
+     * Sends a 32-byte challenge (SHA-256 of the attestation challenge preimage)
+     * to the card's MFR_ATTEST APDU and returns the response as base64.
+     *
+     * Returns null if the card does not support manufacturer attestation
+     * (e.g., the card was not personalized with a manufacturer certificate).
+     *
+     * @param challengeB64 SHA-256 hash of (hw_id || nac_pk || ttc_pk), base64
+     * @return base64-encoded MFR_ATTEST response, or null if not supported
+     */
+    suspend fun getCardAttestation(challengeB64: String): String? {
+        return null  // Default: no card attestation support
+    }
 }
 
 /**

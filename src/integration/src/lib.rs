@@ -352,6 +352,17 @@ impl BrioletteClient {
         attestation: &Attestation,
         split_key_proof: Option<&SplitKeyProof>,
     ) -> Result<Self, Error> {
+        self.register_with_attestation_and_card(attestation, split_key_proof, None).await
+    }
+
+    /// Complete registration with hardware attestation and optional card attestation.
+    /// `card_attestation` is the raw MFR_ATTEST response from a personalized card.
+    pub async fn register_with_attestation_and_card(
+        &self,
+        attestation: &Attestation,
+        split_key_proof: Option<&SplitKeyProof>,
+        card_attestation: Option<&[u8]>,
+    ) -> Result<Self, Error> {
         use briolette_wallet::Wallet;
 
         let mut wallet: briolette_wallet::WalletData =
@@ -369,6 +380,10 @@ impl BrioletteClient {
                 proof.nac_card_public_key.clone(),
                 proof.ttc_card_public_key.clone(),
             );
+        }
+
+        if let Some(card_data) = card_attestation {
+            wallet.set_card_attestation(card_data.to_vec());
         }
 
         if !wallet.initialize_credential().await {

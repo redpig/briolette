@@ -91,6 +91,18 @@ enum Algorithm {
   // the nonce (SHA-256(hw_id || public_key)), and validates the RP ID
   // hash matches the expected app identifier.
   IOS_APP_ATTEST = 2;
+  // Card P-256 attestation: the card has a manufacturer-provisioned P-256
+  // keypair and a certificate (ECDSA signature over the card's public key)
+  // from a trusted manufacturer CA. The "signature" field contains the
+  // attestation response from the card's MFR_ATTEST APDU:
+  //   [1B sig_len][DER ECDSA sig over challenge][1B cert_len][DER cert][65B pubkey]
+  // The registrar verifies:
+  //   1. The card signed the challenge with its P-256 key (attestation sig).
+  //   2. The card's public key is certified by a trusted manufacturer CA (cert sig).
+  //   3. The challenge binds to the ECDAA keys: SHA-256(hw_id || nac_pk || ttc_pk).
+  // Used with split_key_proof to achieve HIGH tier: the card is genuine
+  // hardware AND contributes to the ECDAA key.
+  CARD_P256_ATTESTATION = 3;
 }
 
 message Signature {
@@ -125,6 +137,12 @@ message RegisterRequest {
    // to the HIGH security tier.  Without this, attestation alone caps
    // at MEDIUM.
    SplitKeyProof split_key_proof = 6;
+   // Optional smartcard manufacturer attestation.  When present, the
+   // registrar verifies that the card is genuine hardware from a trusted
+   // manufacturer.  Combined with split_key_proof, this achieves the
+   // strongest hardware binding (HIGH+ tier in docs/design/nac_attestation.md).
+   // Uses Algorithm CARD_P256_ATTESTATION.
+   Signature card_attestation = 7;
 }
 
 // Proof that ECDAA keys were generated with a smartcard split-key

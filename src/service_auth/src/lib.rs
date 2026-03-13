@@ -150,6 +150,7 @@ impl ServiceIdentity {
                 public_key: public_key.clone(),
             }),
             split_key_proof: None,
+            card_attestation: None,
         };
 
         let mut client = RegistrarClient::connect(registrar_uri.to_string()).await?;

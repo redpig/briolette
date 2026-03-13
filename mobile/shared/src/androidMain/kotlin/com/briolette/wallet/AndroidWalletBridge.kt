@@ -81,6 +81,7 @@ class AndroidWalletBridge : WalletBridge {
         attestation: HwAttestationData,
         nacCardPublicKeyB64: String,
         ttcCardPublicKeyB64: String,
+        cardAttestationB64: String,
     ): WalletState {
         return withContext(Dispatchers.IO) {
             val json = uniffi.briolette.registerWalletWithAttestation(
@@ -92,6 +93,7 @@ class AndroidWalletBridge : WalletBridge {
                 ),
                 nacCardPublicKeyB64,
                 ttcCardPublicKeyB64,
+                cardAttestationB64,
             )
             uniffi.briolette.loadWallet(json).toKotlin()
         }

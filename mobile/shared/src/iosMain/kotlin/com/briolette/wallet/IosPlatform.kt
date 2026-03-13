@@ -267,6 +267,7 @@ interface IosWalletDelegate {
         publicKeyB64: String,
         nacCardPublicKeyB64: String,
         ttcCardPublicKeyB64: String,
+        cardAttestationB64: String,
     ): String {
         return "{}"
     }
@@ -369,6 +370,7 @@ class IosWalletBridge : WalletBridge {
         attestation: HwAttestationData,
         nacCardPublicKeyB64: String,
         ttcCardPublicKeyB64: String,
+        cardAttestationB64: String,
     ): WalletState {
         val d = requireDelegate()
         val json = d.registerWalletWithAttestation(
@@ -378,6 +380,7 @@ class IosWalletBridge : WalletBridge {
             attestation.publicKeyB64,
             nacCardPublicKeyB64,
             ttcCardPublicKeyB64,
+            cardAttestationB64,
         )
         val stateMap = d.loadWallet(json)
         return mapToWalletState(stateMap, json)

@@ -27,12 +27,16 @@ namespace briolette {
     /// Phase 2: Complete registration with cryptographically-bound attestation.
     /// Takes wallet JSON from init_wallet_keys and attestation generated
     /// using the challenge preimage.
+    /// card_attestation_b64: optional base64-encoded MFR_ATTEST response from
+    /// a personalized NFC card. When present, the registrar verifies the card
+    /// is genuine hardware from a trusted manufacturer (HIGH+ tier).
     [Throws=WalletError]
     string register_wallet_with_attestation(
         string wallet_json,
         AttestationData attestation,
         string nac_card_public_key_b64,
-        string ttc_card_public_key_b64
+        string ttc_card_public_key_b64,
+        string card_attestation_b64
     );
 
     /// Create a new wallet with hardware attestation (legacy one-shot API).
@@ -191,11 +195,14 @@ dictionary KeyInitResult {
 };
 
 dictionary AttestationData {
-    /// Algorithm: 0 = NONE, 1 = ANDROID_KM_ATTESTATION, 2 = IOS_APP_ATTEST
+    /// Algorithm: 0 = NONE, 1 = ANDROID_KM_ATTESTATION, 2 = IOS_APP_ATTEST,
+    ///           3 = CARD_P256_ATTESTATION
     i32 algorithm;
-    /// Cert chain (Android) or CBOR attestation object (iOS), base64-encoded.
+    /// Cert chain (Android), CBOR attestation object (iOS), or card
+    /// MFR_ATTEST response (card P-256), base64-encoded.
     string signature_b64;
     /// Attested public key (Android) or key identifier (iOS), base64-encoded.
+    /// Empty for card attestation (pubkey is in the MFR_ATTEST response).
     string public_key_b64;
 };
 
