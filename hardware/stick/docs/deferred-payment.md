@@ -140,10 +140,19 @@ a reader at some point. The more practical options are:
 
 The credstick already has everything it needs to sign a transfer:
 
-1. **BLS12-381 private key half** (in flash) + split-key with phone/setup
+1. **Full BLS12-381 ECDAA private key** (in nRF52840 flash, protected by
+   APPROTECT fuse) — the credstick is a standalone signing device, no
+   phone or split-key needed
 2. **Recipient's SignedTicket** (saved contact — contains their TTC
    credential, which is the basename for the transfer signature)
 3. **Token selection logic** (pick tokens from flash to fulfill amount)
+
+This is a key property of the credstick: it holds its own complete ECDAA
+credential and signs independently. Split-key is the *phone* wallet's
+security model (phone + credstick together for a higher attestation tier).
+A credstick operating standalone has full signing capability — which is
+exactly what makes deferred payment possible without any other device
+present at signing time.
 
 The signing process is identical to what happens during a live NFC
 transfer — the credstick signs tokens transferring them to the
@@ -397,15 +406,7 @@ box relay.
 
 ## Open Questions
 
-1. **Split-key signing offline**: If the credstick uses split-key ECDAA
-   (card holds half, phone holds half), can it sign deferred payments
-   without the phone present? This only works if the credstick holds
-   the full signing capability, or if the split-key ceremony happened
-   earlier and the credstick cached a signing session. This may require
-   a "pre-authorize N tokens" flow where the phone contributes its key
-   half for a batch of future signatures.
-
-2. **Deposit notification**: How does Alice know she has deposits waiting?
+1. **Deposit notification**: How does Alice know she has deposits waiting?
    Options: (a) she checks periodically by tapping the relay, (b) a
    community board/display at the relay shows pending deposit counts
    (no amounts, just "Alice: 2 deposits"), (c) word of mouth.
