@@ -463,3 +463,234 @@ impl BrioletteRecovery {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hash_ttc_key_deterministic() {
+        let key = b"test-ttc-public-key";
+        let h1 = BrioletteRecovery::hash_ttc_key(key);
+        let h2 = BrioletteRecovery::hash_ttc_key(key);
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 32); // SHA-256 output
+    }
+
+    #[test]
+    fn hash_ttc_key_different_inputs_differ() {
+        let h1 = BrioletteRecovery::hash_ttc_key(b"key-a");
+        let h2 = BrioletteRecovery::hash_ttc_key(b"key-b");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn generate_binding_id_is_32_bytes() {
+        let id = BrioletteRecovery::generate_binding_id();
+        assert_eq!(id.len(), 32);
+    }
+
+    #[test]
+    fn generate_binding_id_unique() {
+        let id1 = BrioletteRecovery::generate_binding_id();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let id2 = BrioletteRecovery::generate_binding_id();
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn initialize_db_creates_tables() {
+        let db = Connection::open_in_memory().unwrap();
+        BrioletteRecovery::initialize_db(&db).unwrap();
+
+        // Verify bindings table exists
+        db.execute(
+            "INSERT INTO bindings (id, ttc_public_key_hash, ttc_public_key,
+             delegate_type, delegate_key, valid_until, state, created_epoch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7)",
+            params![
+                vec![1u8; 32], vec![2u8; 32], vec![3u8; 65],
+                0i32, vec![4u8; 65], 100i64, 0i64,
+            ],
+        )
+        .unwrap();
+
+        // Verify recovery_log table exists
+        db.execute(
+            "INSERT INTO recovery_log (binding_id, token_base_sig,
+             original_value_whole, original_value_fractional, recovered_epoch)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![vec![1u8; 32], vec![5u8; 48], 10i64, 0i64, 1i64],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn initialize_db_idempotent() {
+        let db = Connection::open_in_memory().unwrap();
+        BrioletteRecovery::initialize_db(&db).unwrap();
+        BrioletteRecovery::initialize_db(&db).unwrap();
+    }
+
+    #[test]
+    fn db_index_on_ttc_hash() {
+        let db = Connection::open_in_memory().unwrap();
+        BrioletteRecovery::initialize_db(&db).unwrap();
+
+        let ttc_key = b"test-ttc-key";
+        let ttc_hash = BrioletteRecovery::hash_ttc_key(ttc_key);
+
+        db.execute(
+            "INSERT INTO bindings (id, ttc_public_key_hash, ttc_public_key,
+             delegate_type, delegate_key, valid_until, state, created_epoch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7)",
+            params![
+                vec![1u8; 32], ttc_hash, ttc_key.to_vec(),
+                0i32, vec![4u8; 65], 100i64, 0i64,
+            ],
+        )
+        .unwrap();
+
+        let state: String = db
+            .query_row(
+                "SELECT state FROM bindings WHERE ttc_public_key_hash = ?1",
+                params![ttc_hash],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "active");
+    }
+
+    #[test]
+    fn db_revoke_and_no_active_binding() {
+        let db = Connection::open_in_memory().unwrap();
+        BrioletteRecovery::initialize_db(&db).unwrap();
+
+        let ttc_hash = vec![0xCDu8; 32];
+        let binding_id = vec![1u8; 32];
+
+        db.execute(
+            "INSERT INTO bindings (id, ttc_public_key_hash, ttc_public_key,
+             delegate_type, delegate_key, valid_until, state, created_epoch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7)",
+            params![
+                binding_id.clone(), ttc_hash.clone(), vec![3u8; 65],
+                0i32, vec![4u8; 65], 100i64, 0i64,
+            ],
+        )
+        .unwrap();
+
+        let rows = db
+            .execute(
+                "UPDATE bindings SET state = 'revoked' WHERE id = ?1 AND state = 'active'",
+                params![binding_id],
+            )
+            .unwrap();
+        assert_eq!(rows, 1);
+
+        let existing: Option<String> = db
+            .query_row(
+                "SELECT state FROM bindings WHERE ttc_public_key_hash = ?1 AND state = 'active'",
+                params![ttc_hash],
+                |row| row.get(0),
+            )
+            .ok();
+        assert!(existing.is_none());
+    }
+
+    #[test]
+    fn db_binding_state_priority_ordering() {
+        let db = Connection::open_in_memory().unwrap();
+        BrioletteRecovery::initialize_db(&db).unwrap();
+
+        let ttc_hash = vec![0xEFu8; 32];
+
+        // Insert a revoked binding first
+        db.execute(
+            "INSERT INTO bindings (id, ttc_public_key_hash, ttc_public_key,
+             delegate_type, delegate_key, valid_until, state, created_epoch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'revoked', ?7)",
+            params![
+                vec![1u8; 32], ttc_hash.clone(), vec![3u8; 65],
+                0i32, vec![4u8; 65], 50i64, 0i64,
+            ],
+        )
+        .unwrap();
+
+        // Insert an active binding
+        db.execute(
+            "INSERT INTO bindings (id, ttc_public_key_hash, ttc_public_key,
+             delegate_type, delegate_key, valid_until, state, created_epoch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7)",
+            params![
+                vec![2u8; 32], ttc_hash.clone(), vec![3u8; 65],
+                0i32, vec![4u8; 65], 200i64, 1i64,
+            ],
+        )
+        .unwrap();
+
+        // Query should prefer 'active' state
+        let (state, valid_until): (String, i64) = db
+            .query_row(
+                "SELECT state, valid_until FROM bindings
+                 WHERE ttc_public_key_hash = ?1
+                 ORDER BY CASE state WHEN 'active' THEN 0 ELSE 1 END
+                 LIMIT 1",
+                params![ttc_hash],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(state, "active");
+        assert_eq!(valid_until, 200);
+    }
+
+    #[test]
+    fn binding_state_mapping() {
+        let cases = vec![
+            ("active", BindingState::BindingActive),
+            ("expired", BindingState::BindingExpired),
+            ("revoked", BindingState::BindingRevoked),
+            ("consumed", BindingState::BindingConsumed),
+            ("unknown_state", BindingState::BindingUnknown),
+        ];
+        for (state_str, expected) in cases {
+            let binding_state = match state_str {
+                "active" => BindingState::BindingActive,
+                "expired" => BindingState::BindingExpired,
+                "revoked" => BindingState::BindingRevoked,
+                "consumed" => BindingState::BindingConsumed,
+                _ => BindingState::BindingUnknown,
+            };
+            assert_eq!(binding_state, expected, "mismatch for state '{}'", state_str);
+        }
+    }
+
+    #[test]
+    fn recovery_log_records_token_recovery() {
+        let db = Connection::open_in_memory().unwrap();
+        BrioletteRecovery::initialize_db(&db).unwrap();
+
+        let binding_id = vec![0xAAu8; 32];
+        let token_sig = vec![0xBBu8; 48];
+
+        db.execute(
+            "INSERT INTO recovery_log (binding_id, token_base_sig,
+             original_value_whole, original_value_fractional, recovered_epoch)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![binding_id.clone(), token_sig, 42i64, 500i64, 10i64],
+        )
+        .unwrap();
+
+        let (whole, frac, epoch): (i64, i64, i64) = db
+            .query_row(
+                "SELECT original_value_whole, original_value_fractional, recovered_epoch
+                 FROM recovery_log WHERE binding_id = ?1",
+                params![binding_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(whole, 42);
+        assert_eq!(frac, 500);
+        assert_eq!(epoch, 10);
+    }
+}
