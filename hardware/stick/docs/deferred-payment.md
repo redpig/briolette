@@ -540,109 +540,204 @@ The cryptographic operations are identical. Only the transport changes:
 instead of real-time NFC relay, it's store-and-forward via the deposit
 box relay.
 
-## Why Tickets Are Required (Not Optional)
+## Do We Still Need Tickets in v2?
 
-An earlier version of this document explored replacing the recipient's
-`SignedTicket` with a claim-code commitment for "stranger payments."
-That analysis was wrong. Here's why tickets are fundamental, not just
-a convenience.
+In v1, the `SignedTicket` does three things:
 
-### The Ticket as Pre-Commitment
+1. **Pre-commitment**: Contains the recipient's randomized TTC credential.
+   The recipient must later prove they hold the secret key behind this
+   credential to spend the tokens — this is what makes the chain of
+   custody work.
 
-From `token.proto`:
+2. **Policy enforcement**: The clerk embeds group numbers (for revocation
+   bitfield checking), expiration, and optional max transaction sizes.
+
+3. **Velocity management**: Ticket requests are signed by the NAC with
+   a basename bound to the current epoch. The clerk limits how many
+   tickets a given NAC pseudonym can get per epoch, preventing a single
+   wallet from flooding the system with receiving addresses.
+
+In a decentralized v2 where credsticks operate offline for extended
+periods and there may be no clerk to issue tickets, #2 and #3 lose
+their enforcement point. This raises the question: **could the recipient
+just generate a fresh randomized credential at payment receipt time,
+eliminating the ticket entirely?**
+
+### What the Credential Actually Does
+
+The chain of custody requires that each transfer embeds a credential
+the recipient can later sign with:
+
+```
+Transfer N:   signed by holder of credential from Transfer N-1
+              embeds recipient credential for Transfer N+1's signer
+
+mint → cred_A → cred_B → cred_C → ...
+       sender   signs     signs
+       embeds   with      with
+       cred_A   cred_A    cred_B
+```
+
+This is the non-negotiable part: you need **a real ECDAA credential**
+in each transfer for the chain to be verifiable. But does that
+credential need to come from a **signed ticket** (clerk-certified)?
+Or could it be a **bare randomized credential** that the recipient
+generates on the spot?
+
+### Option 1: Keep Signed Tickets (v1 model)
+
+Tickets = clerk-certified credential bundles. The clerk's P-256
+signature proves:
+- The credential was issued to a wallet with a valid NAC
+- The credential has a group number (for revocation)
+- The credential has an expiration
+- The credential was rate-limited (N tickets per epoch)
+
+**For deferred payment**: Sender must have recipient's `SignedTicket`
+saved in advance. Works well for known contacts (merchants, family).
+Doesn't work for strangers without a prior ticket exchange.
+
+**Strengths**: Policy enforcement, revocation grouping, rate limiting.
+**Weaknesses**: Requires clerk (centralized), tickets expire (need
+refresh), can't pay strangers without prior interaction.
+
+### Option 2: Bare Credentials (Randomized at Receipt Time)
+
+The recipient generates a fresh randomized TTC credential on the fly
+when receiving payment. No clerk involved. The credential is just the
+cryptographic pre-commitment — no policy wrapping.
+
+```
+Receive flow (v2):
+  1. Sender initiates payment
+  2. Receiver's credstick generates a fresh randomized credential
+     from its TTC secret key (standard ECDAA randomization)
+  3. Credential is embedded in the Transfer
+  4. Sender signs the transfer with their credential
+  5. Done — no clerk, no signed ticket needed
+```
+
+**For deferred payment**: This changes the model significantly. The
+sender can't pre-sign to a credential that doesn't exist yet (the
+receiver would generate it at receipt time). Two sub-options:
+
+**2a: Sender signs to a saved bare credential**
+
+The receiver pre-generates some randomized credentials and shares them
+(like pre-signed blank checks). The sender saves these as contacts.
+When doing a deferred payment, the sender signs to one of the saved
+credentials. The receiver later claims the tokens by proving they hold
+the secret key.
+
+This is functionally similar to v1 tickets but without the clerk
+signature — just a bare credential. The receiver can generate as many
+as they want, with no rate limiting.
+
+**2b: Credential exchange happens at the relay**
+
+For live payments at a relay, the receiver generates a fresh credential
+on the spot during the tap sequence. The relay mediates the exchange.
+No pre-saved contact needed.
+
+For deferred payments, the sender still needs a saved credential —
+but it's a bare one from a prior interaction, not a clerk-certified
+ticket.
+
+**Strengths**: No clerk dependency, works offline indefinitely,
+simpler protocol.
+**Weaknesses**: No policy enforcement (no group numbers, no expiration,
+no rate limiting), revocation becomes harder.
+
+### Option 3: Hybrid (Bare Credentials + Optional Policy Layer)
+
+The protocol accepts both:
+- **Bare credentials** (just the randomized TTC) for peer-to-peer
+- **Signed tickets** (clerk-certified) when online and when policy
+  matters
 
 ```protobuf
 message Transfer {
-  SignedTicket recipient = 1;     // contains recipient's randomized credential
+  oneof destination {
+    SignedTicket ticket = 1;       // v1: clerk-certified, has policy
+    bytes credential = 5;         // v2: bare randomized TTC credential
+  }
   repeated Tag tags = 2;
-  bytes previous_signature = 3;   // used as ECDAA basename
+  bytes previous_signature = 3;
 }
 ```
 
-The `SignedTicket` contains the recipient's **randomized TTC credential**.
-This isn't just a label — it's a **pre-commitment**. When tokens are
-transferred to a ticket, the recipient's credential is baked into the
-token's transfer history. To spend those tokens next, the recipient
-must prove they hold the secret key behind that credential by using it
-to sign the next transfer.
+The verifier checks:
+- **If ticket**: Verify clerk signature, check group against revocation
+  bitfield, verify expiration. Full policy enforcement.
+- **If bare credential**: Just verify it's a valid ECDAA credential
+  from an acceptable TTC group key. No policy checks. The chain of
+  custody still holds, but without the policy envelope.
 
-This is how the chain of custody works:
+This lets v2 credsticks operate in "bare mode" for offline peer-to-peer
+while still interacting with the full policy system when online (e.g.,
+when depositing at a bank, swapping tokens, or going through a
+connected relay).
 
-```
-mint signs → Transfer{ recipient: Alice's credential }
-                                     │
-             Alice proves she holds ─┘ this credential
-             by signing the next transfer with it
-                     │
-                     └─→ Transfer{ recipient: Bob's credential }
-                                               │
-                          Bob proves he holds ──┘ this credential
-                          ...
-```
+### What v2 Loses Without Tickets
 
-Each link in the chain is cryptographically verified: the signer of
-transfer N must prove they own the credential named in transfer N-1.
-**Without a real credential in the Transfer, the chain breaks.** There's
-no credential for the next spender to prove ownership of.
+| v1 Ticket Feature | What Happens Without It |
+|-------------------|------------------------|
+| Group number (revocation bitfield) | Revocation must work at the TTC/NAC level instead of the ticket level. Coarser — revoking a TTC group affects all credentials, not just recent tickets |
+| Expiration | No forced rotation of receiving credentials. Wallets could reuse one credential forever (linkability risk) |
+| Max transaction size | No per-ticket policy. Must be enforced at the hardware/wallet level only |
+| Rate limiting (N tickets/epoch) | No limit on receiving credential generation. A wallet could flood the system with addresses |
+| Clerk signature | No third-party proof that the credential was legitimately issued |
 
-### Why Claim-Codes Can't Replace Tickets
+### What v2 Gains
 
-If we signed to `H(pickup_secret)` instead of a real credential:
+| Benefit | Impact |
+|---------|--------|
+| No clerk dependency | Works fully offline, no epoch-gated ticket refresh |
+| Simpler protocol | No ticket request flow, no ticket signing keys |
+| Pay anyone | Receiver generates credential on the spot, no prior exchange needed for live payments |
+| Truly decentralized | No central authority needed for routine operations |
+| Better privacy | No clerk tracking ticket issuance per NAC |
 
-1. The collector receives the tokens at the relay
-2. The collector wants to spend them (transfer to a merchant)
-3. The merchant's wallet verifies the token chain
-4. It finds a `claim_hash` where a credential should be
-5. **The collector can't prove they "own" a hash** — there's no ECDAA
-   credential to sign with. The chain of custody is broken.
+### Impact on Deferred Payment
 
-A self-transfer at collection doesn't fix this: the self-transfer needs
-the collector to prove they held the credential from the *previous*
-hop — but the previous hop's "credential" was a hash, not a real TTC
-credential.
+With bare credentials (Option 2 or 3):
 
-### Consequence: Saved Contacts Are Required
+**Saved contacts still need a credential** (not a ticket, but a bare
+randomized credential). The sender needs *something* to embed in the
+Transfer at signing time. Whether that something is a `SignedTicket` or
+a bare credential is a protocol distinction, but the UX requirement is
+the same: the sender must have acquired the recipient's credential
+before signing.
 
-Deferred payment **requires** the sender to have the recipient's
-`SignedTicket` saved in advance. This is not a limitation we can
-engineer away — it's a fundamental property of the credential chain.
+**Live payments at a relay get simpler**: The receiver generates a fresh
+credential during the tap. No need to have pre-acquired a ticket from
+a clerk. This makes the relay interaction fully self-contained — no
+prior online setup required.
 
-This means the "pay a stranger" scenario requires a prior interaction
-to exchange tickets:
+**The pickup code role is unchanged**: Still a UX verification aid
+derived from the signed token data, regardless of whether the
+destination is a ticket or bare credential.
 
-```
-First meeting (at a relay):
-  Alice taps relay → relay reads Alice's ticket
-  Bob taps relay → relay pushes Alice's ticket to Bob's credstick
-  (Bob now has Alice as a saved contact)
+### Recommendation
 
-Later (anywhere, no relay needed):
-  Bob signs a deferred payment to Alice using her saved ticket
-  Bob drops off at relay whenever convenient
-  Alice collects
-```
+**Option 3 (hybrid)** for v2. The protocol should accept both signed
+tickets and bare credentials. This gives us:
 
-The first meeting is the bootstrapping step. After that, Bob can pay
-Alice from anywhere without any device present. This is like exchanging
-bank account numbers — you do it once, then wire transfers work forever
-(until the ticket expires and needs renewal).
+- **Offline credstick mesh**: Bare credentials, no clerk needed
+- **Connected infrastructure**: Signed tickets for policy enforcement
+  when the wallet has access to a clerk
+- **Gradual migration**: v1 systems continue to work, v2 adds bare
+  credential support
 
-### The Pickup Code's Actual Role
+The key insight: the credential pre-commitment is the immutable
+requirement (the chain of custody demands it). The *policy wrapping*
+around that credential (group number, expiration, clerk signature) is
+the part that can become optional in a decentralized v2.
 
-Since tokens are always signed to a real ticket, the pickup code is
-purely a **UX verification aid** — not a cryptographic binding:
-
-- It lets the recipient visually confirm "yes, that deposit is mine"
-- It's derived from the signed token data for integrity checking
-- The relay matches deposits to recipients via the ticket hash in the
-  token, not via the pickup code
-- The tokens are cryptographically bound to the recipient's credential
-  regardless of any pickup code
-
-This is actually *better* security than the claim-code model: even a
-compromised relay can't steal the tokens, because they're signed to a
-credential only the recipient holds. The relay is truly a dumb deposit
-box with zero trust required.
+For the deferred payment design, this means: saved contacts store either
+a `SignedTicket` or a bare credential. The signing flow is identical
+either way — the credstick doesn't care whether the credential has a
+clerk signature around it.
 
 ## Amount Entry on the Credstick
 
