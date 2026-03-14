@@ -739,6 +739,227 @@ a `SignedTicket` or a bare credential. The signing flow is identical
 either way — the credstick doesn't care whether the credential has a
 clerk signature around it.
 
+## Deriving Group Revocation from the TTC
+
+If v2 uses bare credentials (no clerk-assigned group numbers), can we
+still get efficient group-based revocation? The v1 approach is elegant:
+64-bit bitfield gossiped with every transaction, receivers check their
+peer's group bit. Can we derive equivalent functionality from the TTC
+credential itself?
+
+### The Core Tension
+
+Group numbers must be:
+- **Checkable** by the receiver to enforce the revocation bitfield
+- **Deterministic** for a given wallet (so revocation sticks)
+- **Unlinkable** across transactions (so they don't deanonymize)
+
+In v1 these properties come from the clerk assigning a group number to
+each ticket and the receiver checking the clerk's signature. Without a
+clerk, we need the group to emerge from the TTC itself.
+
+### Approach A: Hash-Derived Group (Simple, Linkable)
+
+```
+group_idx = hash(TTC_public_commitment) mod 64
+```
+
+The wallet's TTC credential deterministically maps to a group. Any
+verifier can compute this from the credential.
+
+**Problem**: The credential is randomized per transaction (that's the
+whole point of ECDAA), so `hash(randomized_credential) mod 64` gives
+a different result each time. And if you use the *un-randomized*
+credential, every transaction reveals the same group — linkable.
+
+**Verdict**: Doesn't work as stated. The randomization that gives
+privacy destroys the deterministic group derivation.
+
+### Approach B: VRF-Based Group (Per-Epoch, Verifiable)
+
+Use the TTC secret key with a Verifiable Random Function:
+
+```
+(group_proof, group_idx) = VRF(sk, epoch_number)
+group_idx = VRF_output mod 64
+```
+
+Properties:
+- Deterministic for a given (sk, epoch) — same wallet always gets
+  the same group within an epoch
+- Verifiable — the receiver checks the VRF proof
+- Changes per epoch — unlinkable across epoch boundaries
+- Doesn't reveal sk
+
+**Problem**: The VRF proof itself is a pseudonym — if two transactions
+in the same epoch produce the same VRF proof, they're linkable to the
+same wallet. This is exactly the basename-linkability property, but
+now applied to every transaction (not just double-spends).
+
+**Mitigation**: The group assignment changes every epoch. Within a
+single epoch, transactions from the same wallet are linkable via the
+VRF proof, but across epochs they're not. Whether this is acceptable
+depends on how many transactions a wallet does per epoch (~24h).
+
+**Verdict**: Workable but trades some intra-epoch privacy for
+revocation capability. A wallet doing 5 transactions per epoch has
+all 5 linkable to each other (but not to the wallet's identity).
+
+### Approach C: Committed Group with ZK Proof (Private, Complex)
+
+The wallet commits to its group and proves in zero-knowledge that the
+committed group is not in the revocation bitfield:
+
+1. During TTC issuance, the registrar and wallet agree on
+   `group_idx = hash(sk) mod 64`
+2. In each transaction, the wallet provides:
+   - A Pedersen commitment: `C = g^group_idx * h^r` (fresh r each time)
+   - A ZK proof: "I know group_idx and r such that C = g^group_idx * h^r
+     AND bit group_idx in the revocation_bitfield is 0"
+
+The commitment is unlinkable (fresh r each time). The ZK proof
+convinces the receiver the wallet isn't revoked without revealing which
+group it's in.
+
+**ZK proof construction**: For a 64-bit bitfield where K bits are set
+(K groups revoked), the wallet proves membership in the set of 64-K
+non-revoked groups. Using Sigma protocols (OR-composition), this is
+O(64) in proof size — 64 parallel Schnorr proofs composed with an
+OR gate. With BLS12-381, each Schnorr proof element is ~48 bytes.
+Total proof overhead: ~3-6 KB.
+
+**Problem**: 3-6 KB per transaction is heavy for a credstick NFC
+exchange (~200 bytes budget at the APDU level) and for token history
+growth. Also, generating 64 parallel Schnorr proofs on an nRF52840
+is expensive (~64 scalar muls = ~120 seconds at current BLS12-381
+performance). Not viable.
+
+**Optimization**: Use a more efficient ZK system:
+
+- **Bulletproofs range proof**: Prove `group_idx ∈ [0, 63]` and
+  `revocation_bitfield[group_idx] == 0`. Proof size: ~700 bytes.
+  But Bulletproofs are expensive to generate (~seconds on nRF52840).
+
+- **Sparse bitfield**: If only 1-3 groups are revoked (common case),
+  the proof simplifies to "my group ≠ 7 AND my group ≠ 23 AND my
+  group ≠ 41." This is 3 inequality proofs, much cheaper.
+
+**Verdict**: Theoretically ideal but likely too expensive for credstick
+hardware. Worth revisiting if BLS12-381 performance improves (dedicated
+accelerator, or a move to a faster curve).
+
+### Approach D: Credential Attribute (BBS+ Evolution)
+
+Instead of ECDAA, evolve to **BBS+ signatures** which natively support
+multi-attribute credentials with selective disclosure:
+
+```
+Credential attributes:
+  [0] sk           — wallet secret key
+  [1] group_idx    — assigned during issuance
+  [2] issued_epoch — when the credential was issued
+  ...
+```
+
+With BBS+:
+- The wallet can **selectively disclose** group_idx while hiding sk
+- Or prove group_idx ∈ non-revoked set without disclosing it
+- Credential randomization is built in (unlinkable presentations)
+- Proof size: ~400-600 bytes for selective disclosure
+
+This is the "right" long-term answer — BBS+ is essentially ECDAA's
+successor for attribute-bearing anonymous credentials. The BLS12-381
+curve already in Briolette v1 is the standard curve for BBS+.
+
+**Migration path**: ECDAA credential (A, B, C, D) → BBS+ credential
+with attributes. The signing and verification algebra is similar
+(both pairing-based), but BBS+ adds the attribute disclosure framework.
+
+**Problem**: BBS+ is more computationally expensive than basic ECDAA.
+On an nRF52840, BBS+ proof generation with 2-3 attributes is estimated
+at ~4-6 seconds (vs ~2 seconds for current ECDAA). Significant but
+possibly acceptable.
+
+**Verdict**: Best long-term approach. Natural evolution from ECDAA.
+Should be evaluated for v2 or v3.
+
+### Approach E: Issuer-Embedded Group Tag (Pragmatic)
+
+The simplest approach that preserves v1's efficiency: during TTC
+issuance, the registrar embeds the group number into the credential
+nonce (`B = hash_to_g1(nonce)` where `nonce` encodes the group).
+The credential is issued normally. The group is deterministic from the
+credential but hidden by randomization.
+
+At verification time, the wallet provides a **group disclosure proof**:
+a proof that the randomized credential's underlying nonce encodes a
+specific group number. This is a Schnorr proof relating the randomized
+B point to the original nonce — one scalar multiplication, ~48 bytes.
+
+```
+Issuance:
+  nonce = random || group_idx
+  B = hash_to_g1(nonce)
+  credential = (A, B, C, D) as usual
+
+Verification (per transaction):
+  Randomized credential: (R, S, T, W) = (A^l, B^l, C^l, D^l)
+  Group proof: prove that S = B^l where B encodes group_idx
+  → disclose group_idx + proof
+```
+
+**Problem**: This still requires the group to be disclosed (receiver
+checks the bitfield). But disclosure of the group number (one of 64
+values) reveals only ~6 bits of information. Combined with the
+randomized credential (which changes every transaction), this leaks
+group membership but nothing else.
+
+**Privacy cost**: An adversary observing transactions can partition
+wallets into 64 groups. Within a group, wallets remain anonymous.
+Across transactions, the group is linkable (same wallet always in the
+same group), which is ~6 bits of information per transaction.
+
+**Verdict**: Pragmatic, efficient (~one extra scalar mul), but leaks
+group membership. This is exactly what v1 tickets do, just moved from
+the clerk to the registrar. Acceptable if the privacy cost of revealing
+1-of-64 group membership is tolerable.
+
+### Summary
+
+| Approach | Privacy | Efficiency | Complexity | Hardware Feasible |
+|----------|---------|-----------|------------|-------------------|
+| A: Hash-derived | Linkable | Trivial | None | Yes (but broken privacy) |
+| B: VRF | Intra-epoch linkable | 1 VRF proof (~200B) | Low | Yes |
+| C: ZK committed | Full | 700B-6KB proof | High | Marginal |
+| D: BBS+ attributes | Full | ~500B proof, ~5s | Medium | Stretch (v3?) |
+| E: Issuer-embedded | 6-bit leak | ~48B proof | Low | Yes |
+
+### Recommendation
+
+For v2 credstick hardware:
+
+**Short-term**: Approach E (issuer-embedded group tag). Minimal protocol
+change from v1 — the registrar assigns the group during TTC issuance
+instead of the clerk assigning it during ticketing. The 6-bit privacy
+leak (1-of-64 group membership) is the same as v1 tickets. Efficient
+enough for credstick hardware.
+
+**Medium-term**: Approach B (VRF-based group). Eliminates the
+registrar's group assignment (truly decentralized). Accepts intra-epoch
+linkability as a tradeoff. Worth prototyping to measure real-world
+privacy impact.
+
+**Long-term**: Approach D (BBS+ credential attributes). The proper
+solution — full privacy, selective disclosure, naturally supports
+additional attributes beyond just group number. Requires BBS+ library
+on the nRF52840 (or its successor MCU).
+
+The key insight: **group-based revocation doesn't inherently require
+tickets.** The group number can be embedded at credential issuance time
+(registrar level) rather than ticketing time (clerk level). This
+decouples revocation from the clerk entirely, letting bare credentials
+carry their own group identity.
+
 ## Amount Entry on the Credstick
 
 For live relay-mediated transfers, the relay (phone or solar relay)
