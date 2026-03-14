@@ -52,40 +52,24 @@ then it gets delivered and deposited through the banking system.
 
 The receiver's `SignedTicket` is the cryptographic identity needed to
 transfer tokens. Today it's exchanged via NFC tap or QR code. For
-deferred payments, we need ways to represent it on a credstick:
+deferred payments, the sender's credstick must have the full ticket
+at signing time. The ticket contains the recipient's randomized TTC
+credential — a pre-commitment that the recipient must later prove
+ownership of to spend the tokens. You can't sign to a credential you
+don't have, so the full ticket must be acquired before any deferred
+payment.
 
 | Method | How It Works | UX |
 |--------|-------------|-----|
-| **Saved contacts** | Receiver's ticket stored in credstick flash, associated with a name/number | Select from list on e-ink display |
-| **QR scan at any time** | Scan a merchant's posted QR code with a phone, push ticket to credstick via NFC | One-time setup per merchant |
-| **Short numeric code** | Truncated hash of ticket, resolved at relay drop-off | Type on credstick buttons |
-| **NFC tag sticker** | Passive NFC tag containing ticket, posted at merchant's stall | Tap credstick to the sticker |
+| **Relay-mediated** | Customer taps relay, relay pushes registered merchant tickets to credstick | First visit to market |
+| **Live transaction** | Receiver's ticket received during normal Initiate flow; credstick saves it | First payment via relay |
+| **QR → phone → credstick** | Scan merchant's posted QR code with phone, push ticket to credstick via NFC | One-time, needs a phone |
+| **USB import** | Import ticket data from file via USB setup tool | Setup at home |
 
-The **saved contacts** approach is most practical for repeat payments
-(rent, regular merchants, family). The **NFC tag sticker** is interesting
-for merchants — a $0.10 NFC sticker on the counter lets any credstick
-read the merchant's ticket without a relay.
-
-### NFC Tag Stickers: Ultra-Cheap "Merchant ID"
-
-A passive NFC tag (NTAG216, ~$0.10-0.30) can store up to 888 bytes.
-A `SignedTicket` serialized via protobuf is ~200-300 bytes. This fits
-easily. The sticker:
-
-- Is powered by the credstick reader's field (wait — the credstick is
-  tag-only too). **Problem**: Two tags can't talk.
-- **Alternative**: The sticker is read by the customer's phone, which
-  pushes the ticket to the credstick. Or the solar relay reads the
-  sticker during setup.
-
-Actually, for the deferred payment model, the sticker approach requires
-a reader at some point. The more practical options are:
-
-1. **Pre-saved**: Merchant ticket saved to credstick during an earlier
-   relay-mediated interaction
-2. **QR code → phone → credstick**: Scan QR once, push to credstick
-3. **Manual entry**: Short merchant code (like a phone number) entered
-   via buttons, resolved to full ticket at relay drop-off
+All methods require a one-time interaction with some device (relay,
+phone, or computer) to bootstrap the contact. After that, the credstick
+can sign deferred payments to that contact from anywhere, indefinitely
+(until the ticket expires).
 
 ### Flow: Credstick-Only Payment
 
@@ -393,47 +377,43 @@ hash by signing a challenge with their TTC credential. This prevents
 someone from collecting another person's deposits by guessing their
 ticket hash.
 
-### Short Merchant Codes
+### Contact Acquisition: How Tickets Get Saved
 
-For the "type in a code" flow, we need a way to map short human-friendly
-codes to full SignedTickets. Options:
+Since deferred payment requires the recipient's full `SignedTicket` on
+the credstick at signing time, the "type in a short code" flow from
+the original design doesn't work — you can't sign to a credential you
+don't have. Short codes can still serve as **human-friendly labels**
+for already-saved contacts, but the full ticket must be acquired first.
 
-**Option A: Relay-Resolved Codes**
+**Ways to acquire a contact's ticket:**
 
-The relay maintains a registry of known merchants:
+| Method | When | How |
+|--------|------|-----|
+| Relay-mediated | First visit to merchant/relay | Tap relay → relay pushes merchant tickets to credstick |
+| Live transaction | First payment via relay | Receiver's ticket is received as part of the Initiate flow; credstick saves it |
+| USB import | Setup at home | Import ticket data from a file or QR code via USB tool |
+| Phone bridge | Any time with a phone | Scan merchant's posted QR code with phone, push ticket to credstick via NFC |
 
-```
-Code    Merchant          Ticket Hash
-001     Market Stall A    0xA3F...
-002     Market Stall B    0x91C...
-003     Village Elder     0xE5A...
-```
-
-The sender enters "001" on their credstick. At drop-off, the relay
-resolves it to the full ticket. This requires the sender to visit a relay
-that knows the recipient — works well for village-scale deployments where
-everyone uses the same relay.
-
-**Option B: Truncated Ticket Hash**
-
-Use the first N digits of the ticket hash as a short code. For a village
-of ~1000 people, 6 hex digits (24 bits) gives <0.01% collision probability.
-The credstick stores the short hash; the relay resolves it during drop-off
-or the recipient proves ownership during collection.
-
-**Option C: Hierarchical Codes (Like Phone Numbers)**
+The **relay-mediated** path is the natural bootstrapping flow for the
+village market scenario:
 
 ```
-[region][village][merchant] = 3-digit code
-  01      03       07      = "010307"
+Market day setup (one-time per merchant):
+  1. Merchant taps relay → relay stores merchant's ticket
+  2. Customer taps relay → relay pushes all registered merchant
+     tickets to the credstick as saved contacts
+  3. Credstick now has: "Market A (001)", "Market B (002)", etc.
+  4. Future payments to these merchants can be deferred
 ```
 
-Managed by whoever operates the relay infrastructure. More structured
-but requires coordination.
+The relay acts as a **contact directory** in addition to a deposit box.
+New customers visiting the market for the first time tap the relay once
+to acquire all local merchant contacts. After that, they can prepare
+payments at home.
 
-**Recommendation**: Option A for simplicity. A village relay with a
-local merchant registry is the natural fit. Option B as fallback for
-inter-village transfers.
+Short codes (001, 002, etc.) are local labels assigned by the relay
+for human convenience — they're displayed on the e-ink when selecting
+a contact, but the cryptographic binding is always the full ticket.
 
 ## Security Considerations
 
@@ -560,185 +540,109 @@ The cryptographic operations are identical. Only the transport changes:
 instead of real-time NFC relay, it's store-and-forward via the deposit
 box relay.
 
-## Are Tickets Still the Right Destination Binding?
+## Why Tickets Are Required (Not Optional)
 
-This is the central v2 protocol question. In v1, every transfer signs
-tokens to a recipient's `SignedTicket`. For deferred payment, we assumed
-the sender would need the recipient's ticket saved in advance. But the
-pickup code concept opens a different possibility: **what if the tokens
-aren't signed to a ticket at all?**
+An earlier version of this document explored replacing the recipient's
+`SignedTicket` with a claim-code commitment for "stranger payments."
+That analysis was wrong. Here's why tickets are fundamental, not just
+a convenience.
 
-### How v1 Transfer Signing Works
+### The Ticket as Pre-Commitment
 
-From `token.proto`, a Transfer binds a recipient and gets signed:
-
-```protobuf
-message Transfer {
-  SignedTicket recipient = 1;     // destination binding
-  repeated Tag tags = 2;
-  bytes previous_signature = 3;   // basename for ECDAA double-spend detection
-}
-```
-
-Two critical and **independent** mechanisms:
-
-1. **Double-spend detection**: Uses `previous_signature` as the ECDAA
-   basename. If the same token (same previous_signature) is signed twice
-   by the same wallet, the two signatures produce the same pseudonym K —
-   linkable, detectable, revocable. **This has nothing to do with who
-   the recipient is.**
-
-2. **Destination binding**: The `recipient` SignedTicket says "only the
-   holder of this ticket's credential can spend these tokens next." This
-   is the chain of custody.
-
-Since these are independent, we can change #2 without breaking #1.
-
-### Three Destination Models for v2
-
-**Model A: Ticket-Bound (v1 compatible)**
-
-Same as today. Sender has Alice's `SignedTicket` saved as a contact.
-Signs tokens to her ticket. Alice collects and can immediately re-spend.
-
-```
-Transfer { recipient: Alice's SignedTicket }
-```
-
-- Requires saved contacts (sender must have Alice's ticket)
-- Strongest security — tokens cryptographically bound to Alice
-- Chain of custody intact
-- Relay can't steal tokens (they're useless without Alice's credential)
-
-**Model B: Claim-Code Bound (new)**
-
-Sender doesn't have Alice's ticket. Instead, signs tokens to a
-**claim commitment** — a hash of a shared secret:
-
-```
-Transfer { claim_hash: H(pickup_secret) }   // new field
-```
-
-The `pickup_secret` is generated by the sender's credstick. The short
-pickup code shown on e-ink (e.g., "7H3K") is derived from it. The
-sender tells Alice the code (verbally, or she reads it off the screen).
-
-At collection, Alice presents the `pickup_secret` to the relay. The
-relay verifies `H(pickup_secret) == claim_hash` in the token, then
-hands over the tokens. Alice does a **self-transfer** to bind them to
-her own ticket for future spending.
-
-```
-Token chain: mint → ... → sender(claim=H(secret)) → Alice(ticket)
-                                                     ↑
-                                          self-transfer at collection
-```
-
-- No saved contacts needed — pay anyone, even strangers
-- Weaker during transit — tokens are bearer-like (anyone with the
-  secret can claim). The relay is the custody point.
-- Extra transfer hop (self-transfer at collection) adds to token history
-- Double-spend detection still works (based on previous_signature,
-  not the destination)
-
-**Model C: Hybrid (claim with optional ticket hint)**
-
-The sender signs to a claim commitment but also includes an optional
-ticket hint — a truncated hash of the intended recipient's ticket:
-
-```
-Transfer {
-  claim_hash: H(pickup_secret),
-  recipient_hint: truncate(H(Alice's ticket), 8 bytes)  // optional
-}
-```
-
-The relay uses the hint to notify Alice ("you have a deposit") and to
-prioritize delivery. But the cryptographic binding is the claim, not the
-ticket. If the hint is wrong or absent, Alice can still collect with the
-pickup secret.
-
-This gives us the flexibility of Model B with a routing optimization
-from Model A.
-
-### Comparison
-
-| Property | A: Ticket-Bound | B: Claim-Code | C: Hybrid |
-|----------|----------------|---------------|-----------|
-| Need recipient's ticket? | Yes (saved) | No | Optional (for routing) |
-| Pay a stranger? | No | Yes | Yes |
-| Tokens bound to recipient? | Cryptographically | By shared secret | By shared secret |
-| Relay can steal tokens? | No | Only if it learns the secret | Only if it learns the secret |
-| Token history growth | Same as v1 | +1 hop (self-transfer) | +1 hop |
-| Chain of custody | Fully verified | Gap at claim step | Gap at claim step |
-| Protocol change needed? | None | New Transfer field | New Transfer field |
-
-### Recommendation
-
-Support both Model A and Model B. The `Transfer` message gains a new
-oneof:
+From `token.proto`:
 
 ```protobuf
 message Transfer {
-  oneof destination {
-    SignedTicket recipient = 1;   // v1: ticket-bound
-    bytes claim_hash = 5;        // v2: claim-code-bound (32 bytes)
-  }
+  SignedTicket recipient = 1;     // contains recipient's randomized credential
   repeated Tag tags = 2;
-  bytes previous_signature = 3;
+  bytes previous_signature = 3;   // used as ECDAA basename
 }
 ```
 
-- **Saved contact exists?** → Use ticket-bound (Model A). Strongest
-  security, no extra hop.
-- **No saved contact?** → Use claim-code (Model B). Flexible, works
-  with anyone, but bearer-like during transit.
+The `SignedTicket` contains the recipient's **randomized TTC credential**.
+This isn't just a label — it's a **pre-commitment**. When tokens are
+transferred to a ticket, the recipient's credential is baked into the
+token's transfer history. To spend those tokens next, the recipient
+must prove they hold the secret key behind that credential by using it
+to sign the next transfer.
 
-This is analogous to: wire transfer (you need the account number) vs.
-cashier's check (anyone can deposit it with the right endorsement).
-
-### Claim-Code Security Properties
-
-The pickup secret needs to be strong enough that the relay can't
-brute-force it, but short enough for human exchange:
+This is how the chain of custody works:
 
 ```
-pickup_secret: 128-bit random (generated by credstick)
-pickup_code:   base32(pickup_secret[:3]) = 4-5 characters (for display)
-claim_hash:    SHA-256(pickup_secret) = 32 bytes (in token)
+mint signs → Transfer{ recipient: Alice's credential }
+                                     │
+             Alice proves she holds ─┘ this credential
+             by signing the next transfer with it
+                     │
+                     └─→ Transfer{ recipient: Bob's credential }
+                                               │
+                          Bob proves he holds ──┘ this credential
+                          ...
 ```
 
-Wait — if the pickup code is only 4 characters (~20 bits), can the
-relay brute-force it? The relay has the `claim_hash` and just needs to
-find a preimage that matches. 2^20 = ~1M attempts. At even 1M
-hashes/sec on a microcontroller, that's 1 second.
+Each link in the chain is cryptographically verified: the signer of
+transfer N must prove they own the credential named in transfer N-1.
+**Without a real credential in the Transfer, the chain breaks.** There's
+no credential for the next spender to prove ownership of.
 
-**This is a problem.** The short pickup code is for human UX. The
-actual claim secret must be longer. Two options:
+### Why Claim-Codes Can't Replace Tickets
 
-**Option 1: Long secret, short display code**
+If we signed to `H(pickup_secret)` instead of a real credential:
 
-The full `pickup_secret` is 128 bits. The 4-char pickup code is just a
-*check digit* — it doesn't unlock the claim. Collection requires the
-full secret, which is transferred from sender's credstick to recipient's
-credstick via the relay during collection (encrypted to relay's session).
+1. The collector receives the tokens at the relay
+2. The collector wants to spend them (transfer to a merchant)
+3. The merchant's wallet verifies the token chain
+4. It finds a `claim_hash` where a credential should be
+5. **The collector can't prove they "own" a hash** — there's no ECDAA
+   credential to sign with. The chain of custody is broken.
 
-The display code is purely for human verification ("is this the right
-deposit?"), not for access control.
+A self-transfer at collection doesn't fix this: the self-transfer needs
+the collector to prove they held the credential from the *previous*
+hop — but the previous hop's "credential" was a hash, not a real TTC
+credential.
 
-**Option 2: Sender and recipient both tap the relay**
+### Consequence: Saved Contacts Are Required
 
-At drop-off, the sender gives the relay the full secret. At collection,
-the recipient proves identity by owning the ticket hinted in the deposit
-(if hint present) or by verbally telling the relay operator the short
-code (for human-mediated relays). The relay matches and releases.
+Deferred payment **requires** the sender to have the recipient's
+`SignedTicket` saved in advance. This is not a limitation we can
+engineer away — it's a fundamental property of the credential chain.
 
-**Recommendation**: Option 1. The pickup code on the e-ink is a
-verification aid, not a key. The full claim secret travels:
-sender credstick → relay (at drop-off) → recipient credstick (at
-collection, encrypted). The relay holds the secret in its deposit box.
-The 4-char code lets humans say "yes, that's the right deposit" without
-being the security mechanism.
+This means the "pay a stranger" scenario requires a prior interaction
+to exchange tickets:
+
+```
+First meeting (at a relay):
+  Alice taps relay → relay reads Alice's ticket
+  Bob taps relay → relay pushes Alice's ticket to Bob's credstick
+  (Bob now has Alice as a saved contact)
+
+Later (anywhere, no relay needed):
+  Bob signs a deferred payment to Alice using her saved ticket
+  Bob drops off at relay whenever convenient
+  Alice collects
+```
+
+The first meeting is the bootstrapping step. After that, Bob can pay
+Alice from anywhere without any device present. This is like exchanging
+bank account numbers — you do it once, then wire transfers work forever
+(until the ticket expires and needs renewal).
+
+### The Pickup Code's Actual Role
+
+Since tokens are always signed to a real ticket, the pickup code is
+purely a **UX verification aid** — not a cryptographic binding:
+
+- It lets the recipient visually confirm "yes, that deposit is mine"
+- It's derived from the signed token data for integrity checking
+- The relay matches deposits to recipients via the ticket hash in the
+  token, not via the pickup code
+- The tokens are cryptographically bound to the recipient's credential
+  regardless of any pickup code
+
+This is actually *better* security than the claim-code model: even a
+compromised relay can't steal the tokens, because they're signed to a
+credential only the recipient holds. The relay is truly a dumb deposit
+box with zero trust required.
 
 ## Amount Entry on the Credstick
 
@@ -914,9 +818,9 @@ reserved flash.
    deferred payments to whole amounts and leave fractional for live relay
    transactions?
 
-5. **Claim-code vs ticket for the relay trust model**: With claim-code
-   (Model B), the relay holds the full claim secret between drop-off and
-   collection. A compromised relay could claim tokens itself. With
-   ticket-bound (Model A), even a compromised relay can't spend the
-   tokens. Should we default to Model A (ticket-bound) when the sender
-   has a saved contact, and only use Model B for stranger payments?
+5. **Ticket expiry and contact refresh**: Tickets have a limited lifetime
+   (N epochs). Saved contacts will go stale. How does a credstick learn
+   that a contact's ticket has expired? Options: (a) relay pushes updated
+   tickets during any tap, (b) credstick refuses to sign to an expired
+   ticket and displays "contact expired — visit relay", (c) contacts
+   include a "valid_until" hint so the credstick can warn proactively.
