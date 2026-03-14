@@ -136,6 +136,162 @@ a reader at some point. The more practical options are:
                                               box
 ```
 
+### E-ink Display Sequence
+
+The e-ink screen is the receipt the recipient watches. It needs to build
+confidence that real tokens were signed to *them* specifically, not faked.
+
+**Step 1: Recipient Selection**
+```
+┌────────────────┐
+│  Pay who?       │
+│                 │
+│ ► Alice    002  │
+│   Bob      003  │
+│   Market   007  │
+│                 │
+│  ◄ ▲ ▼ ►       │
+└────────────────┘
+```
+
+Recipient sees their own name/code selected. The number is the local
+contact code matching what the relay knows.
+
+**Step 2: Amount Confirmation**
+```
+┌────────────────┐
+│  Pay Alice      │
+│  5 tokens?      │
+│                 │
+│  ◄ No    Yes ►  │
+└────────────────┘
+```
+
+Both parties can see the amount. Sender enters PIN if required
+(above threshold), then confirms.
+
+**Step 3: Signing (brief, ~2-3 seconds)**
+```
+┌────────────────┐
+│                 │
+│  Signing...     │
+│  ████████░░ 80% │
+│                 │
+└────────────────┘
+```
+
+The BLS signing operation takes ~2 seconds. A progress bar shows it's
+doing real cryptographic work, not faking it. (A static fake screen
+would be instant — the delay itself is a weak authenticity signal.)
+
+**Step 4: Confirmation with Pickup Code**
+```
+┌────────────────┐
+│ ✓ Sent 5       │
+│ → Alice         │
+│                 │
+│ ◉ 37 tokens    │
+│ Pickup: 7H3K   │
+└────────────────┘
+```
+
+This screen is the critical trust moment. It shows:
+
+- **✓ Sent 5**: Tokens were signed (past tense, committed)
+- **→ Alice**: The specific recipient (they see their own name)
+- **◉ 37 tokens**: Sender's new balance (decreased by 5 — visible proof
+  the tokens left). This is important — the recipient watches the
+  balance go *down*
+- **Pickup: 7H3K**: A short verification code derived from the
+  transaction. Alice notes this and can verify it at collection time
+
+**The pickup code** is the key trust mechanism. It's derived from the
+signed token data:
+
+```
+pickup_code = base32(SHA-256(signed_tokens || recipient_ticket)[:3])
+            → 4 alphanumeric characters, ~20 bits
+```
+
+When Alice collects at the relay, the relay displays the same code
+computed from the deposited tokens. If they match, Alice knows the
+tokens she's collecting are the ones she watched get signed. If the
+sender faked their screen, no matching deposit exists at the relay.
+
+20 bits is low collision resistance, but the code's purpose isn't
+global uniqueness — it's a spot-check between two people who were
+present at signing time. For a village relay with <100 daily deposits,
+collisions are negligible.
+
+**Step 5: Post-delivery (after relay drop-off)**
+```
+┌────────────────┐
+│ ✓ Sent 5       │
+│ → Alice         │
+│   (delivered)   │
+│ ◉ 37 tokens    │
+└────────────────┘
+```
+
+The pickup code is replaced with "(delivered)" once the relay confirms
+receipt. The sender's e-ink updates on the DROP_OFF tap.
+
+### Recipient's Perspective: Collection at Relay
+
+When Alice taps the relay to collect:
+
+**Solar relay (LED-only):**
+- Green LED blinks N times for N deposits waiting
+- After COLLECT: green LED solid = success
+- Alice's credstick e-ink shows the received tokens with the same
+  pickup code for verification:
+
+```
+┌────────────────┐
+│ + 5 tokens      │
+│   (unvalidated) │
+│ ← pickup: 7H3K  │
+│                 │
+│ ◉ 28 tokens    │
+└────────────────┘
+```
+
+**Phone PoS relay:**
+```
+┌─────────────────────────┐
+│  Deposits for Alice      │
+│                          │
+│  1. 5 tokens  pickup:7H3K│
+│     from: contact 001    │
+│     signed: 2h ago       │
+│                          │
+│  Tap credstick to collect│
+└─────────────────────────┘
+```
+
+Alice compares the pickup code on the relay/phone screen with what she
+remembers (or wrote down) from when she watched the sender's e-ink.
+Match = confidence the tokens are legitimate.
+
+### Why This Builds Trust
+
+| Signal | What it proves | Fakeable? |
+|--------|---------------|-----------|
+| Balance decreases | Tokens actually left sender's wallet | Hard — would require maintaining a fake balance across all future transactions |
+| Signing delay (~2s) | Real BLS12-381 computation happened | Trivially fakeable with a timer, but absence would be suspicious |
+| Recipient name shown | Payment is addressed to *you* | Easy to fake the display, but pointless — fake tokens won't appear at relay |
+| Pickup code | Cryptographic binding between what you saw and what you'll collect | **Not fakeable** — derived from actual signed token data |
+
+The e-ink display alone is *not* tamper-proof — a modified credstick
+could show anything. The real security comes from the pickup code +
+relay verification loop. The display is a UX convenience that gives
+*immediate* confidence; the relay deposit is the *actual* guarantee.
+
+This mirrors physical cash: you look at the bills being handed over
+(immediate visual confidence), and the bank validates them later
+(actual guarantee). The difference is the pickup code gives you a
+way to tie the two together cryptographically.
+
 ### What "Signing Locally" Means
 
 The credstick already has everything it needs to sign a transfer:
