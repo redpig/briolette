@@ -1,6 +1,6 @@
 [workspace]
-members = ["src/*/", "src/simulation/*/", "hardware/relay/firmware"]
-exclude = ["src/javacard", "src/simulation"]
+members = ["src/*/", "src/simulation/*/", "hardware/relay/drivers"]
+exclude = ["src/javacard", "src/simulation", "hardware/relay/firmware"]
 resolver = "2"
 
 [workspace.package]

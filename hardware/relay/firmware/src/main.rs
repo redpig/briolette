@@ -36,7 +36,7 @@ bind_interrupts!(struct Irqs {
 pub enum Event {
     /// Keypad key pressed.
     KeyPress(Key),
-    /// Start transaction (OK pressed with amount, or merchant POS trigger).
+    /// Start transaction (OK pressed with amount, or event mode trigger).
     StartTransaction { amount: u32 },
     /// NFC tag detected during polling.
     TagDetected,
@@ -52,9 +52,6 @@ pub enum Event {
 
 /// Shared event channel.
 static EVENT_CHANNEL: Channel<ThreadModeRawMutex, Event, 8> = Channel::new();
-
-/// Idle status pulse interval.
-const IDLE_PULSE_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Maximum time to wait for a tag during polling.
 const TAG_POLL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -76,13 +73,11 @@ async fn main(spawner: Spawner) {
     let twi = twim::Twim::new(p.TWISPI0, Irqs, p.P0_26, p.P0_27, twi_config);
 
     // --- Initialize PN7150 NFC reader ---
-    // IRQ = P0_19 (active-low), VEN = P0_20
     let nfc_irq = Input::new(p.P0_19, Pull::Up);
     let nfc_ven = Output::new(p.P0_20, Level::Low, OutputDrive::Standard);
     let mut nfc = Pn7150::new(twi, nfc_irq, nfc_ven);
 
     // --- Initialize LEDs ---
-    // Red = P0_06, Green = P0_07, Blue = P0_08 (active-low)
     let mut leds = Leds::new(
         Output::new(p.P0_06, Level::High, OutputDrive::Standard),
         Output::new(p.P0_07, Level::High, OutputDrive::Standard),
@@ -90,31 +85,16 @@ async fn main(spawner: Spawner) {
     );
 
     // --- Initialize power monitor ---
-    // VBAT_OK = P0_04
     let power = Power::new(Input::new(p.P0_04, Pull::None));
 
     // --- Initialize transaction engine ---
     let mut tx_engine = TransactionEngine::new();
 
-    // Pre-load cached receiver ticket in merchant POS mode.
-    if config.is_merchant_pos() {
+    // Pre-load cached receiver ticket in MerchantPos / EventMode.
+    if config.has_saved_receiver() {
         tx_engine.set_cached_receiver_ticket(&config.receiver_ticket);
-        defmt::info!(
-            "Merchant POS mode: {} tokens, receiver cached",
-            config.fixed_amount
-        );
+        defmt::info!("Receiver ticket cached from flash config");
     }
-
-    // --- Initialize keypad (TCA8418 over I2C) ---
-    // The keypad shares the I2C bus. In a production design, we'd use
-    // an I2C bus multiplexer or coordinate access. For now, the keypad
-    // is initialized separately and polled via interrupt.
-    //
-    // TCA8418 INT = P0_21
-    // Note: The TCA8418 Keypad driver takes ownership of the I2C bus.
-    // Since PN7150 also needs I2C, in production we'd share via a mutex.
-    // For this firmware, NFC and keypad operations are mutually exclusive
-    // (you're either entering an amount OR polling for tags).
 
     // --- Amount entry state ---
     let mut amount_entry = AmountEntry::new();
@@ -138,18 +118,12 @@ async fn main(spawner: Spawner) {
 
     // --- Main event loop ---
     //
-    // The relay has two primary modes of operation:
+    // Three modes:
+    //   Variable:    operator enters amount + taps both wallets each time
+    //   MerchantPos: operator enters amount, receiver is cached
+    //   EventMode:   amount + receiver both cached, operator just presses OK
     //
-    // 1. **Variable amount mode**: Operator enters amount on keypad → OK →
-    //    relay polls for tags → execute transaction flow.
-    //
-    // 2. **Merchant POS mode** (fixed amount + fixed receiver): Operator
-    //    presses OK → relay immediately polls for customer credstick →
-    //    one-tap payment. This is the "personalized POS" mode — the relay
-    //    is configured for a specific merchant and price point.
-    //
-    // In both modes, the relay is a simple, dedicated device. No PIN,
-    // no authorization on the relay side. The credstick handles its own
+    // No PIN or authorization on the relay. The credstick handles its own
     // security (PIN, e-ink confirmation).
     loop {
         // Check power before doing anything expensive.
@@ -160,33 +134,35 @@ async fn main(spawner: Spawner) {
             continue;
         }
 
-        // In merchant POS mode, auto-start with fixed amount.
+        // Determine transaction amount based on mode.
         let amount = match config.mode {
-            Mode::MerchantPos | Mode::FixedAmount => {
-                // Show ready indicator and wait for OK press to start.
+            Mode::EventMode => {
+                // Fixed amount — just wait for OK press to trigger.
                 leds.set(Color::Green);
-                defmt::info!("Ready: press OK to charge {} tokens", config.fixed_amount);
+                defmt::info!("Event mode: press OK to charge {} tokens", config.fixed_amount);
 
-                // TODO: Wait for keypad OK press via EVENT_CHANNEL.
-                // For now, use a simple delay as placeholder.
-                Timer::after(Duration::from_millis(100)).await;
-
-                config.fixed_amount
+                // Wait for OK press via event channel.
+                loop {
+                    let event = EVENT_CHANNEL.receive().await;
+                    match event {
+                        Event::KeyPress(Key::Ok) | Event::StartTransaction { .. } => {
+                            break config.fixed_amount;
+                        }
+                        Event::Cancel => continue,
+                        _ => continue,
+                    }
+                }
             }
-            Mode::Variable => {
-                // Wait for amount entry via keypad.
+            Mode::MerchantPos | Mode::Variable => {
+                // Variable amount — operator enters via keypad.
                 leds.set(Color::Green);
                 defmt::info!("Enter amount on keypad, press OK to confirm");
 
-                // TODO: Poll TCA8418 for key events and feed to AmountEntry.
-                // The keypad task would send KeyPress events via EVENT_CHANNEL.
-                // For now, placeholder loop:
                 loop {
                     let event = EVENT_CHANNEL.receive().await;
                     match event {
                         Event::KeyPress(key) => {
                             if let Some(cents) = amount_entry.process(key) {
-                                // Convert cents to token base units.
                                 break cents as u32;
                             }
                         }
@@ -207,7 +183,7 @@ async fn main(spawner: Spawner) {
         // --- Execute transaction flow ---
         tx_engine.start(amount);
 
-        // Step 1: Acquire receiver ticket (skip if cached in merchant POS mode).
+        // Step 1: Acquire receiver ticket (skip if cached).
         if !tx_engine.has_cached_receiver() {
             defmt::info!("Tap receiver credstick...");
             leds.play(led::patterns::WAITING_SENDER).await;
@@ -222,7 +198,6 @@ async fn main(spawner: Spawner) {
                 Ok(()) => {
                     leds.set(Color::Blue);
 
-                    // Select Briolette applet.
                     match nfc.select_briolette_applet().await {
                         Ok(true) => {}
                         _ => {
@@ -233,7 +208,6 @@ async fn main(spawner: Spawner) {
                         }
                     }
 
-                    // READ_TICKET.
                     let read_ticket_apdu = tx_engine.build_read_ticket();
                     match nfc.transceive_apdu(&read_ticket_apdu).await {
                         Ok(resp) => {
@@ -262,7 +236,7 @@ async fn main(spawner: Spawner) {
             }
         }
 
-        // Step 2: Tap sender — INITIATE + (implicit TRANSACT in 2-tap mode).
+        // Step 2: Tap sender — INITIATE.
         defmt::info!("Tap sender credstick... ({} tokens)", amount);
         leds.play(Pattern::Blink(Color::Blue, 2, 150, 150)).await;
 
@@ -286,7 +260,6 @@ async fn main(spawner: Spawner) {
                     }
                 }
 
-                // INITIATE — sends amount + receiver ticket to sender.
                 let initiate_apdu = tx_engine.build_initiate();
                 match nfc.transceive_apdu(&initiate_apdu).await {
                     Ok(resp) => {
@@ -314,10 +287,6 @@ async fn main(spawner: Spawner) {
         }
 
         // Step 3: Wait for sender re-tap — TRANSFER (get signed tokens).
-        //
-        // The sender has lifted their credstick, seen the proposed amount
-        // on its e-ink display, and (if needed) entered their PIN.
-        // The physical re-tap IS consent.
         defmt::info!("Waiting for sender re-tap (TRANSFER)...");
         leds.play(led::patterns::WAITING_SENDER).await;
 
@@ -340,18 +309,13 @@ async fn main(spawner: Spawner) {
                     }
                 }
 
-                // TRANSFER — sender signs tokens.
                 let transfer_apdu = tx_engine.build_transfer();
                 match nfc.transceive_apdu(&transfer_apdu).await {
                     Ok(resp) => {
                         if tx_engine.handle_transfer_response(&resp).is_err() {
-                            // Could be PIN_REQUIRED — the user needs to enter
-                            // PIN on their credstick and tap again.
                             if tx_engine.phase() == Phase::SenderProposed {
                                 defmt::info!("PIN required, sender must enter PIN and re-tap");
                                 nfc.deactivate().await.ok();
-                                // Loop back to wait for re-tap.
-                                // In a real implementation, we'd loop here.
                                 leds.play(Pattern::Blink(Color::Blue, 1, 500, 500)).await;
                             } else {
                                 nfc.deactivate().await.ok();
@@ -378,10 +342,6 @@ async fn main(spawner: Spawner) {
         }
 
         // Step 4: Deliver signed tokens to receiver.
-        //
-        // In merchant POS mode with a cached receiver, we still need to
-        // tap the receiver credstick to deliver the tokens. This is the
-        // final step.
         defmt::info!("Tap receiver to deliver tokens...");
         leds.play(Pattern::Blink(Color::Green, 2, 150, 150)).await;
 
@@ -404,12 +364,10 @@ async fn main(spawner: Spawner) {
                     }
                 }
 
-                // RECEIVE — deliver signed tokens to receiver.
                 let receive_apdu = tx_engine.build_receive();
                 match nfc.transceive_apdu(&receive_apdu).await {
                     Ok(resp) => {
                         if tx_engine.handle_receive_response(&resp).is_ok() {
-                            // Success!
                             leds.play(led::patterns::SUCCESS).await;
                             defmt::info!(
                                 "Transaction #{} complete!",

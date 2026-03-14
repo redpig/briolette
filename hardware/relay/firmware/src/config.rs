@@ -1,15 +1,18 @@
-//! Merchant POS configuration — fixed amount + fixed receiver.
+//! Relay configuration — operating modes and flash-backed settings.
 //!
-//! In **merchant POS mode**, the relay is personalized to a specific merchant:
-//!   - Fixed amount: e.g., bus fare, event admission, market stall price
-//!   - Fixed receiver: the merchant's credstick SignedTicket cached in flash
+//! Three operating modes:
 //!
-//! This turns the relay into a simple, dedicated payment terminal:
-//!   1. Configure once: set amount + tap merchant credstick
-//!   2. Each customer: single tap → instant payment
-//!   No rescanning, no retyping, no phone needed.
+//! 1. **Variable** — both amount and wallets are entered/scanned each time.
+//!    Full flexibility for ad-hoc peer-to-peer payments.
 //!
-//! Perfect for high-volume scenarios: transit, event gates, market stalls.
+//! 2. **MerchantPos** — variable amount, saved receiver. The merchant's
+//!    credstick ticket is cached in flash. Operator enters a new amount
+//!    each time, but the receiver is always the same merchant wallet.
+//!    Good for market stalls with varied prices.
+//!
+//! 3. **EventMode** — fixed amount AND fixed receiver. Both are saved in
+//!    flash. Each customer is a single tap. Maximum throughput for
+//!    transit, event gates, vending, anywhere a fixed price applies.
 //!
 //! Configuration is stored in a dedicated flash page (4KB) at the end of
 //! the nRF52840's 1MB flash, preserved across power cycles and firmware
@@ -18,7 +21,7 @@
 //! Flash layout (page at 0x000FF000):
 //!   [0x00..0x04]  Magic bytes: "BRCF"
 //!   [0x04..0x05]  Config version (1)
-//!   [0x05..0x06]  Mode: 0=variable, 1=fixed-amount, 2=fixed-amount+receiver
+//!   [0x05..0x06]  Mode: 0=variable, 1=merchant-pos, 2=event-mode
 //!   [0x06..0x0A]  Fixed amount (u32 big-endian, in token base units)
 //!   [0x0A..0x0C]  Receiver ticket length (u16 big-endian)
 //!   [0x0C..0x20C] Receiver SignedTicket (up to 512 bytes)
@@ -41,28 +44,28 @@ const MAX_TICKET_SIZE: usize = 512;
 /// Relay operating mode.
 #[derive(Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum Mode {
-    /// Variable amount — operator enters amount via keypad each time.
+    /// Variable amount and wallets. Both sides scanned/entered each time.
     Variable,
-    /// Fixed amount — same price for every transaction, operator just
-    /// presses OK to start. Still requires receiver tap each time.
-    FixedAmount,
-    /// Fixed amount + fixed receiver (merchant POS mode).
-    /// One-tap customer payment. Maximum throughput.
+    /// Variable amount, saved receiver (merchant POS). Operator enters
+    /// amount; receiver wallet is cached from initial config.
     MerchantPos,
+    /// Fixed amount AND fixed receiver (event mode). Single-tap customer
+    /// payment. Maximum throughput for transit, events, vending.
+    EventMode,
 }
 
 /// Relay configuration stored in flash.
 #[derive(Clone)]
 pub struct Config {
     pub mode: Mode,
-    /// Fixed amount in token base units (0 = not set).
+    /// Fixed amount in token base units (0 = not set / variable).
     pub fixed_amount: u32,
-    /// Cached receiver SignedTicket for merchant POS mode.
+    /// Cached receiver SignedTicket (for MerchantPos and EventMode).
     pub receiver_ticket: Vec<u8, 512>,
 }
 
 impl Config {
-    /// Default config: variable amount mode.
+    /// Default config: variable mode, no saved state.
     pub fn default() -> Self {
         Self {
             mode: Mode::Variable,
@@ -73,17 +76,14 @@ impl Config {
 
     /// Load config from flash. Returns default if flash is erased/corrupt.
     pub fn load_from_flash() -> Self {
-        // Read flash page.
         let flash_ptr = CONFIG_FLASH_ADDR as *const u8;
         let flash_data = unsafe { core::slice::from_raw_parts(flash_ptr, 4096) };
 
-        // Verify magic.
         if flash_data[0..4] != CONFIG_MAGIC {
             defmt::info!("No config in flash, using defaults");
             return Self::default();
         }
 
-        // Verify version.
         if flash_data[4] != CONFIG_VERSION {
             defmt::warn!("Config version mismatch, using defaults");
             return Self::default();
@@ -91,8 +91,8 @@ impl Config {
 
         let mode = match flash_data[5] {
             0 => Mode::Variable,
-            1 => Mode::FixedAmount,
-            2 => Mode::MerchantPos,
+            1 => Mode::MerchantPos,
+            2 => Mode::EventMode,
             _ => {
                 defmt::warn!("Invalid mode byte, using defaults");
                 return Self::default();
@@ -109,7 +109,10 @@ impl Config {
         let ticket_len = u16::from_be_bytes([flash_data[10], flash_data[11]]) as usize;
 
         let mut receiver_ticket: Vec<u8, 512> = Vec::new();
-        if ticket_len > 0 && ticket_len <= MAX_TICKET_SIZE && mode == Mode::MerchantPos {
+        if ticket_len > 0
+            && ticket_len <= MAX_TICKET_SIZE
+            && (mode == Mode::MerchantPos || mode == Mode::EventMode)
+        {
             receiver_ticket
                 .extend_from_slice(&flash_data[12..12 + ticket_len])
                 .ok();
@@ -131,49 +134,27 @@ impl Config {
 
     /// Save config to flash.
     ///
-    /// This erases the config page and writes the new config.
+    /// Erases the config page and writes the new config.
     /// Must be called with interrupts masked (flash erase is blocking).
     pub fn save_to_flash(&self) {
-        // Build the flash page data.
         let mut page = [0xFFu8; 4096]; // 0xFF = erased flash value
 
-        // Magic.
         page[0..4].copy_from_slice(&CONFIG_MAGIC);
-        // Version.
         page[4] = CONFIG_VERSION;
-        // Mode.
         page[5] = match self.mode {
             Mode::Variable => 0,
-            Mode::FixedAmount => 1,
-            Mode::MerchantPos => 2,
+            Mode::MerchantPos => 1,
+            Mode::EventMode => 2,
         };
-        // Fixed amount.
         page[6..10].copy_from_slice(&self.fixed_amount.to_be_bytes());
-        // Receiver ticket length.
         let ticket_len = self.receiver_ticket.len() as u16;
         page[10..12].copy_from_slice(&ticket_len.to_be_bytes());
-        // Receiver ticket data.
         if !self.receiver_ticket.is_empty() {
             let end = 12 + self.receiver_ticket.len();
             page[12..end].copy_from_slice(&self.receiver_ticket);
         }
 
-        // Erase and write flash page.
-        // Uses nRF52840 NVMC (Non-Volatile Memory Controller).
-        //
-        // TODO: Direct NVMC register access:
-        // let nvmc = unsafe { &*pac::NVMC::ptr() };
-        // nvmc.config.write(|w| w.wen().een()); // Enable erase
-        // nvmc.erasepage.write(|w| unsafe { w.bits(CONFIG_FLASH_ADDR) });
-        // while nvmc.ready.read().ready().is_busy() {}
-        // nvmc.config.write(|w| w.wen().wen()); // Enable write
-        // for (i, chunk) in page.chunks(4).enumerate() {
-        //     let addr = CONFIG_FLASH_ADDR + (i * 4) as u32;
-        //     let word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        //     unsafe { (addr as *mut u32).write_volatile(word) };
-        //     while nvmc.ready.read().ready().is_busy() {}
-        // }
-        // nvmc.config.write(|w| w.wen().ren()); // Read-only
+        // TODO: Direct NVMC register access for flash write.
 
         defmt::info!(
             "Config saved: mode={}, amount={}, ticket_len={}",
@@ -183,34 +164,95 @@ impl Config {
         );
     }
 
-    /// Set up fixed-amount mode. Amount is in token base units.
-    pub fn set_fixed_amount(&mut self, amount: u32) {
-        self.fixed_amount = amount;
-        if self.receiver_ticket.is_empty() {
-            self.mode = Mode::FixedAmount;
-        } else {
-            self.mode = Mode::MerchantPos;
+    /// Build flash page bytes from config (for testing and save_to_flash).
+    pub fn to_flash_bytes(&self) -> [u8; 4096] {
+        let mut page = [0xFFu8; 4096];
+        page[0..4].copy_from_slice(&CONFIG_MAGIC);
+        page[4] = CONFIG_VERSION;
+        page[5] = match self.mode {
+            Mode::Variable => 0,
+            Mode::MerchantPos => 1,
+            Mode::EventMode => 2,
+        };
+        page[6..10].copy_from_slice(&self.fixed_amount.to_be_bytes());
+        let ticket_len = self.receiver_ticket.len() as u16;
+        page[10..12].copy_from_slice(&ticket_len.to_be_bytes());
+        if !self.receiver_ticket.is_empty() {
+            let end = 12 + self.receiver_ticket.len();
+            page[12..end].copy_from_slice(&self.receiver_ticket);
+        }
+        page
+    }
+
+    /// Parse config from a flash page byte slice. Testable without hardware.
+    pub fn from_flash_bytes(data: &[u8]) -> Self {
+        if data.len() < 12 || data[0..4] != CONFIG_MAGIC {
+            return Self::default();
+        }
+        if data[4] != CONFIG_VERSION {
+            return Self::default();
+        }
+
+        let mode = match data[5] {
+            0 => Mode::Variable,
+            1 => Mode::MerchantPos,
+            2 => Mode::EventMode,
+            _ => return Self::default(),
+        };
+
+        let fixed_amount =
+            u32::from_be_bytes([data[6], data[7], data[8], data[9]]);
+
+        let ticket_len = u16::from_be_bytes([data[10], data[11]]) as usize;
+
+        let mut receiver_ticket: Vec<u8, 512> = Vec::new();
+        if ticket_len > 0
+            && ticket_len <= MAX_TICKET_SIZE
+            && data.len() >= 12 + ticket_len
+            && (mode == Mode::MerchantPos || mode == Mode::EventMode)
+        {
+            receiver_ticket
+                .extend_from_slice(&data[12..12 + ticket_len])
+                .ok();
+        }
+
+        Self {
+            mode,
+            fixed_amount,
+            receiver_ticket,
         }
     }
 
-    /// Cache the receiver's SignedTicket for merchant POS mode.
-    pub fn set_receiver_ticket(&mut self, ticket: &[u8]) {
+    /// Configure as merchant POS: save receiver ticket, amount stays variable.
+    pub fn set_merchant_pos(&mut self, ticket: &[u8]) {
         self.receiver_ticket.clear();
         self.receiver_ticket.extend_from_slice(ticket).ok();
-        if self.fixed_amount > 0 {
-            self.mode = Mode::MerchantPos;
-        }
+        self.fixed_amount = 0;
+        self.mode = Mode::MerchantPos;
     }
 
-    /// Clear the fixed config and return to variable mode.
+    /// Configure as event mode: fixed amount + fixed receiver.
+    pub fn set_event_mode(&mut self, amount: u32, ticket: &[u8]) {
+        self.fixed_amount = amount;
+        self.receiver_ticket.clear();
+        self.receiver_ticket.extend_from_slice(ticket).ok();
+        self.mode = Mode::EventMode;
+    }
+
+    /// Clear config and return to variable mode.
     pub fn clear(&mut self) {
         self.mode = Mode::Variable;
         self.fixed_amount = 0;
         self.receiver_ticket.clear();
     }
 
-    /// Check if this is a personalized merchant POS.
-    pub fn is_merchant_pos(&self) -> bool {
-        self.mode == Mode::MerchantPos
+    /// Check if receiver ticket is cached (MerchantPos or EventMode).
+    pub fn has_saved_receiver(&self) -> bool {
+        !self.receiver_ticket.is_empty()
+    }
+
+    /// Check if amount is fixed (EventMode only).
+    pub fn has_fixed_amount(&self) -> bool {
+        self.mode == Mode::EventMode && self.fixed_amount > 0
     }
 }

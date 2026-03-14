@@ -11,9 +11,11 @@
 //!   3. Tap sender   → TRANSFER (0x30) → get signed tokens
 //!   4. Tap receiver → RECEIVE (0x31) → deliver signed tokens
 //!
-//! In **merchant POS mode** (fixed amount + fixed receiver), step 1 is done
-//! once at configuration time. The receiver's ticket is cached, enabling
-//! high-volume payments (event admission, transit) without rescanning.
+//! Operating modes affect which steps are needed:
+//!   - **Variable**: all 4 steps every time
+//!   - **MerchantPos**: step 1 done once at config; steps 2-4 per transaction
+//!   - **EventMode**: step 1 done once at config + amount is fixed;
+//!     operator just presses OK, then steps 2-4 run automatically
 //!
 //! Power note: Transaction sizes depend on token history length.
 //! Long-disconnected credsticks carry heavier token histories,
@@ -25,7 +27,7 @@ use heapless::Vec;
 const CLA_BRIOLETTE: u8 = 0x80;
 
 /// APDU instruction codes — same as credstick side (we're the sender now).
-mod ins {
+pub mod ins {
     pub const INITIATE: u8 = 0x10;
     pub const READ_TICKET: u8 = 0x11;
     pub const GOSSIP: u8 = 0x12;
@@ -70,7 +72,7 @@ pub struct TransactionEngine {
     phase: Phase,
     /// Amount for this transaction (entered via keypad or fixed config).
     amount: u32,
-    /// Receiver's SignedTicket (from READ_TICKET).
+    /// Receiver's SignedTicket (from READ_TICKET or cached config).
     receiver_ticket: Vec<u8, 512>,
     /// Transaction ID returned by sender's INITIATE.
     tx_id: Vec<u8, 16>,
@@ -122,8 +124,8 @@ impl TransactionEngine {
         self.amount = amount;
     }
 
-    /// Pre-load a receiver ticket for merchant POS mode.
-    /// This allows skipping the receiver-tap step for high-volume scenarios.
+    /// Pre-load a receiver ticket (for MerchantPos / EventMode).
+    /// This allows skipping the receiver-tap step.
     pub fn set_cached_receiver_ticket(&mut self, ticket: &[u8]) {
         self.receiver_ticket.clear();
         self.receiver_ticket.extend_from_slice(ticket).ok();
@@ -133,20 +135,19 @@ impl TransactionEngine {
         }
     }
 
-    /// Check if we have a cached receiver ticket (merchant POS mode).
+    /// Check if we have a cached receiver ticket.
     pub fn has_cached_receiver(&self) -> bool {
         !self.receiver_ticket.is_empty()
     }
 
-    /// Start a new transaction. Resets state but preserves cached receiver
-    /// ticket if in merchant POS mode.
+    /// Start a new transaction. Resets per-transaction state but preserves
+    /// cached receiver ticket if present.
     pub fn start(&mut self, amount: u32) {
         self.amount = amount;
         self.tx_id.clear();
         self.unsigned_tokens.clear();
         self.signed_tokens.clear();
 
-        // In merchant POS mode, skip straight to ReceiverReady.
         if self.has_cached_receiver() {
             self.phase = Phase::ReceiverReady;
         } else {
@@ -172,7 +173,6 @@ impl TransactionEngine {
     /// Build READ_TICKET APDU to send to receiver credstick.
     pub fn build_read_ticket(&self) -> Vec<u8, 16> {
         let mut apdu: Vec<u8, 16> = Vec::new();
-        // CLA INS P1 P2 Le
         apdu.extend_from_slice(&[CLA_BRIOLETTE, ins::READ_TICKET, 0x00, 0x00, 0x00])
             .ok();
         apdu
@@ -182,32 +182,26 @@ impl TransactionEngine {
     /// Includes the receiver's ticket and the requested amount.
     pub fn build_initiate(&self) -> Vec<u8, 256> {
         let mut apdu: Vec<u8, 256> = Vec::new();
-        // CLA INS P1 P2
         apdu.extend_from_slice(&[CLA_BRIOLETTE, ins::INITIATE, 0x00, 0x00])
             .ok();
 
-        // Build payload: [4B amount][4B micros=0][receiver_ticket]
+        // Payload: [4B amount][4B micros=0][receiver_ticket]
         let payload_len = 8 + self.receiver_ticket.len();
-        apdu.push(payload_len as u8).ok(); // Lc
+        apdu.push(payload_len as u8).ok();
 
-        // Amount (whole tokens, big-endian).
         apdu.extend_from_slice(&self.amount.to_be_bytes()).ok();
-        // Amount micros (0 for whole tokens).
         apdu.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]).ok();
-        // Receiver ticket.
         apdu.extend_from_slice(&self.receiver_ticket).ok();
 
         apdu
     }
 
-    /// Build TRANSACT APDU (for 3-tap private mode; in 2-tap mode this
-    /// is combined with INITIATE on the credstick side).
+    /// Build TRANSACT APDU (for 3-tap private mode).
     pub fn build_transact(&self) -> Vec<u8, 32> {
         let mut apdu: Vec<u8, 32> = Vec::new();
         apdu.extend_from_slice(&[CLA_BRIOLETTE, ins::TRANSACT, 0x00, 0x00])
             .ok();
 
-        // Payload: tx_id for verification.
         if !self.tx_id.is_empty() {
             apdu.push(self.tx_id.len() as u8).ok();
             apdu.extend_from_slice(&self.tx_id).ok();
@@ -238,9 +232,7 @@ impl TransactionEngine {
             .ok();
 
         // Extended length encoding for large payloads.
-        // Signed tokens from long-disconnected credsticks can be large.
         if self.signed_tokens.len() > 255 {
-            // Extended Lc: 0x00 followed by 2-byte length.
             apdu.push(0x00).ok();
             let len = self.signed_tokens.len() as u16;
             apdu.push((len >> 8) as u8).ok();
@@ -275,7 +267,6 @@ impl TransactionEngine {
             return Err(());
         }
 
-        // Strip SW bytes, store ticket.
         let ticket_data = &response[..response.len() - 2];
         self.receiver_ticket.clear();
         self.receiver_ticket
@@ -291,14 +282,16 @@ impl TransactionEngine {
     /// In 2-tap fast mode, this also contains unsigned tokens.
     pub fn handle_initiate_response(&mut self, response: &[u8]) -> Result<(), ()> {
         if !check_sw(response) {
-            defmt::warn!("INITIATE failed: SW={=[u8]:02X}", &response[response.len().saturating_sub(2)..]);
+            defmt::warn!(
+                "INITIATE failed: SW={=[u8]:02X}",
+                &response[response.len().saturating_sub(2)..]
+            );
             self.phase = Phase::Failed;
             return Err(());
         }
 
         let payload = &response[..response.len() - 2];
 
-        // First 16 bytes are tx_id.
         if payload.len() < 16 {
             defmt::warn!("INITIATE response too short");
             self.phase = Phase::Failed;
@@ -308,7 +301,6 @@ impl TransactionEngine {
         self.tx_id.clear();
         self.tx_id.extend_from_slice(&payload[..16]).map_err(|_| ())?;
 
-        // Remaining bytes are unsigned tokens (2-tap fast mode).
         if payload.len() > 16 {
             self.unsigned_tokens.clear();
             self.unsigned_tokens
@@ -365,7 +357,6 @@ impl TransactionEngine {
             return Err(());
         }
 
-        // Check accepted byte.
         let payload = &response[..response.len() - 2];
         let accepted = !payload.is_empty() && payload[0] == 0x01;
 
@@ -401,7 +392,7 @@ impl TransactionEngine {
 }
 
 /// Check if an APDU response ends with SW 90 00 (success).
-fn check_sw(response: &[u8]) -> bool {
+pub fn check_sw(response: &[u8]) -> bool {
     response.len() >= 2
         && response[response.len() - 2] == SW_SUCCESS[0]
         && response[response.len() - 1] == SW_SUCCESS[1]
