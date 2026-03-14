@@ -287,3 +287,40 @@ are dumb NFC relays that shuttle APDUs. The difference:
 
 They're complementary. The phone app is better UX. The solar relay is
 the fallback when phones aren't available.
+
+## Future: Deposit Box Mode (v2)
+
+Beyond real-time relay, the solar relay can evolve into a **deposit box**
+("cryptographic village bank") for deferred payments. See
+`../stick/docs/deferred-payment.md` for the full design.
+
+In this mode, senders prepare and sign payments on their credstick alone
+(using a saved recipient code), then drop off pre-signed tokens at the
+relay later. Recipients collect deposits by tapping the relay and proving
+ticket ownership.
+
+### Relay Storage for Deposits
+
+The v1 relay hardware should account for this by including external flash:
+
+| Storage | Capacity | Deposits (~300 bytes each) | Cost |
+|---------|----------|---------------------------|------|
+| nRF52840 internal (spare) | ~200 KB | ~600 | $0 |
+| External QSPI (MX25R4035F) | 4 MB | ~13,000 | ~$0.50 |
+
+For a village relay serving a few dozen daily transactions, internal flash
+suffices. The QSPI footprint should be on the v1 PCB even if not populated
+initially — allows the upgrade path without a board respin.
+
+### Merchant Registry
+
+The relay can store a local registry mapping short codes (e.g., "001") to
+merchant `SignedTicket` data. This enables the "type in merchant code on
+credstick, resolve at relay" flow. Storage: ~300 bytes per merchant ×
+100 merchants = ~30 KB. Trivially fits in flash.
+
+### APDU Reservations
+
+The v1 relay firmware should reserve INS bytes 0x40-0x4F for deposit box
+commands (DROP_OFF, CHECK_DEPOSITS, COLLECT). No implementation needed
+for v1 — just don't assign those bytes to other functions.

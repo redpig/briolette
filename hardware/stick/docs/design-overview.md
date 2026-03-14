@@ -192,6 +192,39 @@ complexity and conversion losses, but enables a credit-card thickness.
 └────────────────┘
 ```
 
+## Flash Storage Budget
+
+The nRF52840 has 1 MB flash. Allocation:
+
+| Region | Size | Purpose |
+|--------|------|---------|
+| Firmware + bootloader | ~256 KB | Application code |
+| Bloom filter (revocation) | ~64 KB | Double-spend / epoch cache |
+| Token storage (OWNED) | ~400 KB | ~2000 owned tokens |
+| Token storage (RECEIVED) | ~200 KB | ~1000 unvalidated received tokens |
+| **Reserved (v2)** | ~80 KB | ~400 PENDING_SEND tokens for deferred payment |
+
+The v2 reserve covers the deferred payment extension (see
+`deferred-payment.md`) where tokens are signed locally and stored for
+later relay drop-off. The flash layout should use a simple log-structured
+allocation that can grow the PENDING_SEND region into the RECEIVED region
+if needed.
+
+For heavy-use scenarios, an external QSPI flash (4 MB MX25R4035F, ~$0.50)
+extends total token storage to tens of thousands of tokens across all states.
+
+### Saved Contacts (v2 Reserve)
+
+Deferred payments require saved recipient tickets. Each `SignedTicket` is
+~200-300 bytes. Reserving ~10 KB of flash supports ~30-40 saved contacts —
+sufficient for a household's regular merchants and family members.
+
+## APDU Command Space
+
+Current APDU assignments use INS bytes 0x10-0x51. The range 0x40-0x4F
+is reserved for deferred payment extensions (DROP_OFF, COLLECT, etc.)
+to avoid conflicts with future protocol versions.
+
 ## Firmware Stack
 
 See [../firmware/](../firmware/) for implementation details.
