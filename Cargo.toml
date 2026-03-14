@@ -1,5 +1,5 @@
 [workspace]
-members = ["src/*/", "src/simulation/*/"]
+members = ["src/*/", "src/simulation/*/", "hardware/relay/firmware"]
 exclude = ["src/javacard", "src/simulation"]
 resolver = "2"
 

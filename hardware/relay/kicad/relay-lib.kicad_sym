@@ -200,4 +200,97 @@
         (number "6" (effects (font (size 1.27 1.27)))))
     )
   )
+
+  ;; ============================================================
+  ;; TCA8418  (WQFN-24, 4x4mm)
+  ;; TI I2C Keypad Scan IC with Integrated ESD Protection
+  ;; ============================================================
+  (symbol "TCA8418"
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "U"
+      (at 0 22.86 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "TCA8418"
+      (at 0 -22.86 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "relay-lib:WQFN-24-4x4mm"
+      (at 0 -25.4 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Datasheet" "https://www.ti.com/lit/ds/symlink/tca8418.pdf"
+      (at 0 -27.94 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Description" "I2C Keypad Scan IC, up to 80 keys, 10-event FIFO, ESD protection, WQFN-24"
+      (at 0 -30.48 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+
+    (symbol "TCA8418_1_1"
+      (rectangle
+        (start -15.24 21.59)
+        (end 15.24 -21.59)
+        (stroke (width 0.254) (type default))
+        (fill (type background))
+      )
+
+      ;; Power
+      (pin power_in line (at -17.78 19.05 0) (length 2.54)
+        (name "VCC" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin power_in line (at -17.78 -19.05 0) (length 2.54)
+        (name "GND" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27)))))
+
+      ;; I2C interface
+      (pin bidirectional line (at 17.78 19.05 180) (length 2.54)
+        (name "SDA" (effects (font (size 1.27 1.27))))
+        (number "20" (effects (font (size 1.27 1.27)))))
+      (pin input line (at 17.78 16.51 180) (length 2.54)
+        (name "SCL" (effects (font (size 1.27 1.27))))
+        (number "19" (effects (font (size 1.27 1.27)))))
+
+      ;; Interrupt (active-low, open-drain)
+      (pin open_collector line (at 17.78 11.43 180) (length 2.54)
+        (name "~{INT}" (effects (font (size 1.27 1.27))))
+        (number "18" (effects (font (size 1.27 1.27)))))
+
+      ;; Reset (active-low)
+      (pin input line (at -17.78 14.0 0) (length 2.54)
+        (name "~{RESET}" (effects (font (size 1.27 1.27))))
+        (number "21" (effects (font (size 1.27 1.27)))))
+
+      ;; Row outputs (directly drive keypad rows)
+      (pin bidirectional line (at -17.78 7.62 0) (length 2.54)
+        (name "ROW0" (effects (font (size 1.27 1.27))))
+        (number "3" (effects (font (size 1.27 1.27)))))
+      (pin bidirectional line (at -17.78 5.08 0) (length 2.54)
+        (name "ROW1" (effects (font (size 1.27 1.27))))
+        (number "4" (effects (font (size 1.27 1.27)))))
+      (pin bidirectional line (at -17.78 2.54 0) (length 2.54)
+        (name "ROW2" (effects (font (size 1.27 1.27))))
+        (number "5" (effects (font (size 1.27 1.27)))))
+      (pin bidirectional line (at -17.78 0 0) (length 2.54)
+        (name "ROW3" (effects (font (size 1.27 1.27))))
+        (number "6" (effects (font (size 1.27 1.27)))))
+
+      ;; Column inputs (directly sense keypad columns)
+      (pin bidirectional line (at -17.78 -5.08 0) (length 2.54)
+        (name "COL0" (effects (font (size 1.27 1.27))))
+        (number "11" (effects (font (size 1.27 1.27)))))
+      (pin bidirectional line (at -17.78 -7.62 0) (length 2.54)
+        (name "COL1" (effects (font (size 1.27 1.27))))
+        (number "12" (effects (font (size 1.27 1.27)))))
+      (pin bidirectional line (at -17.78 -10.16 0) (length 2.54)
+        (name "COL2" (effects (font (size 1.27 1.27))))
+        (number "13" (effects (font (size 1.27 1.27)))))
+      (pin bidirectional line (at -17.78 -12.7 0) (length 2.54)
+        (name "COL3" (effects (font (size 1.27 1.27))))
+        (number "14" (effects (font (size 1.27 1.27)))))
+    )
+  )
 )

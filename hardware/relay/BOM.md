@@ -20,29 +20,30 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 | 11 | Charge current limiter | TPS2553DBVR (TI) | SOT-23-6 | 1 | $0.50 | $0.30 | DigiKey |
 | 12 | 32 MHz crystal | ABM8-32.000MHZ-B2-T (Abracon) | 3.2×2.5mm | 1 | $0.40 | $0.25 | DigiKey |
 | 13 | 32.768 kHz crystal | ABS07-32.768KHZ-T (Abracon) | 3.2×1.5mm | 1 | $0.35 | $0.20 | DigiKey |
+| 14 | Keypad scanner | TCA8418RTWR (TI) | WQFN-24 (4×4mm) | 1 | $0.75 | $0.50 | DigiKey / LCSC |
 
 ## Passive Components
 
 | # | Component | MPN | Value | Package | Qty | ~$1 | ~$1k |
 |---|-----------|-----|-------|---------|-----|-----|------|
-| 14 | Decoupling cap | CL05B104KO5NNNC (Samsung) | 100nF 16V X7R | 0402 | 10 | $0.12 | $0.05 |
-| 15 | Bulk cap | CL05A106MQ5NUNC (Samsung) | 10µF 6.3V X5R | 0402 | 3 | $0.15 | $0.06 |
-| 16 | Crystal load cap (32M) | CL05C120JB5NNNC (Samsung) | 12pF 50V C0G | 0402 | 2 | $0.05 | $0.02 |
-| 17 | Crystal load cap (32k) | CL05C6R8CB5NNNC (Samsung) | 6.8pF 50V C0G | 0402 | 2 | $0.05 | $0.02 |
-| 18 | I2C pull-up | RC0402FR-074K7L (Yageo) | 4.7kΩ 1% | 0402 | 2 | $0.02 | $0.01 |
-| 19 | Reset pull-up | RC0402FR-0710KL (Yageo) | 10kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
-| 20 | CC pull-downs | RC0402FR-075K1L (Yageo) | 5.1kΩ 1% | 0402 | 2 | $0.02 | $0.01 |
-| 21 | ILIM resistor | RC0402FR-0710KL (Yageo) | 10kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
-| 22 | LED resistors | RC0402FR-071KL (Yageo) | 1kΩ 1% | 0402 | 3 | $0.03 | $0.01 |
-| 23 | Piezo buffer cap | CL21A107MQCLNNC (Samsung) | 100µF 6.3V X5R | 0805 | 1 | $0.15 | $0.08 |
-| 24 | BQ25504 inductor | LPS4018-222MRC (Coilcraft) | 2.2µH 1.5A sat | 4×4×1.8mm | 1 | $0.80 | $0.45 |
-| 25 | BQ25504 CSTOR | CL05A475KQ5NRNC (Samsung) | 4.7µF 6.3V X5R | 0402 | 1 | $0.08 | $0.03 |
-| 26 | BQ25504 CBAT | CL21A226MQQNNNE (Samsung) | 22µF 6.3V X5R | 0805 | 1 | $0.12 | $0.05 |
-| 27 | BQ25504 CIN | CL05B104KO5NNNC (Samsung) | 100nF 16V X7R | 0402 | 1 | $0.02 | $0.01 |
-| 28 | MPPT VOC dividers | RC0402FR-07XXX (Yageo) see note | Per BQ25504 datasheet | 0402 | 4 | $0.04 | $0.02 |
-| 29 | OV/UV threshold | RC0402FR-07XXX (Yageo) see note | Per BQ25504 datasheet | 0402 | 4 | $0.04 | $0.02 |
+| 15 | Decoupling cap | CL05B104KO5NNNC (Samsung) | 100nF 16V X7R | 0402 | 11 | $0.14 | $0.06 |
+| 16 | Bulk cap | CL05A106MQ5NUNC (Samsung) | 10µF 6.3V X5R | 0402 | 3 | $0.15 | $0.06 |
+| 17 | Crystal load cap (32M) | CL05C120JB5NNNC (Samsung) | 12pF 50V C0G | 0402 | 2 | $0.05 | $0.02 |
+| 18 | Crystal load cap (32k) | CL05C6R8CB5NNNC (Samsung) | 6.8pF 50V C0G | 0402 | 2 | $0.05 | $0.02 |
+| 19 | I2C pull-up | RC0402FR-074K7L (Yageo) | 4.7kΩ 1% | 0402 | 2 | $0.02 | $0.01 |
+| 20 | Reset pull-up | RC0402FR-0710KL (Yageo) | 10kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
+| 21 | CC pull-downs | RC0402FR-075K1L (Yageo) | 5.1kΩ 1% | 0402 | 2 | $0.02 | $0.01 |
+| 22 | ILIM resistor | RC0402FR-0710KL (Yageo) | 10kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
+| 23 | LED resistors | RC0402FR-071KL (Yageo) | 1kΩ 1% | 0402 | 3 | $0.03 | $0.01 |
+| 24 | Piezo buffer cap | CL21A107MQCLNNC (Samsung) | 100µF 6.3V X5R | 0805 | 1 | $0.15 | $0.08 |
+| 25 | BQ25504 inductor | LPS4018-222MRC (Coilcraft) | 2.2µH 1.5A sat | 4×4×1.8mm | 1 | $0.80 | $0.45 |
+| 26 | BQ25504 CSTOR | CL05A475KQ5NRNC (Samsung) | 4.7µF 6.3V X5R | 0402 | 1 | $0.08 | $0.03 |
+| 27 | BQ25504 CBAT | CL21A226MQQNNNE (Samsung) | 22µF 6.3V X5R | 0805 | 1 | $0.12 | $0.05 |
+| 28 | BQ25504 CIN | CL05B104KO5NNNC (Samsung) | 100nF 16V X7R | 0402 | 1 | $0.02 | $0.01 |
+| 29 | MPPT VOC dividers | RC0402FR-07XXX (Yageo) see note | Per BQ25504 datasheet | 0402 | 4 | $0.04 | $0.02 |
+| 30 | OV/UV threshold | RC0402FR-07XXX (Yageo) see note | Per BQ25504 datasheet | 0402 | 4 | $0.04 | $0.02 |
 
-### BQ25504 Resistor Values (Items 28-29)
+### BQ25504 Resistor Values (Items 29-30)
 
 Per TI BQ25504 datasheet, for 3V supercap with typical solar cell Voc ~5V:
 
@@ -64,11 +65,11 @@ See BQ25504 datasheet Section 9.2 for the resistor divider formulas.
 
 | # | Component | MPN | Value | Package | Qty | ~$1 | ~$1k |
 |---|-----------|-----|-------|---------|-----|-----|------|
-| 30 | TX matching cap | CL05C151JB5NNNC (Samsung) | 150pF C0G | 0402 | 2 | $0.05 | $0.02 |
-| 31 | RX matching cap | CL05C270JB5NNNC (Samsung) | 27pF C0G | 0402 | 1 | $0.05 | $0.02 |
-| 32 | EMC filter cap | CL05B104KO5NNNC (Samsung) | 100nF X7R | 0402 | 2 | $0.02 | $0.01 |
-| 33 | TX series inductor | LQW15AN390NJ0D (Murata) | 390nH | 0402 | 1 | $0.10 | $0.05 |
-| 34 | Damping resistor | RC0402FR-0710RL (Yageo) | 10Ω 1% | 0402 | 1 | $0.02 | $0.01 |
+| 31 | TX matching cap | CL05C151JB5NNNC (Samsung) | 150pF C0G | 0402 | 2 | $0.05 | $0.02 |
+| 32 | RX matching cap | CL05C270JB5NNNC (Samsung) | 27pF C0G | 0402 | 1 | $0.05 | $0.02 |
+| 33 | EMC filter cap | CL05B104KO5NNNC (Samsung) | 100nF X7R | 0402 | 2 | $0.02 | $0.01 |
+| 34 | TX series inductor | LQW15AN390NJ0D (Murata) | 390nH | 0402 | 1 | $0.10 | $0.05 |
+| 35 | Damping resistor | RC0402FR-0710RL (Yageo) | 10Ω 1% | 0402 | 1 | $0.02 | $0.01 |
 
 **Note**: NFC reader antenna is a PCB trace spiral on B.Cu (3-turn, 35×25mm,
 0.5mm trace width). Matching values are approximate — tune on the bench
@@ -79,23 +80,23 @@ C30/C31 to center the resonant frequency.
 
 | # | Component | MPN | Description | Qty | ~$1 | ~$1k |
 |---|-----------|-----|-------------|-----|-----|------|
-| 35 | Tactile switch | SKQGABE010 (Alps Alpine) | 3.9×2.9×1.7mm SMD, 160gf | 4 | $0.60 | $0.32 |
-| 36 | Red LED | LTST-C150KRKT (Lite-On) | Red 0402 | 1 | $0.10 | $0.05 |
-| 37 | Green LED | LTST-C150GKT (Lite-On) | Green 0402 | 1 | $0.10 | $0.05 |
-| 38 | Blue LED | LTST-C150TBKT (Lite-On) | Blue 0402 | 1 | $0.10 | $0.05 |
-| 39 | M2×6 self-tapping screw | — | Stainless steel, pan head | 4 | $0.20 | $0.08 |
-| 40 | Enclosure | — | 3D-printed PETG or injection-molded | 1 | $3.00 | $0.50 |
+| 36 | Tactile switch | SKQGABE010 (Alps Alpine) | 3.9×2.9×1.7mm SMD, 160gf | 13 | $1.95 | $1.04 |
+| 37 | Red LED | LTST-C150KRKT (Lite-On) | Red 0402 | 1 | $0.10 | $0.05 |
+| 38 | Green LED | LTST-C150GKT (Lite-On) | Green 0402 | 1 | $0.10 | $0.05 |
+| 39 | Blue LED | LTST-C150TBKT (Lite-On) | Blue 0402 | 1 | $0.10 | $0.05 |
+| 40 | M2×6 self-tapping screw | — | Stainless steel, pan head | 4 | $0.20 | $0.08 |
+| 41 | Enclosure | — | 3D-printed PETG or injection-molded | 1 | $3.00 | $0.50 |
 
 ## Cost Summary
 
 | | Qty 10 (proto) | Qty 1000 (prod) |
 |---|----------------|-----------------|
-| Components | ~$23 | ~$15 |
+| Components | ~$25 | ~$16 |
 | PCB (4-layer, 70×45mm) | ~$6 | ~$2.00 |
 | Assembly (PCBA) | ~$8 | ~$2.50 |
 | Solar cell | ~$2 | ~$0.80 |
 | Enclosure + screws | ~$3.20 | $0.58 |
-| **Total per unit** | **~$42** | **~$21** |
+| **Total per unit** | **~$44** | **~$22** |
 
 ## Key Sourcing Notes
 
@@ -114,8 +115,12 @@ C30/C31 to center the resonant frequency.
 - **Supercapacitors (10F 3V)**: Two units = 20F total. Same Kyocera AVX SCC
   series as credstick but higher capacitance. These are larger (~14mm dia
   × 25mm). Ensure they fit the 70×45mm board.
-- **Buttons**: Alps SKQGABE010 — same as credstick. 4 needed for PIN entry
-  and mode selection. Low-profile (1.7mm) fits under the case roof.
+- **TCA8418**: TI I2C keypad scanner. Handles matrix scanning, debounce,
+  and 10-event FIFO in hardware. 3µA standby. Shares I2C bus with PN7150
+  (address 0x34 vs 0x28). Available from DigiKey, LCSC, Mouser.
+- **Buttons**: Alps SKQGABE010 — same as credstick. 13 needed for numeric
+  keypad (0-9, ., OK, Clear) in a 4×4 matrix (3 positions empty).
+  Low-profile (1.7mm) fits under the case roof. 6mm pitch grid.
 - **Inductor (BQ25504)**: Coilcraft LPS4018-222MRC is recommended in the
   BQ25504 datasheet. Critical for boost converter efficiency — do not
   substitute without checking saturation current and DCR.

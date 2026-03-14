@@ -1,0 +1,11 @@
+[package]
+name = "briolette-relay-firmware"
+version = "0.1.0"
+edition = "2021"
+description = "Briolette solar relay firmware drivers (TCA8418 keypad, etc.)"
+
+[dependencies]
+embedded-hal = "1.0"
+
+[dev-dependencies]
+embedded-hal-mock = "0.11"

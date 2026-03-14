@@ -44,16 +44,24 @@ solar_offset_y = -2.0;
 usbc_width  = 9.0;
 usbc_height = 3.5;
 
-// Button holes (4 buttons, left column)
-btn_dia = 4.5;
-btn_spacing = 7.0;
-btn_x = -pcb_length / 2 + 7.0;
-btn_y_start = -pcb_width / 2 + 10.0;
+// Keypad grid (4x4, 13 keys populated: 0-9, ., OK, CLR)
+key_dia = 4.5;
+key_pitch = 6.0;          // 6mm center-to-center
+key_cols = 4;
+key_rows = 4;
+// Grid origin (center of top-left key, relative to PCB center)
+key_x0 = -pcb_length / 2 + 3.0;   // X = -32mm from center
+key_y0 = -pcb_width / 2 + 7.5;    // Y = -15mm from center
+// Empty positions (col 3, rows 1-3): these won't get holes
+// Layout:  1  2  3  CLR
+//          4  5  6  ---
+//          7  8  9  ---
+//          .  0  OK ---
 
-// LED windows (3 LEDs near buttons)
+// LED windows (3 LEDs above keypad)
 led_dia = 2.0;
-led_x = -pcb_length / 2 + 12.0;
-led_y = pcb_width / 2 - 10.0;
+led_x0 = -pcb_length / 2 + 6.0;   // centered above 3-col keypad
+led_y = pcb_width / 2 - 14.5;      // above grid
 led_spacing = 3.0;
 
 // NFC tap zone marking (bottom shell, silkscreen equivalent)
@@ -103,15 +111,18 @@ module top_shell() {
                    split_z + case_height_top - roof_thick - 0.01])
             rounded_box([solar_length, solar_width, roof_thick + 0.02], 1.5);
 
-        // Button holes (4x, through roof)
-        for (i = [0:3])
-            translate([btn_x, btn_y_start + i * btn_spacing,
-                       split_z + case_height_top - roof_thick - 0.01])
-                cylinder(h = roof_thick + 0.02, d = btn_dia, $fn = 24);
+        // Keypad holes (4x4 grid, skip 3 empty positions in col 3)
+        for (row = [0:3])
+            for (col = [0:3])
+                if (!(col == 3 && row > 0))  // col 3 only populated at row 0 (CLR)
+                    translate([key_x0 + col * key_pitch,
+                               key_y0 + row * key_pitch,
+                               split_z + case_height_top - roof_thick - 0.01])
+                        cylinder(h = roof_thick + 0.02, d = key_dia, $fn = 24);
 
-        // LED windows (3x, through roof)
+        // LED windows (3x, through roof, above keypad)
         for (i = [0:2])
-            translate([led_x + i * led_spacing, led_y,
+            translate([led_x0 + i * led_spacing, led_y,
                        split_z + case_height_top - roof_thick - 0.01])
                 cylinder(h = roof_thick + 0.02, d = led_dia, $fn = 16);
 
