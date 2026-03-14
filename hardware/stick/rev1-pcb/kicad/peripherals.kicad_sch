@@ -6,9 +6,9 @@
   (paper "A4")
   (title_block
     (title "Briolette Credstick — Peripherals")
-    (date "2026-03-13")
-    (rev "1.0")
-    (comment 1 "ATECC608B, E-Ink Display, Buttons, NFC Antenna Matching")
+    (date "2026-03-14")
+    (rev "1.1")
+    (comment 1 "Nano-SIM (ISO 7816), E-Ink Display, Buttons, NFC Antenna Matching")
   )
 
   (lib_symbols)
@@ -20,10 +20,14 @@
     (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0001"))
   (hierarchical_label "GND" (shape passive) (at 25.4 175.26 180)
     (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0002"))
-  (hierarchical_label "SDA" (shape bidirectional) (at 25.4 63.5 180)
+  (hierarchical_label "SIM_IO" (shape bidirectional) (at 25.4 63.5 180)
     (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0003"))
-  (hierarchical_label "SCL" (shape input) (at 25.4 66.04 180)
+  (hierarchical_label "SIM_CLK" (shape input) (at 25.4 66.04 180)
     (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0004"))
+  (hierarchical_label "SIM_RST" (shape input) (at 25.4 68.58 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0004b"))
+  (hierarchical_label "SIM_DET" (shape output) (at 25.4 71.12 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0004c"))
   (hierarchical_label "SPI_SCK" (shape input) (at 25.4 101.6 180)
     (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0005"))
   (hierarchical_label "SPI_MOSI" (shape input) (at 25.4 104.14 180)
@@ -46,10 +50,12 @@
     (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-000b"))
 
   ;; ============================================================
-  ;; U5: ATECC608B Secure Element
+  ;; J3: Nano-SIM Push-Push Connector (ISO 7816 Secure Element)
+  ;; Replaces ATECC608B — SIM card provides P-256 ECDSA,
+  ;; key storage, monotonic counters, and tamper resistance.
   ;; ============================================================
   (symbol
-    (lib_id "stick-lib:ATECC608B")
+    (lib_id "stick-lib:NanoSIM_PushPush")
     (at 76.2 63.5 0)
     (unit 1)
     (exclude_from_sim no)
@@ -57,21 +63,21 @@
     (on_board yes)
     (dnp no)
     (uuid "c0000003-0001-4000-8000-000000000001")
-    (property "Reference" "U5"
-      (at 76.2 50.8 0)
+    (property "Reference" "J3"
+      (at 76.2 48.26 0)
       (effects (font (size 1.27 1.27)))
     )
-    (property "Value" "ATECC608B-MAHDA-S"
-      (at 76.2 76.2 0)
-      (effects (font (size 1.27 1.27)))
-    )
-    (property "Footprint" "stick-lib:UDFN-8-2x3mm"
+    (property "Value" "Nano-SIM Push-Push"
       (at 76.2 78.74 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:NanoSIM_Molex_78800"
+      (at 76.2 81.28 0)
       (effects (font (size 1.27 1.27)) hide)
     )
   )
 
-  ;; C17: ATECC608B VCC decoupling (100nF)
+  ;; C17: SIM VCC decoupling (100nF)
   (symbol (lib_id "Device:C") (at 55.88 55.88 0) (unit 1)
     (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
     (uuid "c0000003-0002-4000-8000-000000000001")
@@ -82,24 +88,24 @@
     (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
       (at 55.88 55.88 0) (effects (font (size 1.27 1.27)) hide)))
 
-  ;; R6: I2C SDA pull-up (4.7kΩ)
+  ;; R6: SIM I/O pull-up (10kΩ to VCC per ISO 7816-3)
   (symbol (lib_id "Device:R") (at 40.64 55.88 0) (unit 1)
     (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
     (uuid "c0000003-0003-4000-8000-000000000001")
     (property "Reference" "R6" (at 43.18 55.88 0)
       (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "4.7k" (at 43.18 58.42 0)
+    (property "Value" "10k" (at 43.18 58.42 0)
       (effects (font (size 1.27 1.27)) (justify left)))
     (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
       (at 40.64 55.88 0) (effects (font (size 1.27 1.27)) hide)))
 
-  ;; R7: I2C SCL pull-up (4.7kΩ)
+  ;; R7: SIM card detect pull-up (10kΩ to VCC)
   (symbol (lib_id "Device:R") (at 48.26 55.88 0) (unit 1)
     (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
     (uuid "c0000003-0004-4000-8000-000000000001")
     (property "Reference" "R7" (at 50.8 55.88 0)
       (effects (font (size 1.27 1.27)) (justify left)))
-    (property "Value" "4.7k" (at 50.8 58.42 0)
+    (property "Value" "10k" (at 50.8 58.42 0)
       (effects (font (size 1.27 1.27)) (justify left)))
     (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
       (at 48.26 55.88 0) (effects (font (size 1.27 1.27)) hide)))
@@ -234,8 +240,8 @@
   ;; ============================================================
 
   ;; Power
-  (label "VCC" (at 63.5 57.15 0)
-    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-u5"))
+  (label "VCC" (at 63.5 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-j3"))
   (label "VCC" (at 55.88 48.26 0)
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-c17"))
   (label "VCC" (at 40.64 48.26 0)
@@ -244,9 +250,12 @@
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-r7"))
   (label "VCC" (at 66.04 129.54 0)
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-j2"))
+  ;; VPP tied to VCC (modern SIM cards don't use VPP)
+  (label "VCC" (at 63.5 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-vpp"))
 
-  (label "GND" (at 63.5 69.85 0)
-    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-u5"))
+  (label "GND" (at 63.5 73.66 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-j3"))
   (label "GND" (at 55.88 63.5 0)
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-c17"))
   (label "GND" (at 66.04 127 0)
@@ -259,16 +268,23 @@
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-c18"))
   (label "GND" (at 177.8 68.58 0)
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-c19"))
+  ;; SIM shield to GND
+  (label "GND" (at 63.5 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-j3-sh"))
 
-  ;; I2C bus: sheet labels → pull-ups → ATECC608B
-  (label "SDA" (at 40.64 63.5 0)
-    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-sda-r6"))
-  (label "SDA" (at 88.9 69.85 0)
-    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-sda-u5"))
-  (label "SCL" (at 48.26 63.5 0)
-    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-scl-r7"))
-  (label "SCL" (at 88.9 67.31 0)
-    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-scl-u5"))
+  ;; SIM card ISO 7816 interface
+  (label "SIM_IO" (at 40.64 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simio-r6"))
+  (label "SIM_IO" (at 88.9 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simio-j3"))
+  (label "SIM_CLK" (at 88.9 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simclk-j3"))
+  (label "SIM_RST" (at 88.9 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simrst-j3"))
+  (label "SIM_DET" (at 48.26 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simdet-r7"))
+  (label "SIM_DET" (at 88.9 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simdet-j3"))
 
   ;; SPI bus: sheet labels → E-Ink FPC
   (label "SPI_CS" (at 66.04 147.32 0)
@@ -291,7 +307,6 @@
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-btnr-sw2"))
 
   ;; NFC antenna matching network
-  ;; NFC1 → L1 → C18 shunt → antenna pad → C19 shunt → NFC2
   (label "NFC1" (at 142.24 50.8 0)
     (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-nfc1-l1"))
   (label "NFC1" (at 152.4 53.34 0)
@@ -308,9 +323,13 @@
   ;; ============================================================
   ;; Sheet label to net
   (wire (pts (xy 25.4 63.5) (xy 40.64 63.5))
-    (stroke (width 0) (type default)) (uuid "w-per-sda"))
-  (wire (pts (xy 25.4 66.04) (xy 48.26 66.04))
-    (stroke (width 0) (type default)) (uuid "w-per-scl"))
+    (stroke (width 0) (type default)) (uuid "w-per-simio"))
+  (wire (pts (xy 25.4 66.04) (xy 88.9 66.04))
+    (stroke (width 0) (type default)) (uuid "w-per-simclk"))
+  (wire (pts (xy 25.4 68.58) (xy 88.9 68.58))
+    (stroke (width 0) (type default)) (uuid "w-per-simrst"))
+  (wire (pts (xy 25.4 71.12) (xy 48.26 71.12))
+    (stroke (width 0) (type default)) (uuid "w-per-simdet"))
   (wire (pts (xy 25.4 101.6) (xy 66.04 101.6))
     (stroke (width 0) (type default)) (uuid "w-per-sck"))
   (wire (pts (xy 25.4 104.14) (xy 66.04 104.14))
@@ -349,51 +368,58 @@
   ;; ============================================================
   ;; Annotations
   ;; ============================================================
-  (text "PERIPHERALS — Secure Element, Display, Buttons, NFC Antenna"
+  (text "PERIPHERALS — SIM Card (ISO 7816), Display, Buttons, NFC Antenna"
     (exclude_from_sim no)
     (at 25.4 25.4 0)
     (effects (font (size 2.54 2.54) bold))
     (uuid "txt-per-0001")
   )
 
-  (text "I2C Bus: SDA/SCL with 4.7kΩ pull-ups to VCC. ATECC608B default addr 0x60."
+  (text "SIM Card: Nano-SIM (4FF) in low-profile push-push connector (Molex 78800-0001)."
     (exclude_from_sim no)
     (at 25.4 30.48 0)
     (effects (font (size 1.27 1.27)))
     (uuid "txt-per-0002")
   )
 
-  (text "E-Ink SPI: CS, D/C, RST, BUSY, SCK, MOSI (write-only, no MISO needed)"
+  (text "ISO 7816 interface: SIM_IO (half-duplex data, 10k pull-up), SIM_CLK (3.25MHz PWM),"
     (exclude_from_sim no)
     (at 25.4 33.02 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0002b")
+  )
+
+  (text "SIM_RST (active-low reset). VPP tied to VCC. Card detect (CD) with 10k pull-up."
+    (exclude_from_sim no)
+    (at 25.4 35.56 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0002c")
+  )
+
+  (text "E-Ink SPI: CS, D/C, RST, BUSY, SCK, MOSI (write-only, no MISO needed)"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
     (effects (font (size 1.27 1.27)))
     (uuid "txt-per-0003")
   )
 
   (text "NFC Antenna: Bottom copper layer PCB trace, 25×20mm rectangular spiral, 4-5 turns"
     (exclude_from_sim no)
-    (at 25.4 35.56 0)
+    (at 25.4 40.64 0)
     (effects (font (size 1.27 1.27)))
     (uuid "txt-per-0004")
   )
 
   (text "NFC Matching: L1 (390nH) series with NFC1, C18/C19 (180pF) shunt to GND"
     (exclude_from_sim no)
-    (at 25.4 38.1 0)
+    (at 25.4 43.18 0)
     (effects (font (size 1.27 1.27)))
     (uuid "txt-per-0005")
   )
 
-  (text "Tune C18/C19 values for 13.56 MHz resonance. Start with 180pF, measure with VNA."
-    (exclude_from_sim no)
-    (at 25.4 40.64 0)
-    (effects (font (size 1.27 1.27)))
-    (uuid "txt-per-0006")
-  )
-
   (text "Buttons use nRF52840 internal pull-up (GPIO config). Active low. SW press → logic 0."
     (exclude_from_sim no)
-    (at 25.4 43.18 0)
+    (at 25.4 45.72 0)
     (effects (font (size 1.27 1.27)))
     (uuid "txt-per-0007")
   )

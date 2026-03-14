@@ -265,76 +265,84 @@
   )
 
   ;; ============================================================
-  ;; ATECC608B  (UDFN-8, 2x3mm)
-  ;; Microchip secure element
+  ;; NanoSIM_PushPush  (Molex 78800-0001, low-profile push-push)
+  ;; Nano-SIM (4FF) card connector with ISO 7816 interface
   ;; ============================================================
-  (symbol "ATECC608B"
+  (symbol "NanoSIM_PushPush"
     (exclude_from_sim no)
     (in_bom yes)
     (on_board yes)
-    (property "Reference" "U"
-      (at 0 10.16 0)
+    (property "Reference" "J"
+      (at 0 13.97 0)
       (effects (font (size 1.27 1.27)))
     )
-    (property "Value" "ATECC608B"
-      (at 0 -10.16 0)
+    (property "Value" "NanoSIM_PushPush"
+      (at 0 -13.97 0)
       (effects (font (size 1.27 1.27)))
     )
-    (property "Footprint" "stick-lib:UDFN-8-2x3mm"
-      (at 0 -12.7 0)
+    (property "Footprint" "stick-lib:NanoSIM_Molex_78800"
+      (at 0 -16.51 0)
       (effects (font (size 1.27 1.27)) hide)
     )
-    (property "Datasheet" "https://ww1.microchip.com/downloads/en/DeviceDoc/ATECC608B-CryptoAuthentication-Device-Summary-Data-Sheet-DS40002239B.pdf"
-      (at 0 -15.24 0)
+    (property "Datasheet" "https://www.molex.com/en-us/products/part-detail/78800-0001"
+      (at 0 -19.05 0)
       (effects (font (size 1.27 1.27)) hide)
     )
-    (property "MPN" "ATECC608B-MAHDA-S"
-      (at 0 -17.78 0)
+    (property "MPN" "78800-0001"
+      (at 0 -21.59 0)
       (effects (font (size 1.27 1.27)) hide)
     )
-    (property "Description" "CryptoAuthentication Secure Element, I2C, UDFN-8"
-      (at 0 -20.32 0)
+    (property "Description" "Nano-SIM (4FF) push-push connector, low-profile 1.25mm, ISO 7816"
+      (at 0 -24.13 0)
       (effects (font (size 1.27 1.27)) hide)
     )
 
-    (symbol "ATECC608B_1_1"
+    (symbol "NanoSIM_PushPush_1_1"
       (rectangle
-        (start -10.16 8.89)
-        (end 10.16 -8.89)
+        (start -10.16 12.7)
+        (end 10.16 -12.7)
         (stroke (width 0.254) (type default))
         (fill (type background))
       )
-      (pin power_in line (at -12.7 6.35 0) (length 2.54)
+      ;; ISO 7816 contact C1: VCC
+      (pin power_in line (at -12.7 10.16 0) (length 2.54)
         (name "VCC" (effects (font (size 1.27 1.27))))
-        (number "8" (effects (font (size 1.27 1.27))))
+        (number "C1" (effects (font (size 1.27 1.27))))
       )
-      (pin power_in line (at -12.7 -6.35 0) (length 2.54)
+      ;; ISO 7816 contact C2: RST
+      (pin input line (at 12.7 10.16 180) (length 2.54)
+        (name "RST" (effects (font (size 1.27 1.27))))
+        (number "C2" (effects (font (size 1.27 1.27))))
+      )
+      ;; ISO 7816 contact C3: CLK
+      (pin input line (at 12.7 5.08 180) (length 2.54)
+        (name "CLK" (effects (font (size 1.27 1.27))))
+        (number "C3" (effects (font (size 1.27 1.27))))
+      )
+      ;; ISO 7816 contact C5: GND
+      (pin power_in line (at -12.7 -10.16 0) (length 2.54)
         (name "GND" (effects (font (size 1.27 1.27))))
-        (number "4" (effects (font (size 1.27 1.27))))
+        (number "C5" (effects (font (size 1.27 1.27))))
       )
-      (pin bidirectional line (at 12.7 6.35 180) (length 2.54)
-        (name "SDA" (effects (font (size 1.27 1.27))))
-        (number "5" (effects (font (size 1.27 1.27))))
+      ;; ISO 7816 contact C6: VPP (connect to VCC for modern SIM)
+      (pin passive line (at -12.7 5.08 0) (length 2.54)
+        (name "VPP" (effects (font (size 1.27 1.27))))
+        (number "C6" (effects (font (size 1.27 1.27))))
       )
-      (pin input line (at 12.7 3.81 180) (length 2.54)
-        (name "SCL" (effects (font (size 1.27 1.27))))
-        (number "6" (effects (font (size 1.27 1.27))))
+      ;; ISO 7816 contact C7: I/O (half-duplex data)
+      (pin bidirectional line (at 12.7 0 180) (length 2.54)
+        (name "IO" (effects (font (size 1.27 1.27))))
+        (number "C7" (effects (font (size 1.27 1.27))))
       )
-      (pin passive line (at -12.7 1.27 0) (length 2.54)
-        (name "NC1" (effects (font (size 1.27 1.27))))
-        (number "1" (effects (font (size 1.27 1.27))))
+      ;; Card detect switch (active low when card inserted)
+      (pin input line (at 12.7 -5.08 180) (length 2.54)
+        (name "CD" (effects (font (size 1.27 1.27))))
+        (number "CD" (effects (font (size 1.27 1.27))))
       )
-      (pin passive line (at -12.7 -1.27 0) (length 2.54)
-        (name "NC2" (effects (font (size 1.27 1.27))))
-        (number "2" (effects (font (size 1.27 1.27))))
-      )
-      (pin passive line (at -12.7 -3.81 0) (length 2.54)
-        (name "NC3" (effects (font (size 1.27 1.27))))
-        (number "3" (effects (font (size 1.27 1.27))))
-      )
-      (pin passive line (at 12.7 -3.81 180) (length 2.54)
-        (name "NC4" (effects (font (size 1.27 1.27))))
-        (number "7" (effects (font (size 1.27 1.27))))
+      ;; Mechanical shell / shield
+      (pin passive line (at -12.7 -5.08 0) (length 2.54)
+        (name "SHIELD" (effects (font (size 1.27 1.27))))
+        (number "SH" (effects (font (size 1.27 1.27))))
       )
     )
   )

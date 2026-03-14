@@ -8,7 +8,8 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 | # | Component | MPN | Package | Qty | ~$1 | ~$1k | Source |
 |---|-----------|-----|---------|-----|-----|------|--------|
 | 1 | MCU | nRF52840-QIAA-R7 | aQFN-73 (7×7mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
-| 2 | Secure element | ATECC608B-MAHDA-S | UDFN-8 (2×3mm) | 1 | $0.75 | $0.55 | DigiKey |
+| 2 | SIM connector | Molex 78800-0001 | Nano-SIM push-push, 1.25mm low-profile | 1 | $1.20 | $0.65 | DigiKey / Mouser |
+| 2b | SIM card (SE) | SIMalliance JavaCard | Nano-SIM (4FF), P-256 ECDSA capable | 1 | $2.00 | $1.00 | Vendor-specific |
 | 3 | E-ink display | GDEY0154D67 (Good Display) | 24-pin FPC | 1 | $8.00 | $4.00 | Good Display |
 | 4 | 32 MHz crystal | ABM8-32.000MHZ-B2-T (Abracon) | 3.2×2.5mm | 1 | $0.40 | $0.25 | DigiKey |
 | 5 | 32.768 kHz crystal | ABS07-32.768KHZ-T (Abracon) | 3.2×1.5mm | 1 | $0.35 | $0.20 | DigiKey |
@@ -30,7 +31,8 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 | 16 | Crystal load cap (32k) | CL05C6R8CB5NNNC (Samsung) | 6.8pF 50V C0G | 0402 | 2 | $0.05 | $0.02 |
 | 17 | NFC matching cap | CL05C181JB5NNNC (Samsung) | 180pF 50V C0G | 0402 | 2 | $0.05 | $0.02 |
 | 18 | NFC series inductor | LQW15AN390NJ0D (Murata) | 390nH | 0402 | 1 | $0.10 | $0.05 |
-| 19 | I2C pull-up | RC0402FR-074K7L (Yageo) | 4.7kΩ 1% | 0402 | 2 | $0.02 | $0.01 |
+| 19 | SIM I/O pull-up | RC0402FR-0710KL (Yageo) | 10kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
+| 19b | SIM detect pull-up | RC0402FR-0710KL (Yageo) | 10kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
 | 20 | Reset pull-up | RC0402FR-0710KL (Yageo) | 10kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
 | 21 | ILIM resistor | RC0402FR-0710KL (Yageo) | 10kΩ 1% (sets ~100mA) | 0402 | 1 | $0.02 | $0.01 |
 | 22 | LED resistor | RC0402FR-071KL (Yageo) | 1kΩ 1% | 0402 | 1 | $0.02 | $0.01 |
@@ -68,8 +70,13 @@ layer. Rectangular spiral, ~25mm × 20mm, 4-5 turns, 0.3mm trace width,
 
 - **nRF52840**: Widely available from DigiKey/Mouser. No known shortages
   as of early 2026. Lead time ~0 (in stock).
-- **ATECC608B**: Commodity part, in stock everywhere. The UDFN-8 package
-  is preferred for size; SOIC-8 is available if needed for hand rework.
+- **SIM connector (Molex 78800-0001)**: Low-profile (1.25mm) nano-SIM
+  push-push connector. Widely available. Card sits flush when inserted,
+  push to eject. Accepts any standard nano-SIM (4FF) card.
+- **SIM card**: Any JavaCard-compatible nano-SIM with P-256 ECDSA
+  support. The SIM provides tamper-resistant key storage, manufacturer
+  attestation, and monotonic counters — replacing the ATECC608B.
+  User-replaceable: swap SIM to transfer identity to a new credstick.
 - **E-ink display**: Good Display is the primary source. The GDEW0154M09
   is EOL — use the **GDEY0154D67** replacement. For smaller (1.02"),
   contact Good Display directly or use Waveshare modules.

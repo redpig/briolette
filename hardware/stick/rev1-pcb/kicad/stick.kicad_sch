@@ -9,7 +9,7 @@
     (date "2026-03-13")
     (rev "1.0")
     (comment 1 "4-layer PCB, 60x30mm keychain form factor")
-    (comment 2 "nRF52840 + ATECC608B + E-Ink + NFC")
+    (comment 2 "nRF52840 + Nano-SIM (ISO 7816) + E-Ink + NFC")
   )
 
   (lib_symbols)
@@ -93,15 +93,25 @@
       (effects (font (size 1.27 1.27)) (justify left))
       (uuid "b0000002-0002-4000-8000-000000000002")
     )
-    (pin "SDA" bidirectional
+    (pin "SIM_IO" bidirectional
       (at 66.04 86.36 0)
       (effects (font (size 1.27 1.27)) (justify right))
       (uuid "b0000002-0003-4000-8000-000000000002")
     )
-    (pin "SCL" output
+    (pin "SIM_CLK" output
       (at 66.04 88.9 0)
       (effects (font (size 1.27 1.27)) (justify right))
       (uuid "b0000002-0004-4000-8000-000000000002")
+    )
+    (pin "SIM_RST" output
+      (at 66.04 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0004b-4000-8000-000000000002")
+    )
+    (pin "SIM_DET" input
+      (at 66.04 93.98 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0004c-4000-8000-000000000002")
     )
     (pin "SPI_SCK" output
       (at 66.04 93.98 0)
@@ -151,7 +161,7 @@
   )
 
   ;; ============================================================
-  ;; Sheet: Peripherals (ATECC608B, E-Ink, Buttons, NFC antenna)
+  ;; Sheet: Peripherals (Nano-SIM, E-Ink, Buttons, NFC antenna)
   ;; ============================================================
   (sheet
     (at 25.4 116.84)
@@ -178,15 +188,25 @@
       (effects (font (size 1.27 1.27)) (justify left))
       (uuid "b0000003-0002-4000-8000-000000000003")
     )
-    (pin "SDA" bidirectional
+    (pin "SIM_IO" bidirectional
       (at 25.4 124.46 180)
       (effects (font (size 1.27 1.27)) (justify left))
       (uuid "b0000003-0003-4000-8000-000000000003")
     )
-    (pin "SCL" input
+    (pin "SIM_CLK" input
       (at 25.4 127 180)
       (effects (font (size 1.27 1.27)) (justify left))
       (uuid "b0000003-0004-4000-8000-000000000003")
+    )
+    (pin "SIM_RST" input
+      (at 25.4 129.54 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0004b-4000-8000-000000000003")
+    )
+    (pin "SIM_DET" output
+      (at 25.4 132.08 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0004c-4000-8000-000000000003")
     )
     (pin "SPI_SCK" input
       (at 25.4 134.62 180)
@@ -241,7 +261,7 @@
     (uuid "cc000003-0000-4000-8000-000000000001")
   )
 
-  (text "Peripherals: ATECC608B (I2C), E-Ink (SPI), Buttons, NFC Antenna"
+  (text "Peripherals: Nano-SIM (ISO 7816), E-Ink (SPI), Buttons, NFC Antenna"
     (exclude_from_sim no)
     (at 25.4 111.76 0)
     (effects (font (size 1.27 1.27)))

@@ -75,6 +75,14 @@ led_dia = 2.0;
 led_x = 10.0;            // approximate LED position
 led_y = -10.0;
 
+// SIM card slot: side opening for nano-SIM push-push insertion/ejection
+// Nano-SIM (4FF): 12.3mm x 8.8mm x 0.67mm
+// Connector: Molex 78800-0001, 1.25mm low-profile, push-push
+sim_slot_width  = 13.5;  // card + connector clearance
+sim_slot_height = 2.0;   // connector height + card + clearance
+sim_slot_x = 5.0;        // offset from center (near USB-C end)
+sim_slot_side = 1;       // 1 = right side wall, -1 = left
+
 // Piezo slot: side opening for cantilever vibration
 piezo_slot_length = 28.0;
 piezo_slot_width  = 2.0;
@@ -140,6 +148,13 @@ module top_shell() {
         // LED window (small hole through roof)
         translate([led_x, led_y, split_z + case_height_top - roof_thick - 0.01])
             cylinder(h = roof_thick + 0.02, d = led_dia, $fn = 16);
+
+        // SIM card slot (side wall opening for card insertion/ejection)
+        // Push-push connector: card sits flush, push to eject
+        translate([sim_slot_x - sim_slot_width / 2,
+                   sim_slot_side * (case_width / 2 - wall - 0.01),
+                   split_z + usbc_offset_z - sim_slot_height / 2])
+            cube([sim_slot_width, wall + 0.02, sim_slot_height]);
 
         // Keyring hole (through left end wall + extends into shell)
         translate([keyring_x, 0, split_z - 1])

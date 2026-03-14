@@ -63,10 +63,11 @@ and general UI control. See `docs/button-pin-auth.md` for details.
               └───────────┬─────────────────────┘
                           │ VCC
               ┌───────────┴───────────┐
-              │       nRF52840        │     ┌────────────┐
-              │       (QFN-48)        │─I2C─│  ATECC608B │
-              │                       │     │  (UDFN-8)  │
-              │  CryptoCell 310       │     └────────────┘
+              │       nRF52840        │     ┌──────────────┐
+              │       (QFN-48)        │─7816│  SIM Card    │
+              │                       │     │  (nano-SIM)  │
+              │  CryptoCell 310       │     │  push-push   │
+              │                       │     └──────────────┘
               │  NFC1/NFC2 ───────────┼──── PCB Trace Antenna
               │                       │
               │  SPI ─────────────────┼──── E-Ink Display (FPC)
@@ -100,8 +101,12 @@ rev1-pcb/
 
 - **nRF52840 QFN-48** (not WLCSP): QFN is hand-solderable with hot air
   for prototyping. WLCSP requires reflow and X-ray inspection.
-- **ATECC608B UDFN-8** (2x3mm): Tiny footprint, I2C only. The SOIC-8
-  variant works too if hand-soldering is preferred.
+- **Nano-SIM push-push connector** (Molex 78800-0001): Low-profile
+  (1.25mm height), flush-insert push-push mechanism. ISO 7816 interface
+  (SIM_IO, SIM_CLK, SIM_RST). User-replaceable SIM card provides the
+  same tamper-resistant SE functions as the old ATECC608B (P-256 ECDSA,
+  key storage, monotonic counters) but is swappable and field-upgradeable.
+  Production-robust: standard connector used in billions of phones.
 - **NFC as PCB trace**: Eliminates a discrete antenna component. The
   bottom copper layer has a rectangular spiral trace tuned to 13.56 MHz
   with a matching network (two capacitors).

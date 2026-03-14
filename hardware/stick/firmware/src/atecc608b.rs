@@ -1,16 +1,16 @@
 //! ATECC608B secure element I2C driver.
 //!
-//! The ATECC608B provides:
+//! DEPRECATED: Replaced by sim_card.rs (nano-SIM ISO 7816 interface).
+//! This module is retained for reference only and is no longer compiled
+//! into the firmware. See sim_card.rs for the current secure element driver.
+//!
+//! The ATECC608B provided:
 //! - Manufacturer P-256 ECDSA key (generated and locked on-chip)
 //! - Manufacturer certificate storage
 //! - Hardware monotonic counter (for PIN attempt tracking)
 //! - Challenge-response attestation
 //!
-//! The credstick uses the ATECC608B for hardware attestation during
-//! registration (proving the credstick is genuine hardware, not a
-//! software emulation). The monotonic counter is used for PIN brute-force
-//! protection — it cannot be rolled back even with physical access to
-//! the nRF52840.
+//! All of these functions are now handled by the SIM card via ISO 7816.
 //!
 //! I2C address: 0x60 (default for ATECC608B).
 

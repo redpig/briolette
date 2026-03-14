@@ -17,7 +17,7 @@ The device acts as an NFC-A tag. When a phone taps the credstick:
 2. Supercap buffers the power for the full transaction duration (~3-5s)
 3. Phone sends Briolette APDUs over NFC (ISO-DEP / Type 4 Tag)
 4. nRF52840 performs ECDAA split-key operations (BLS12-381 in software)
-5. ATECC608B provides manufacturer attestation (P-256 ECDSA)
+5. SIM card provides manufacturer attestation (P-256 ECDSA via ISO 7816)
 6. E-ink display updates with new balance / transaction result
 7. Device returns to sleep (zero quiescent current)
 
@@ -25,7 +25,7 @@ The device acts as an NFC-A tag. When a phone taps the credstick:
 - nRF52840 active @ 64 MHz: ~5mA for ~3s = 15mAs
 - BLS12-381 scalar mul (peak): ~15mA for ~2s = 30mAs
 - E-ink full refresh: ~40mA for ~0.8s = 32mAs
-- ATECC608B signing: ~15mA for ~50ms = 0.75mAs
+- SIM card signing: ~10mA for ~100ms = 1.0mAs
 - **Total: ~78mAs per transaction**
 
 An NFC field delivers ~5-10mA continuously. Over a 5-second tap, that's
@@ -44,7 +44,7 @@ Plugged into a computer or charger:
 
 - E-ink retains last display contents: 0µA
 - nRF52840 in System OFF: ~0.3µA (RTC wake or NFC field detect wake)
-- ATECC608B sleep: ~30nA
+- SIM card clock-stop: ~5µA
 - **Total idle: <1µA**
 
 ### Power: Supercap-Primary (No Battery)
@@ -105,9 +105,9 @@ complexity and conversion losses, but enables a credit-card thickness.
 │                  Trust Boundaries                 │
 │                                                   │
 │  ┌─────────────┐         ┌──────────────────┐    │
-│  │ ATECC608B   │         │    nRF52840      │    │
-│  │             │         │                  │    │
-│  │ ● Mfr key  │◄─I2C───▶│ ● ECDAA sk_half │    │
+│  │ SIM Card    │         │    nRF52840      │    │
+│  │ (nano-SIM)  │         │                  │    │
+│  │ ● Mfr key  │◄─7816──▶│ ● ECDAA sk_half │    │
 │  │   (P-256)  │         │ ● BLS12-381 ops │    │
 │  │ ● Mfr cert │         │ ● Bloom filter  │    │
 │  │ ● Monotonic│         │ ● APDU handler  │    │
@@ -115,33 +115,39 @@ complexity and conversion losses, but enables a credit-card thickness.
 │  │             │         │ ● NFC stack     │    │
 │  │ TAMPER-    │         │                  │    │
 │  │ RESISTANT  │         │ APPROTECT fuse   │    │
-│  └─────────────┘         │ (debug disabled) │    │
-│                          └──────────────────┘    │
+│  │ REMOVABLE  │         │ (debug disabled) │    │
+│  └─────────────┘         └──────────────────┘    │
 │                                                   │
-│  Phone ◄──NFC──▶ nRF52840 ◄──I2C──▶ ATECC608B   │
+│  Phone ◄──NFC──▶ nRF52840 ◄─ISO7816─▶ SIM Card  │
 └──────────────────────────────────────────────────┘
 ```
+
+The SIM card sits in a low-profile push-push nano-SIM connector
+(Molex 78800-0001, 1.25mm height). Cards are user-replaceable:
+push to eject, swap to transfer identity to a new credstick.
 
 ### Key Storage
 
 | Key | Location | Protection |
 |-----|----------|------------|
 | ECDAA secret key (half) | nRF52840 flash | APPROTECT fuse (blocks SWD) |
-| Manufacturer P-256 key | ATECC608B slot | Hardware tamper-resistant SE |
-| Manufacturer certificate | ATECC608B slot | Read-only after lock |
+| Manufacturer P-256 key | SIM card | Hardware tamper-resistant SE (CC EAL4+) |
+| Manufacturer certificate | SIM card | Read-only applet storage |
 | Bloom filter state | nRF52840 flash | Application-level integrity |
 
 ### Attestation Flow
 
 1. Phone challenges credstick during registration
-2. ATECC608B signs challenge with manufacturer P-256 key
-3. Certificate chain: Card key → Manufacturer CA → Registrar trust store
+2. SIM card signs challenge with manufacturer P-256 key (INTERNAL AUTHENTICATE)
+3. Certificate chain: SIM key → Manufacturer CA → Registrar trust store
 4. Combined with split-key ECDAA proof → HIGH+ security tier
 
 ### Physical Security
 
-- **ATECC608B**: Certified secure element, resistant to side-channel and
-  fault injection attacks. The manufacturer key cannot be extracted.
+- **SIM card**: CC EAL4+ certified secure element, resistant to side-channel
+  and fault injection attacks. The manufacturer key cannot be extracted.
+  User-replaceable via low-profile push-push connector — swap SIM to
+  transfer identity to a new credstick, or replace a compromised card.
 - **nRF52840**: Not a secure element. The APPROTECT fuse disables SWD
   debug access, but glitching attacks are feasible for a motivated
   attacker. The ECDAA key half stored in flash is extractable with
@@ -235,9 +241,9 @@ Target: Zephyr RTOS or Embassy-rs (Rust async on bare metal).
 ┌─────────────────────────────────┐
 │        Briolette Protocol       │  APDU handler, state machine
 ├─────────────────────────────────┤
-│  BLS12-381  │  ATECC608B  │ UI │  Crypto, SE driver, display
+│  BLS12-381  │  SIM Card   │ UI │  Crypto, SE driver, display
 ├─────────────┼─────────────┼────┤
-│    NFC-A    │    I2C      │SPI │  Hardware peripherals
+│    NFC-A    │  ISO 7816   │SPI │  Hardware peripherals
 ├─────────────┴─────────────┴────┤
 │       Zephyr / Embassy-rs      │  RTOS / async runtime
 ├─────────────────────────────────┤
