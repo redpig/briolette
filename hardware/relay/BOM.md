@@ -7,7 +7,7 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 
 | # | Component | MPN | Package | Qty | ~$1 | ~$1k | Source |
 |---|-----------|-----|---------|-----|-----|------|--------|
-| 1 | MCU | nRF52840-QIAA-R7 (Nordic) | QFN-48 (6×6mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
+| 1 | MCU | nRF52840-QIAA-R7 (Nordic) | aQFN-73 (7×7mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
 | 2 | NFC controller | PN7150B0HN/C11002Y (NXP) | HVQFN-40 (5×5mm) | 1 | $3.50 | $2.50 | DigiKey / Mouser |
 | 3 | Solar MPPT charger | BQ25504RGTR (TI) | QFN-20 (3.5×3.5mm) | 1 | $3.50 | $2.80 | DigiKey / Mouser |
 | 4 | LDO regulator | AP2112K-3.3TRG1 (Diodes Inc) | SOT-23-5 | 1 | $0.50 | $0.30 | DigiKey |
@@ -80,9 +80,9 @@ C30/C31 to center the resonant frequency.
 | # | Component | MPN | Description | Qty | ~$1 | ~$1k |
 |---|-----------|-----|-------------|-----|-----|------|
 | 35 | Tactile switch | SKQGABE010 (Alps Alpine) | 3.9×2.9×1.7mm SMD, 160gf | 4 | $0.60 | $0.32 |
-| 36 | Red LED | LTST-C190KRKT (Lite-On) | Red 0402 | 1 | $0.10 | $0.05 |
-| 37 | Green LED | LTST-C190GKT (Lite-On) | Green 0402 | 1 | $0.10 | $0.05 |
-| 38 | Blue LED | LTST-C190TBKT (Lite-On) | Blue 0402 | 1 | $0.10 | $0.05 |
+| 36 | Red LED | LTST-C150KRKT (Lite-On) | Red 0402 | 1 | $0.10 | $0.05 |
+| 37 | Green LED | LTST-C150GKT (Lite-On) | Green 0402 | 1 | $0.10 | $0.05 |
+| 38 | Blue LED | LTST-C150TBKT (Lite-On) | Blue 0402 | 1 | $0.10 | $0.05 |
 | 39 | M2×6 self-tapping screw | — | Stainless steel, pan head | 4 | $0.20 | $0.08 |
 | 40 | Enclosure | — | 3D-printed PETG or injection-molded | 1 | $3.00 | $0.50 |
 
@@ -100,9 +100,10 @@ C30/C31 to center the resonant frequency.
 ## Key Sourcing Notes
 
 - **PN7150**: NXP part, available from DigiKey/Mouser. The PN7150B0HN/C11002Y
-  is the current production variant. Alternatively, PN7160 is the newer
-  generation with the same pinout and lower power. Check lead times — NFC
-  controller ICs can have longer lead times than commodity parts.
+  is marked NRND (Not Recommended for New Designs) by NXP. **Prefer the
+  PN7160** (pin-compatible successor) for new boards. The PN7160 has lower
+  power and identical I2C interface. Check lead times — NFC controller ICs
+  can have longer lead times than commodity parts.
 - **BQ25504**: TI ultra-low-power MPPT charger. Widely available. The RGTR
   suffix is the 20-pin QFN variant. Eval board (BQ25504EVM) is available
   for bench testing before committing to the PCB design.

@@ -7,7 +7,7 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 
 | # | Component | MPN | Package | Qty | ~$1 | ~$1k | Source |
 |---|-----------|-----|---------|-----|-----|------|--------|
-| 1 | MCU | nRF52840-QIAA-R7 | QFN-48 (6×6mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
+| 1 | MCU | nRF52840-QIAA-R7 | aQFN-73 (7×7mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
 | 2 | Secure element | ATECC608B-MAHDA-S | UDFN-8 (2×3mm) | 1 | $0.75 | $0.55 | DigiKey |
 | 3 | E-ink display | GDEY0154D67 (Good Display) | 24-pin FPC | 1 | $8.00 | $4.00 | Good Display |
 | 4 | 32 MHz crystal | ABM8-32.000MHZ-B2-T (Abracon) | 3.2×2.5mm | 1 | $0.40 | $0.25 | DigiKey |
@@ -43,7 +43,7 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 |---|-----------|-----|-------------|-----|-----|------|
 | 25 | FPC connector | FH12-24S-0.5SH(55) (Hirose) | 24-pin 0.5mm bottom-contact | 1 | $0.30 | $0.15 |
 | 26 | Tactile switch | SKQGABE010 (Alps Alpine) | 3.9×2.9×1.7mm SMD, 160gf | 2 | $0.30 | $0.16 |
-| 27 | Charge LED | LTST-C190GKT (Lite-On) | Green 0402 LED | 1 | $0.10 | $0.05 |
+| 27 | Charge LED | LTST-C150GKT (Lite-On) | Green 0402 LED | 1 | $0.10 | $0.05 |
 | 28 | Keyring hole | — | 3mm plated through-hole in PCB | 1 | $0 | $0 |
 | 29 | Enclosure | — | 3D-printed PETG or injection-molded | 1 | $3.00 | $0.50 |
 
