@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use briolette_crypto::v1::split;
 use briolette_proto::briolette::swapper::{
-    GetDestinationReply, GetDestinationRequest, SwapTokensReply, SwapTokensRequest,
+    AuthorizeSwapReply, AuthorizeSwapRequest, GetDestinationReply, GetDestinationRequest,
+    SwapTokensReply, SwapTokensRequest,
 };
 use briolette_proto::briolette::token::{SignedTicket, Token};
 use briolette_proto::briolette::Version;
@@ -27,6 +29,10 @@ use std::sync::{Arc, RwLock};
 pub struct BrioletteSwapper {
     ticket: SignedTicket,
     wallet: Arc<RwLock<WalletData>>,
+    /// Swap server's secret key for signing swap authorizations (Fr scalar, 32 bytes).
+    swap_sk: Vec<u8>,
+    /// Swap server's public key (G1 point, 65 bytes = G1 * swap_sk).
+    swap_pk: Vec<u8>,
 }
 impl BrioletteSwapper {
     pub async fn new(
@@ -47,9 +53,13 @@ impl BrioletteSwapper {
         assert!(wd.withdraw(25).await);
 
         assert!(wd.tickets.len() > 0);
+        let (swap_sk, swap_pk) = split::generate_swap_keypair();
+        trace!("swap server public key: {} bytes", swap_pk.len());
         Ok(Self {
             ticket: wd.tickets[0].clone().into(),
             wallet: Arc::new(RwLock::new(wd)),
+            swap_sk,
+            swap_pk,
         })
     }
 
@@ -61,6 +71,40 @@ impl BrioletteSwapper {
         let mut reply = GetDestinationReply::default();
         reply.swap_ticket = Some(self.ticket.clone());
         return Ok(reply);
+    }
+
+    /// Returns the swap server's public key (for card personalization / epoch data).
+    pub fn swap_public_key(&self) -> &[u8] {
+        &self.swap_pk
+    }
+
+    pub async fn authorize_swap_impl(
+        &self,
+        request: &AuthorizeSwapRequest,
+    ) -> Result<AuthorizeSwapReply, BrioletteError> {
+        trace!("authorize_swap: request = {:?}", &request);
+        if request.version != Version::Current as i32 {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidVersion.into(),
+            });
+        }
+        if request.basename.is_empty() {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            });
+        }
+        // Create a Schnorr signature over the basename using the swap server's key.
+        // The card verifies this to allow bloom-filter-bypassing swap signing.
+        match split::swap_auth_create(&self.swap_sk, &self.swap_pk, &request.basename) {
+            Some(auth) => Ok(AuthorizeSwapReply {
+                challenge: auth.c,
+                response: auth.s,
+                error: None,
+            }),
+            None => Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidSignature.into(),
+            }),
+        }
     }
 
     pub async fn swap_tokens_impl(

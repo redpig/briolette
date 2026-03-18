@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stick-lib")(type "KiCad")(uri "${KIPRJMOD}/stick-lib.pretty")(options "")(descr "Briolette Credstick custom footprints"))
+)

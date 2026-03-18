@@ -1,0 +1,26 @@
+[package]
+name = "briolette-recovery"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]] # Bin to run the Recovery gRPC server
+name = "briolette-recovery-server"
+path = "src/server_main.rs"
+
+[dependencies]
+tonic = { version = "0.8" }
+prost = "0.11"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+briolette-crypto = { path = "../crypto", version = "*" }
+briolette-proto = { path = "../proto", version = "*" }
+briolette-wallet = { path = "../wallet", version = "*" }
+log = { version = "0.4.17", features = ["max_level_trace", "release_max_level_info"]}
+stderrlog = "0.5.4"
+clap = { version = "4.3.2", features = ["derive"] }
+rusqlite = { version = "0.28.0", features = ["bundled"] }
+chrono = "0.4"
+sha2 = "0.10"
+hex = "0.4.3"
+
+[build-dependencies]
+tonic-build = "0.8"

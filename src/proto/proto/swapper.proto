@@ -20,6 +20,11 @@ import "token.proto";
 service Swapper {
     rpc GetDestination (GetDestinationRequest) returns (GetDestinationReply);
     rpc SwapTokens (SwapTokensRequest) returns (SwapTokensReply);
+    // Request swap authorization for a specific basename.
+    // The returned authorization is a Schnorr signature that the JavaCard
+    // can verify against the stored swap server public key, allowing it
+    // to bypass the bloom filter for this transaction.
+    rpc AuthorizeSwap (AuthorizeSwapRequest) returns (AuthorizeSwapReply);
 }
 
 message GetDestinationRequest {
@@ -37,4 +42,20 @@ message SwapTokensRequest {
 
 message SwapTokensReply {
   repeated .briolette.token.Token tokens = 1;
+}
+
+message AuthorizeSwapRequest {
+  briolette.Version version = 1;
+  // The basename (last signature) for which swap authorization is needed.
+  // This is the value the card's bloom filter rejected.
+  bytes basename = 2;
+}
+
+message AuthorizeSwapReply {
+  // Schnorr challenge component: c = H(swap_pubkey, basename, R)
+  bytes challenge = 1;
+  // Schnorr response component: s = r + c * swap_sk
+  bytes response = 2;
+  // Error if authorization cannot be granted.
+  briolette.Error error = 3;
 }

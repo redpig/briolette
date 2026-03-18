@@ -15,7 +15,8 @@
 use crate::server::BrioletteSwapper;
 use briolette_proto::briolette::swapper::swapper_server::Swapper;
 use briolette_proto::briolette::swapper::{
-    GetDestinationReply, GetDestinationRequest, SwapTokensReply, SwapTokensRequest,
+    AuthorizeSwapReply, AuthorizeSwapRequest, GetDestinationReply, GetDestinationRequest,
+    SwapTokensReply, SwapTokensRequest,
 };
 use tonic::{Request, Response, Status};
 
@@ -38,6 +39,17 @@ impl Swapper for BrioletteSwapper {
     ) -> Result<Response<GetDestinationReply>, Status> {
         let message = request.into_inner();
         let maybe_reply = self.get_destination_impl(&message).await;
+        match maybe_reply {
+            Ok(reply) => Ok(Response::new(reply)),
+            Err(status) => Err(status.into()),
+        }
+    }
+    async fn authorize_swap(
+        &self,
+        request: Request<AuthorizeSwapRequest>,
+    ) -> Result<Response<AuthorizeSwapReply>, Status> {
+        let message = request.into_inner();
+        let maybe_reply = self.authorize_swap_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),

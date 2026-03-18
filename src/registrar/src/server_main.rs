@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use briolette_proto::briolette::registrar::registrar_server::RegistrarServer;
+use briolette_proto::briolette::registrar::SecurityLevel;
 use briolette_registrar::server::BrioletteRegistrar;
 
 use clap::Parser as ClapParser;
@@ -98,6 +99,37 @@ struct Args {
         default_value = "data/registrar/ttc_issuer.sk"
     )]
     token_transfer_credential_issuer_secret_key: PathBuf,
+
+    // Per-security-level NAC issuer keypairs.  When provided, the
+    // registrar assigns wallets to different NAC groups based on
+    // hardware attestation strength.  All wallets share the same
+    // TTC group so they can transact — the clerk uses the NAC GPK
+    // to determine ticket lifetime and other policy.
+    #[arg(long, value_name = "FILE")]
+    nac_low_issuer_gpk: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    nac_low_issuer_secret: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    nac_medium_issuer_gpk: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    nac_medium_issuer_secret: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    nac_high_issuer_gpk: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    nac_high_issuer_secret: Option<PathBuf>,
+
+    /// Reject Algorithm::NONE registrations. In production, this should
+    /// be enabled to require hardware attestation for all wallets.
+    #[arg(long, action)]
+    require_attestation: bool,
+
+    /// TLS certificate PEM file. When provided with --tls-key, enables TLS.
+    #[arg(long, value_name = "FILE")]
+    tls_cert: Option<PathBuf>,
+
+    /// TLS private key PEM file.
+    #[arg(long, value_name = "FILE")]
+    tls_key: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -110,16 +142,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init()
         .unwrap();
 
-    let registrar = BrioletteRegistrar::new(
-        args.generate,
-        &args.network_access_credential_issuer_secret_key,
-        &args.network_access_credential_issuer_group_public_key,
-        &args.token_transfer_credential_issuer_secret_key,
-        &args.token_transfer_credential_issuer_group_public_key,
-    );
-    tonic::transport::Server::builder()
-        .add_service(RegistrarServer::new(registrar))
-        .serve(args.listen_address.parse().unwrap())
-        .await?;
+    // Collect per-level NAC keypair paths, if any are provided.
+    let mut level_keys: Vec<(SecurityLevel, PathBuf, PathBuf)> = vec![];
+    if let (Some(sk), Some(gpk)) = (&args.nac_low_issuer_secret, &args.nac_low_issuer_gpk) {
+        level_keys.push((SecurityLevel::Low, sk.clone(), gpk.clone()));
+    }
+    if let (Some(sk), Some(gpk)) = (&args.nac_medium_issuer_secret, &args.nac_medium_issuer_gpk) {
+        level_keys.push((SecurityLevel::Medium, sk.clone(), gpk.clone()));
+    }
+    if let (Some(sk), Some(gpk)) = (&args.nac_high_issuer_secret, &args.nac_high_issuer_gpk) {
+        level_keys.push((SecurityLevel::High, sk.clone(), gpk.clone()));
+    }
+
+    let mut registrar = if level_keys.is_empty() {
+        BrioletteRegistrar::new(
+            args.generate,
+            &args.network_access_credential_issuer_secret_key,
+            &args.network_access_credential_issuer_group_public_key,
+            &args.token_transfer_credential_issuer_secret_key,
+            &args.token_transfer_credential_issuer_group_public_key,
+        )
+    } else {
+        let level_refs: Vec<(SecurityLevel, &std::path::Path, &std::path::Path)> = level_keys
+            .iter()
+            .map(|(l, s, g)| (*l, s.as_path(), g.as_path()))
+            .collect();
+        BrioletteRegistrar::new_tiered(
+            args.generate,
+            &args.network_access_credential_issuer_secret_key,
+            &args.network_access_credential_issuer_group_public_key,
+            &args.token_transfer_credential_issuer_secret_key,
+            &args.token_transfer_credential_issuer_group_public_key,
+            &level_refs,
+        )
+    };
+    registrar.require_attestation = args.require_attestation;
+    let addr = args.listen_address.parse().unwrap();
+    let mut server = tonic::transport::Server::builder();
+    if let (Some(cert), Some(key)) = (&args.tls_cert, &args.tls_key) {
+        let tls_config = briolette_proto::tls::server_tls_config(cert, key, None)?;
+        server
+            .tls_config(tls_config)?
+            .add_service(RegistrarServer::new(registrar))
+            .serve(addr)
+            .await?;
+    } else {
+        server
+            .add_service(RegistrarServer::new(registrar))
+            .serve(addr)
+            .await?;
+    }
     Ok(())
 }

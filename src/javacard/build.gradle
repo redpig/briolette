@@ -1,0 +1,114 @@
+// Briolette JavaCard Applet Build Configuration
+//
+// Prerequisites for CAP build (gradle buildJavaCard):
+//   - JavaCard SDK 3.0.4+ (set JCDK_HOME environment variable)
+//   - JCMathLib (set JCMATHLIB_HOME or place JCMathLib.jar in libs/)
+//   - Gradle 7+
+//   - JDK 11+ (JavaCard SDK requires it)
+//
+// Prerequisites for simulator tests (gradle test):
+//   - Gradle 7+, JDK 11+
+//   - No JavaCard SDK or physical hardware needed
+//
+// Build CAP file (with JCMathLib for real hardware):
+//   JCMATHLIB_HOME=/path/to/jcmathlib gradle buildJavaCard
+//
+// Run simulator tests (BigInteger math, no JCMathLib needed):
+//   gradle test
+//
+// EC math backend selection (compile-time conditional):
+//   - applet-sim/ECMath.java : BigInteger (jCardSim simulator, default)
+//   - applet-hw/ECMath.java  : JCMathLib (production JavaCard hardware)
+//   Selected automatically based on JCMATHLIB_HOME / libs/JCMathLib.jar
+//
+// The output CAP file will be in build/javacard/
+// Install to card using GlobalPlatformPro (gp.jar):
+//   java -jar gp.jar --install build/javacard/BrioletteApplet.cap
+
+plugins {
+    id 'java'
+}
+
+// Detect whether JCMathLib is available
+def jcmathlib = file("${System.getenv('JCMATHLIB_HOME') ?: 'libs'}/JCMathLib.jar")
+def useJCMathLib = jcmathlib.exists() || project.hasProperty('USE_JCMATHLIB')
+
+// Conditionally apply javacard plugin for CAP file building
+// This allows 'gradle test' to work without the JavaCard SDK installed
+if (System.getenv('JCDK_HOME') || file('/opt/jcdk').exists()) {
+    buildscript {
+        repositories {
+            mavenCentral()
+        }
+        dependencies {
+            classpath 'com.github.nickmcdowall:gradle-javacard:3.1.0'
+        }
+    }
+
+    apply plugin: 'javacard'
+
+    javacard {
+        config {
+            jcdk System.getenv('JCDK_HOME') ?: '/opt/jcdk'
+
+            cap {
+                packageName 'com.briolette.javacard'
+                version '1.0'
+                aid '42:72:69:6F:6C:65:74:74:65' // "Briolette" in hex
+                output 'BrioletteApplet.cap'
+
+                applet {
+                    className 'com.briolette.javacard.BrioletteApplet'
+                    aid '42:72:69:6F:6C:65:74:74:65:01'
+                }
+            }
+        }
+    }
+}
+
+// Source configuration: select EC math backend at compile time
+// - applet-sim/  contains ECMath.java using java.math.BigInteger (jCardSim)
+// - applet-hw/   contains ECMath.java using JCMathLib (real hardware)
+sourceSets {
+    main {
+        java {
+            srcDirs = ['applet', useJCMathLib ? 'applet-hw' : 'applet-sim']
+        }
+    }
+    test {
+        java {
+            srcDirs = ['test']
+        }
+    }
+}
+
+logger.lifecycle("EC math backend: ${useJCMathLib ? 'JCMathLib (applet-hw/)' : 'BigInteger (applet-sim/)'}")
+
+// Dependencies
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    // jCardSim provides the JavaCard API classes for both compilation and testing.
+    // For CAP builds, the javacard plugin provides the real SDK classes instead.
+    // https://central.sonatype.com/artifact/com.klinec/jcardsim
+    implementation 'com.klinec:jcardsim:3.0.5.9'
+
+    // JCMathLib for big number and EC point operations on BN254
+    // Install from: https://github.com/OpenCryptoProject/JCMathLib
+    // mvn install -f JCMathLib/pom.xml
+    if (jcmathlib.exists()) {
+        implementation files(jcmathlib)
+    }
+
+    // Test dependencies
+    testImplementation 'com.klinec:jcardsim:3.0.5.9'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    // jCardSim needs access to JavaCard API classes
+    jvmArgs = ['--add-opens', 'java.base/java.lang=ALL-UNNAMED']
+}

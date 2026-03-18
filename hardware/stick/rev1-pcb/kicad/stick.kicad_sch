@@ -1,0 +1,320 @@
+(kicad_sch
+  (version 20231120)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (uuid "e63e39d7-6ac0-4ffd-8aa3-1841a4541b55")
+  (paper "A3")
+  (title_block
+    (title "Briolette Credstick Rev1")
+    (date "2026-03-13")
+    (rev "1.0")
+    (comment 1 "4-layer PCB, 60x30mm keychain form factor")
+    (comment 2 "nRF52840 + Nano-SIM (ISO 7816) + E-Ink + NFC")
+  )
+
+  (lib_symbols)
+
+  ;; ============================================================
+  ;; Power flags and global labels
+  ;; ============================================================
+
+  ;; Power symbols
+  (power_port "VCC"
+    (uuid "aa000001-0000-4000-8000-000000000001")
+    (at 25.4 25.4 0)
+    (effects (font (size 1.27 1.27)))
+  )
+
+  ;; ============================================================
+  ;; Sheet: Power Supply
+  ;; ============================================================
+  (sheet
+    (at 25.4 50.8)
+    (size 40.64 20.32)
+    (fields_autoplaced yes)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 255 255 225 1.0))
+    (uuid "a1b2c3d4-0001-4000-8000-000000000001")
+    (property "Sheetname" "Power"
+      (at 25.4 50.1646 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "power.kicad_sch"
+      (at 25.4 71.7554 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (pin "VBUS" input
+      (at 25.4 55.88 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000001-0001-4000-8000-000000000001")
+    )
+    (pin "VCC" output
+      (at 66.04 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000001-0002-4000-8000-000000000001")
+    )
+    (pin "GND" passive
+      (at 25.4 63.5 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000001-0003-4000-8000-000000000001")
+    )
+    (pin "VSCAP" output
+      (at 66.04 63.5 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000001-0004-4000-8000-000000000001")
+    )
+  )
+
+  ;; ============================================================
+  ;; Sheet: MCU (nRF52840)
+  ;; ============================================================
+  (sheet
+    (at 25.4 81.28)
+    (size 40.64 25.4)
+    (fields_autoplaced yes)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 225 255 225 1.0))
+    (uuid "a1b2c3d4-0002-4000-8000-000000000002")
+    (property "Sheetname" "MCU"
+      (at 25.4 80.6446 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "mcu.kicad_sch"
+      (at 25.4 107.3154 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (pin "VCC" input
+      (at 25.4 86.36 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000002-0001-4000-8000-000000000002")
+    )
+    (pin "GND" passive
+      (at 25.4 93.98 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000002-0002-4000-8000-000000000002")
+    )
+    (pin "SIM_IO" bidirectional
+      (at 66.04 86.36 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0003-4000-8000-000000000002")
+    )
+    (pin "SIM_CLK" output
+      (at 66.04 88.9 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0004-4000-8000-000000000002")
+    )
+    (pin "SIM_RST" output
+      (at 66.04 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0004b-4000-8000-000000000002")
+    )
+    (pin "SIM_DET" input
+      (at 66.04 93.98 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0004c-4000-8000-000000000002")
+    )
+    (pin "SPI_SCK" output
+      (at 66.04 93.98 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0005-4000-8000-000000000002")
+    )
+    (pin "SPI_MOSI" output
+      (at 66.04 96.52 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0006-4000-8000-000000000002")
+    )
+    (pin "SPI_CS" output
+      (at 66.04 99.06 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0007-4000-8000-000000000002")
+    )
+    (pin "EPD_DC" output
+      (at 66.04 101.6 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0008-4000-8000-000000000002")
+    )
+    (pin "EPD_RST" output
+      (at 66.04 104.14 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0009-4000-8000-000000000002")
+    )
+    (pin "NFC1" bidirectional
+      (at 25.4 101.6 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000002-000a-4000-8000-000000000002")
+    )
+    (pin "NFC2" bidirectional
+      (at 25.4 104.14 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000002-000b-4000-8000-000000000002")
+    )
+    (pin "D+" bidirectional
+      (at 25.4 96.52 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000002-000c-4000-8000-000000000002")
+    )
+    (pin "D-" bidirectional
+      (at 25.4 99.06 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000002-000d-4000-8000-000000000002")
+    )
+    (pin "BTN_L" output
+      (at 66.04 86.36 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-000e-4000-8000-000000000002")
+    )
+    (pin "BTN_R" output
+      (at 66.04 88.9 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-000f-4000-8000-000000000002")
+    )
+    (pin "LED" output
+      (at 66.04 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0010-4000-8000-000000000002")
+    )
+    (pin "EPD_BUSY" input
+      (at 66.04 96.52 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0011-4000-8000-000000000002")
+    )
+    (pin "VSCAP_SENSE" input
+      (at 66.04 99.06 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0012-4000-8000-000000000002")
+    )
+  )
+
+  ;; ============================================================
+  ;; Sheet: Peripherals (Nano-SIM, E-Ink, Buttons, NFC antenna)
+  ;; ============================================================
+  (sheet
+    (at 25.4 116.84)
+    (size 40.64 25.4)
+    (fields_autoplaced yes)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 225 225 255 1.0))
+    (uuid "a1b2c3d4-0003-4000-8000-000000000003")
+    (property "Sheetname" "Peripherals"
+      (at 25.4 116.2046 0)
+      (effects (font (size 1.27 1.27)) (justify left bottom))
+    )
+    (property "Sheetfile" "peripherals.kicad_sch"
+      (at 25.4 142.8754 0)
+      (effects (font (size 1.27 1.27)) (justify left top))
+    )
+    (pin "VCC" input
+      (at 25.4 121.92 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0001-4000-8000-000000000003")
+    )
+    (pin "GND" passive
+      (at 25.4 129.54 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0002-4000-8000-000000000003")
+    )
+    (pin "SIM_IO" bidirectional
+      (at 25.4 124.46 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0003-4000-8000-000000000003")
+    )
+    (pin "SIM_CLK" input
+      (at 25.4 127 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0004-4000-8000-000000000003")
+    )
+    (pin "SIM_RST" input
+      (at 25.4 129.54 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0004b-4000-8000-000000000003")
+    )
+    (pin "SIM_DET" output
+      (at 25.4 132.08 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0004c-4000-8000-000000000003")
+    )
+    (pin "SPI_SCK" input
+      (at 25.4 134.62 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0005-4000-8000-000000000003")
+    )
+    (pin "SPI_MOSI" input
+      (at 25.4 137.16 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0006-4000-8000-000000000003")
+    )
+    (pin "SPI_CS" input
+      (at 25.4 139.7 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-0007-4000-8000-000000000003")
+    )
+    (pin "EPD_DC" input
+      (at 25.4 132.08 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-000c-4000-8000-000000000003")
+    )
+    (pin "EPD_RST" input
+      (at 25.4 134.62 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-000d-4000-8000-000000000003")
+    )
+    (pin "EPD_BUSY" output
+      (at 66.04 127 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-000e-4000-8000-000000000003")
+    )
+    (pin "BTN_L" output
+      (at 66.04 129.54 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-000f-4000-8000-000000000003")
+    )
+    (pin "BTN_R" output
+      (at 66.04 132.08 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-0010-4000-8000-000000000003")
+    )
+    (pin "NFC1" bidirectional
+      (at 66.04 121.92 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-0008-4000-8000-000000000003")
+    )
+    (pin "NFC2" bidirectional
+      (at 66.04 124.46 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-0009-4000-8000-000000000003")
+    )
+  )
+
+  ;; ============================================================
+  ;; Inter-sheet wires (connecting sheet pins)
+  ;; ============================================================
+
+  ;; Text annotations
+  (text "Briolette Credstick Rev1 - Top Level"
+    (exclude_from_sim no)
+    (at 25.4 20.32 0)
+    (effects (font (size 2.54 2.54) bold))
+    (uuid "cc000001-0000-4000-8000-000000000001")
+  )
+
+  (text "Power: USB-C → ESD → Charge Limiter → Supercaps → LDO → VCC"
+    (exclude_from_sim no)
+    (at 25.4 40.64 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "cc000002-0000-4000-8000-000000000001")
+  )
+
+  (text "MCU: nRF52840 QFN-48 with 32MHz + 32.768kHz crystals"
+    (exclude_from_sim no)
+    (at 25.4 76.2 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "cc000003-0000-4000-8000-000000000001")
+  )
+
+  (text "Peripherals: Nano-SIM (ISO 7816), E-Ink (SPI), Buttons, NFC Antenna"
+    (exclude_from_sim no)
+    (at 25.4 111.76 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "cc000004-0000-4000-8000-000000000001")
+  )
+)

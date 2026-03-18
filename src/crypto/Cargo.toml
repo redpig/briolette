@@ -3,6 +3,10 @@ name = "briolette-crypto"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+nfc = ["pcsc"]
+
 [dependencies]
 # For local storage serialization.
 serde = { version = "1.0", features = ["derive"] }
@@ -19,3 +23,6 @@ bls12_381_plus = "0.8"
 ff = "0.13"
 rand = "0.8"
 sha2 = "0.10"
+
+# PC/SC smart card interface for NFC communication (optional)
+pcsc = { version = "2", optional = true }

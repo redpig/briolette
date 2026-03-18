@@ -18,7 +18,8 @@
 //! 128-bit security (vs ~100-bit for BN254 post Kim-Barbulescu).
 //!
 //! Key differences from v0:
-//! - Uses BLS12-381 (48-byte G1 compressed, 96-byte G2 compressed)
+//! - Uses BLS12-381 with compressed point encoding (48-byte G1, 96-byte G2)
+//! - Signatures are 288 bytes (vs 356 for v0) — smaller despite stronger security
 //! - RFC 9380 compliant hash_to_curve via bls12_381_plus
 //! - Proper hash-to-field with domain separation
 //! - Same ECDAA algorithm and SmartCard trait interface
@@ -31,29 +32,29 @@ use ff::Field;
 use rand::rngs::OsRng;
 use sha2::Sha256;
 
-// BLS12-381 serialization sizes
+// BLS12-381 serialization sizes (compressed point encoding, Zcash/IETF format)
 pub(crate) mod native {
     // BLS12-381 scalar field is 255 bits, serialized as 32 bytes
     pub const SCALAR_LENGTH: usize = 32;
-    // G1 uncompressed = 0x04 || x (48 bytes) || y (48 bytes) = 97 bytes
-    pub const G1_LENGTH: usize = 97;
-    // G2 uncompressed = 0x04 || x_c0 (48) || x_c1 (48) || y_c0 (48) || y_c1 (48) = 193 bytes
-    pub const G2_LENGTH: usize = 193;
+    // G1 compressed = 48 bytes (high bits encode compression flag + y-sign)
+    pub const G1_LENGTH: usize = 48;
+    // G2 compressed = 96 bytes (high bits encode compression flag + y-sign)
+    pub const G2_LENGTH: usize = 96;
     // Credential = 4 G1 points
-    pub const CREDENTIAL_LENGTH: usize = 4 * G1_LENGTH; // 388
+    pub const CREDENTIAL_LENGTH: usize = 4 * G1_LENGTH; // 192
     // Credential signature = (c, s) two scalars
     pub const CREDENTIAL_SIGNATURE_LENGTH: usize = 2 * SCALAR_LENGTH; // 64
-    // Signature without pseudonym = (c, s, n) + (R, S, T, W) = 3*32 + 4*97 = 96 + 388 = 484
+    // Signature without pseudonym = (c, s, n) + (R, S, T, W) = 3*32 + 4*48 = 96 + 192 = 288
     pub const SIGNATURE_LENGTH: usize = 3 * SCALAR_LENGTH + 4 * G1_LENGTH;
     // Signature with pseudonym adds K point
-    pub const SIGNATURE_WITH_NYM_LENGTH: usize = SIGNATURE_LENGTH + G1_LENGTH; // 581
+    pub const SIGNATURE_WITH_NYM_LENGTH: usize = SIGNATURE_LENGTH + G1_LENGTH; // 336
     // Issuer secret key = (x, y) two scalars
     pub const ISSUER_SECRET_KEY_LENGTH: usize = 2 * SCALAR_LENGTH; // 64
     // Group public key = (X, Y) two G2 points
-    pub const ISSUER_GROUP_PUBLIC_KEY_LENGTH: usize = 2 * G2_LENGTH; // 386
+    pub const ISSUER_GROUP_PUBLIC_KEY_LENGTH: usize = 2 * G2_LENGTH; // 192
     // Member secret key = one scalar
     pub const WALLET_SECRET_KEY_LENGTH: usize = SCALAR_LENGTH; // 32
-    // Member public key = (Q, c, s, n) = 97 + 32 + 32 + 32 = 193
+    // Member public key = (Q, c, s, n) = 48 + 32 + 32 + 32 = 144
     pub const WALLET_PUBLIC_KEY_LENGTH: usize = G1_LENGTH + 3 * SCALAR_LENGTH;
 }
 
@@ -62,29 +63,16 @@ pub(crate) mod native {
 // ============================================================================
 
 fn serialize_g1(point: &G1Projective) -> [u8; native::G1_LENGTH] {
-    let mut buf = [0u8; native::G1_LENGTH];
-    let affine = G1Affine::from(point);
-    if bool::from(affine.is_identity()) {
-        buf[0] = 0x04;
-        return buf;
-    }
-    let uncompressed = affine.to_uncompressed();
-    buf[0] = 0x04;
-    buf[1..97].copy_from_slice(&uncompressed);
-    buf
+    G1Affine::from(point).to_compressed()
 }
 
 fn deserialize_g1(data: &[u8]) -> Option<G1Projective> {
-    if data.len() < native::G1_LENGTH || data[0] != 0x04 {
+    if data.len() < native::G1_LENGTH {
         return None;
     }
-    // Check for point at infinity
-    if data[1..native::G1_LENGTH].iter().all(|&b| b == 0) {
-        return Some(G1Projective::identity());
-    }
-    let mut uncompressed = [0u8; 96];
-    uncompressed.copy_from_slice(&data[1..97]);
-    let affine = G1Affine::from_uncompressed(&uncompressed);
+    let mut buf = [0u8; 48];
+    buf.copy_from_slice(&data[..48]);
+    let affine = G1Affine::from_compressed(&buf);
     if bool::from(affine.is_none()) {
         return None;
     }
@@ -92,28 +80,16 @@ fn deserialize_g1(data: &[u8]) -> Option<G1Projective> {
 }
 
 fn serialize_g2(point: &G2Projective) -> [u8; native::G2_LENGTH] {
-    let mut buf = [0u8; native::G2_LENGTH];
-    let affine = G2Affine::from(point);
-    if bool::from(affine.is_identity()) {
-        buf[0] = 0x04;
-        return buf;
-    }
-    let uncompressed = affine.to_uncompressed();
-    buf[0] = 0x04;
-    buf[1..193].copy_from_slice(&uncompressed);
-    buf
+    G2Affine::from(point).to_compressed()
 }
 
 fn deserialize_g2(data: &[u8]) -> Option<G2Projective> {
-    if data.len() < native::G2_LENGTH || data[0] != 0x04 {
+    if data.len() < native::G2_LENGTH {
         return None;
     }
-    if data[1..native::G2_LENGTH].iter().all(|&b| b == 0) {
-        return Some(G2Projective::identity());
-    }
-    let mut uncompressed = [0u8; 192];
-    uncompressed.copy_from_slice(&data[1..193]);
-    let affine = G2Affine::from_uncompressed(&uncompressed);
+    let mut buf = [0u8; 96];
+    buf.copy_from_slice(&data[..96]);
+    let affine = G2Affine::from_compressed(&buf);
     if bool::from(affine.is_none()) {
         return None;
     }
@@ -224,7 +200,7 @@ fn isk_get_y(isk: &[u8]) -> Option<Scalar> {
 }
 
 // ----- Signature structure -----
-// Layout: c (32) | s (32) | R (97) | S (97) | T (97) | W (97) | n (32) [| K (97)]
+// Layout: c (32) | s (32) | R (48) | S (48) | T (48) | W (48) | n (32) [| K (48)]
 
 fn sig_get_c(sig: &[u8]) -> Option<Scalar> {
     deserialize_scalar(&sig[0..32])
@@ -774,6 +750,38 @@ pub fn credential_in_group(credential: &Vec<u8>, group_public_key: &Vec<u8>) -> 
     true
 }
 
+/// Verify that a split-key proof is structurally valid.
+///
+/// `combined_pk_bytes` is the full ECDAA public key (the first 48 bytes
+/// are the G1 point Q, from `generate_wallet_keypair`).
+/// `card_pk_bytes` is the card's share Q_card (48-byte compressed G1).
+///
+/// Returns true if the proof is valid.
+pub fn verify_split_key_proof(combined_pk_bytes: &[u8], card_pk_bytes: &[u8]) -> bool {
+    // Parse the card's public key share.
+    let card_q = match deserialize_g1(card_pk_bytes) {
+        Some(q) => q,
+        None => return false,
+    };
+    // Must not be the identity point.
+    if bool::from(card_q.is_identity()) {
+        return false;
+    }
+    // Parse the combined public key (first 48 bytes of the ECDAA PK).
+    if combined_pk_bytes.len() < native::G1_LENGTH {
+        return false;
+    }
+    let combined_q = match deserialize_g1(&combined_pk_bytes[..native::G1_LENGTH]) {
+        Some(q) => q,
+        None => return false,
+    };
+    // Card share must differ from the combined key (host also contributed).
+    if G1Affine::from(card_q) == G1Affine::from(combined_q) {
+        return false;
+    }
+    true
+}
+
 // ============================================================================
 // Split-key signing (Brickell & Li style) for BLS12-381
 // ============================================================================
@@ -803,6 +811,10 @@ pub mod split {
             basename_base: Option<&[u8]>,
         ) -> Option<CardSignCommitment>;
         fn sign_respond(&mut self, challenge: &[u8]) -> Option<CardSignResponse>;
+        /// Phase 1 of blind join: returns U_card = B * r_card.
+        fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>>;
+        /// Phase 2 of blind join: returns s_card = r_card + c * card_sk.
+        fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>>;
         fn secret_key_share(&self) -> Vec<u8>;
     }
 
@@ -875,15 +887,32 @@ pub mod split {
             })
         }
 
+        fn join_commit(&mut self, base: &[u8]) -> Option<Vec<u8>> {
+            let b = deserialize_g1(base)?;
+            let r = random_scalar();
+            self.r_card = Some(r);
+            Some(serialize_g1(&(b * r)).to_vec())
+        }
+
+        fn join_respond(&mut self, challenge: &[u8]) -> Option<Vec<u8>> {
+            let c = deserialize_scalar(challenge)?;
+            let r = self.r_card.take()?;
+            let s_card = r + c * self.card_sk;
+            Some(serialize_scalar(&s_card).to_vec())
+        }
+
         fn secret_key_share(&self) -> Vec<u8> {
             serialize_scalar(&self.card_sk).to_vec()
         }
     }
 
+    /// Generate a split wallet keypair using the blind join protocol.
+    /// The combined secret key never exists in one place.
+    /// Returns (host_sk, combined_pk).
     pub fn generate_split_wallet_keypair(
-        card: &dyn SmartCard,
+        card: &mut dyn SmartCard,
         nonce: &Vec<u8>,
-    ) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    ) -> Option<(Vec<u8>, Vec<u8>)> {
         if nonce.is_empty() {
             return None;
         }
@@ -899,13 +928,21 @@ pub mod split {
 
         let q = q_card + q_host;
 
-        let card_sk = deserialize_scalar(&card.secret_key_share())?;
-        let combined_sk = card_sk + host_sk;
+        // Blind Schnorr proof: split between card and host
+        let u_card_bytes = card.join_commit(&b_bytes)?;
+        let u_card = deserialize_g1(&u_card_bytes)?;
 
-        let r = random_scalar();
-        let u = b * r;
+        let r_host = random_scalar();
+        let u_host = b * r_host;
+
+        let u = u_card + u_host;
         let c = schnorr_hash_member(&u, &b, &q, nonce);
-        let s = r + c * combined_sk;
+
+        let s_card_bytes = card.join_respond(&serialize_scalar(&c))?;
+        let s_card = deserialize_scalar(&s_card_bytes)?;
+
+        let s_host = r_host + c * host_sk;
+        let s = s_card + s_host;
         let n = random_scalar();
 
         let host_sk_bytes = serialize_scalar(&host_sk).to_vec();
@@ -916,9 +953,7 @@ pub mod split {
         pk.extend_from_slice(&serialize_scalar(&s));
         pk.extend_from_slice(&serialize_scalar(&n));
 
-        let combined_sk_bytes = serialize_scalar(&combined_sk).to_vec();
-
-        Some((host_sk_bytes, pk, combined_sk_bytes))
+        Some((host_sk_bytes, pk))
     }
 
     pub fn sign_split(
@@ -1065,6 +1100,344 @@ pub mod split {
         }
 
         true
+    }
+
+    /// Errors from smart card operations that can be distinguished
+    /// for recovery (e.g., bloom filter hit → swap retry).
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum SmartCardError {
+        /// The bloom filter rejected the basename (false positive or real double-spend).
+        /// Recovery: request swap authorization and retry with sign_commit_swap.
+        BloomFilterHit,
+        /// The swap authorization was invalid (bad Schnorr signature).
+        SwapAuthFailed,
+        /// The card doesn't have a swap public key set.
+        NoSwapKey,
+        /// Any other card error (bad version, wrong length, transport failure, etc.)
+        Other(u16),
+    }
+
+    /// Swap authorization token: a Schnorr signature from the swap server
+    /// binding to a specific basename. The card verifies this before allowing
+    /// a bloom-filter-bypassing swap signing operation.
+    pub struct SwapAuthorization {
+        /// Schnorr challenge: c = H(R || bsn_base || swap_pk)
+        pub c: Vec<u8>,
+        /// Schnorr response: s = r + c * swap_sk
+        pub s: Vec<u8>,
+    }
+
+    impl SwapAuthorization {
+        /// Serialize to 64 bytes: c (32 bytes) || s (32 bytes).
+        pub fn to_bytes(&self) -> Vec<u8> {
+            let mut out = Vec::with_capacity(64);
+            out.extend_from_slice(&self.c);
+            out.extend_from_slice(&self.s);
+            out
+        }
+
+        /// Deserialize from 64 bytes.
+        pub fn from_bytes(data: &[u8]) -> Option<Self> {
+            if data.len() != 64 {
+                return None;
+            }
+            Some(SwapAuthorization {
+                c: data[..32].to_vec(),
+                s: data[32..64].to_vec(),
+            })
+        }
+    }
+
+    /// Hash function for swap authorization Schnorr signatures.
+    /// c = H(R || bsn_base || swap_pk)
+    fn swap_auth_hash(r_point: &G1Projective, bsn_base: &G1Projective, swap_pk: &G1Projective) -> Scalar {
+        let mut data = Vec::new();
+        data.extend_from_slice(&serialize_g1(r_point));
+        data.extend_from_slice(&serialize_g1(bsn_base));
+        data.extend_from_slice(&serialize_g1(swap_pk));
+        hash_to_scalar(&data)
+    }
+
+    /// Create a swap authorization token.
+    ///
+    /// Called by the swap server when a wallet requests to swap tokens.
+    /// The server signs the basename (derived from the token's previous signature)
+    /// with its private key, producing a token the card can verify.
+    pub fn swap_auth_create(
+        swap_sk: &[u8],
+        swap_pk: &[u8],
+        bsn_base_bytes: &[u8],
+    ) -> Option<SwapAuthorization> {
+        let sk = deserialize_scalar(swap_sk)?;
+        let pk = deserialize_g1(swap_pk)?;
+        let bsn = deserialize_g1(bsn_base_bytes)?;
+
+        let r = random_scalar();
+        let r_point = G1Projective::generator() * r;
+        let c = swap_auth_hash(&r_point, &bsn, &pk);
+        let s = r + c * sk;
+
+        Some(SwapAuthorization {
+            c: serialize_scalar(&c).to_vec(),
+            s: serialize_scalar(&s).to_vec(),
+        })
+    }
+
+    /// Verify a swap authorization token.
+    pub fn swap_auth_verify(
+        swap_pk: &[u8],
+        bsn_base_bytes: &[u8],
+        auth: &SwapAuthorization,
+    ) -> bool {
+        let pk = match deserialize_g1(swap_pk) {
+            Some(v) => v,
+            None => return false,
+        };
+        let bsn = match deserialize_g1(bsn_base_bytes) {
+            Some(v) => v,
+            None => return false,
+        };
+        let c = match deserialize_scalar(&auth.c) {
+            Some(v) => v,
+            None => return false,
+        };
+        let s = match deserialize_scalar(&auth.s) {
+            Some(v) => v,
+            None => return false,
+        };
+
+        // Reconstruct R' = G1 * s - swap_pk * c
+        let r_prime = G1Projective::generator() * s + pk * (-c);
+
+        // Recompute challenge
+        let c_prime = swap_auth_hash(&r_prime, &bsn, &pk);
+
+        c == c_prime
+    }
+
+    /// Generate a swap server keypair: (secret_key, public_key).
+    ///
+    /// Returns (swap_sk: 32 bytes, swap_pk: 48 bytes) where swap_pk = G1 * swap_sk.
+    pub fn generate_swap_keypair() -> (Vec<u8>, Vec<u8>) {
+        let sk = random_scalar();
+        let pk = G1Projective::generator() * sk;
+        (serialize_scalar(&sk).to_vec(), serialize_g1(&pk).to_vec())
+    }
+
+    /// Compute the base point B = hash_to_g1(nonce) for split key generation.
+    /// Returns the serialized G1 point (48 bytes, compressed).
+    pub fn split_base_point(nonce: &[u8]) -> Vec<u8> {
+        let b = hash_to_g1(nonce);
+        serialize_g1(&b).to_vec()
+    }
+
+    /// Host-side Phase 1+Challenge of the blind join protocol.
+    ///
+    /// Given the card's public key share Q_card and commitment U_card,
+    /// generates the host's share and computes the Schnorr challenge.
+    ///
+    /// Returns: (host_sk, host_r, challenge, q_combined) all as serialized bytes.
+    pub fn split_join_host_commit_and_challenge(
+        nonce: &[u8],
+        q_card_bytes: &[u8],
+        u_card_bytes: &[u8],
+    ) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)> {
+        let b = hash_to_g1(nonce);
+        let q_card = deserialize_g1(q_card_bytes)?;
+        let u_card = deserialize_g1(u_card_bytes)?;
+
+        // Host generates its share
+        let host_sk = random_scalar();
+        let q_host = b * host_sk;
+        let q = q_card + q_host;
+
+        // Host commits
+        let r_host = random_scalar();
+        let u_host = b * r_host;
+        let u = u_card + u_host;
+
+        // Challenge
+        let c = schnorr_hash_member(&u, &b, &q, nonce);
+
+        // Serialize the combined public key as raw G1 (for use as NAC nonce)
+        let q_combined_bytes = serialize_g1(&q).to_vec();
+
+        Some((
+            serialize_scalar(&host_sk).to_vec(),
+            serialize_scalar(&r_host).to_vec(),
+            serialize_scalar(&c).to_vec(),
+            q_combined_bytes,
+        ))
+    }
+
+    /// Finalize the split blind join protocol.
+    ///
+    /// Given all intermediate values and the card's Schnorr response,
+    /// produces the combined public key (Q, c, s, n).
+    ///
+    /// Returns the serialized combined public key.
+    pub fn split_join_finalize(
+        nonce: &[u8],
+        q_card_bytes: &[u8],
+        _u_card_bytes: &[u8],
+        host_sk_bytes: &[u8],
+        host_r_bytes: &[u8],
+        c_bytes: &[u8],
+        s_card_bytes: &[u8],
+    ) -> Option<Vec<u8>> {
+        let b = hash_to_g1(nonce);
+        let q_card = deserialize_g1(q_card_bytes)?;
+        let host_sk = deserialize_scalar(host_sk_bytes)?;
+        let q_host = b * host_sk;
+        let q = q_card + q_host;
+
+        let host_r = deserialize_scalar(host_r_bytes)?;
+        let c = deserialize_scalar(c_bytes)?;
+        let s_card = deserialize_scalar(s_card_bytes)?;
+
+        // Host's response
+        let s_host = host_r + c * host_sk;
+        // Combined response
+        let s = s_card + s_host;
+        let n = random_scalar();
+
+        // Serialize combined public key
+        let mut pk = Vec::with_capacity(native::WALLET_PUBLIC_KEY_LENGTH);
+        pk.extend_from_slice(&serialize_g1(&q));
+        pk.extend_from_slice(&serialize_scalar(&c));
+        pk.extend_from_slice(&serialize_scalar(&s));
+        pk.extend_from_slice(&serialize_scalar(&n));
+
+        Some(pk)
+    }
+
+    /// Extended sign_split that accepts optional swap authorization and returns
+    /// SmartCardError on failure, allowing callers to distinguish bloom filter
+    /// hits from other errors.
+    pub fn sign_split_ext(
+        card: &mut dyn SmartCard,
+        host_sk: &Vec<u8>,
+        message: &Vec<u8>,
+        credential: &Vec<u8>,
+        basename: &Option<Vec<u8>>,
+        randomize_cred: bool,
+        signature: &mut Vec<u8>,
+        swap_auth: Option<&SwapAuthorization>,
+    ) -> Result<(), SmartCardError> {
+        let other_err = || SmartCardError::Other(0);
+        if message.is_empty() || credential.is_empty() || host_sk.is_empty() {
+            return Err(other_err());
+        }
+        if let Some(bsn) = basename {
+            if bsn.is_empty() {
+                return Err(other_err());
+            }
+        }
+
+        // Deserialize credential (A, B, C, D)
+        let mut a = credential_get_a(credential).ok_or_else(other_err)?;
+        let mut b = credential_get_b(credential).ok_or_else(other_err)?;
+        let mut c_point = credential_get_c(credential).ok_or_else(other_err)?;
+        let mut d = credential_get_d(credential).ok_or_else(other_err)?;
+
+        // Deserialize host secret key share
+        let h_sk = deserialize_scalar(host_sk).ok_or_else(other_err)?;
+
+        // Randomize credential if requested
+        if randomize_cred {
+            let l = random_scalar();
+            a = a * l;
+            b = b * l;
+            c_point = c_point * l;
+            d = d * l;
+        }
+
+        // S point (randomized B)
+        let s_bytes = serialize_g1(&b);
+
+        // Compute basename base point if needed
+        let bsn_base = basename.as_ref().map(|bsn| hash_to_g1(bsn));
+        let bsn_base_bytes = bsn_base.as_ref().map(|p| serialize_g1(p).to_vec());
+
+        // Phase 1: Card commits
+        // For now, swap auth uses same path as normal (MockCard has no bloom filter)
+        let card_commit = if let Some(_auth) = swap_auth {
+            // With swap auth — for MockCard just does normal commit
+            card.sign_commit(&s_bytes, bsn_base_bytes.as_deref())
+                .ok_or_else(other_err)?
+        } else {
+            card.sign_commit(&s_bytes, bsn_base_bytes.as_deref())
+                .ok_or_else(other_err)?
+        };
+
+        let u_card = deserialize_g1(&card_commit.u_card).ok_or_else(other_err)?;
+
+        // Host commits
+        let r_host = random_scalar();
+        let u_host = b * r_host;
+        let u = u_card + u_host;
+
+        // Build hash for c2
+        let mut hash_data = Vec::new();
+        hash_data.extend_from_slice(&serialize_g1(&u));
+        hash_data.extend_from_slice(&serialize_g1(&b));
+        hash_data.extend_from_slice(&serialize_g1(&d));
+        hash_data.extend_from_slice(message);
+
+        // Handle basename/pseudonym
+        let mut k_combined = G1Projective::identity();
+        if let Some(bsn_base_pt) = &bsn_base {
+            let k_card_bytes = card_commit.k_card.as_ref().ok_or_else(other_err)?;
+            let k_card = deserialize_g1(k_card_bytes).ok_or_else(other_err)?;
+            let k_host = *bsn_base_pt * h_sk;
+            k_combined = k_card + k_host;
+
+            let k_u_card_bytes = card_commit.k_u_card.as_ref().ok_or_else(other_err)?;
+            let k_u_card = deserialize_g1(k_u_card_bytes).ok_or_else(other_err)?;
+            let k_u_host = *bsn_base_pt * r_host;
+            let k_u = k_u_card + k_u_host;
+
+            hash_data.extend_from_slice(&serialize_g1(&k_u));
+            hash_data.extend_from_slice(&serialize_g1(&k_combined));
+            hash_data.extend_from_slice(&serialize_g1(bsn_base_pt));
+        }
+
+        let c2 = hash_to_scalar(&hash_data);
+        let n = random_scalar();
+
+        let mut final_hash_data = Vec::new();
+        final_hash_data.extend_from_slice(&serialize_scalar(&n));
+        final_hash_data.extend_from_slice(&serialize_scalar(&c2));
+        let sig_c = hash_to_scalar(&final_hash_data);
+
+        // Phase 2: Card responds
+        let card_response = card.sign_respond(&serialize_scalar(&sig_c)).ok_or_else(other_err)?;
+        let s_card = deserialize_scalar(&card_response.s_card).ok_or_else(other_err)?;
+
+        let s_host = r_host + sig_c * h_sk;
+        let sig_s = s_card + s_host;
+
+        // Serialize signature
+        signature.clear();
+        if basename.is_some() {
+            signature.reserve(native::SIGNATURE_WITH_NYM_LENGTH);
+        } else {
+            signature.reserve(native::SIGNATURE_LENGTH);
+        }
+
+        signature.extend_from_slice(&serialize_scalar(&sig_c));
+        signature.extend_from_slice(&serialize_scalar(&sig_s));
+        signature.extend_from_slice(&serialize_g1(&a));
+        signature.extend_from_slice(&serialize_g1(&b));
+        signature.extend_from_slice(&serialize_g1(&c_point));
+        signature.extend_from_slice(&serialize_g1(&d));
+        signature.extend_from_slice(&serialize_scalar(&n));
+
+        if basename.is_some() {
+            signature.extend_from_slice(&serialize_g1(&k_combined));
+        }
+
+        Ok(())
     }
 }
 
@@ -1237,13 +1610,13 @@ mod tests {
         let mut gpk = vec![];
         assert!(generate_issuer_keypair(&mut isk, &mut gpk));
 
-        // Generate split keypair
-        let card = MockCard::new();
-        let (host_sk, pk, _combined_sk) =
-            generate_split_wallet_keypair(&card, &nonce).unwrap();
+        // Generate split keypair using blind join
+        let mut card = MockCard::new();
+        let card_sk_bytes = card.secret_key_share();
+        let (host_sk, pk) =
+            generate_split_wallet_keypair(&mut card, &nonce).unwrap();
 
         // Issue credential using combined public key
-        // (In production, this would use a modified Join that doesn't expose combined_sk)
         let mut cred = vec![];
         let mut cred_sig = vec![];
         assert!(issue_credential(&pk, &isk, &nonce, &mut cred, &mut cred_sig));
@@ -1253,7 +1626,7 @@ mod tests {
         let basename = Some(b"previous-signature".to_vec());
         let mut sig = vec![];
         let mut card = MockCard::from_secret(
-            deserialize_scalar(&card.secret_key_share()).unwrap(),
+            deserialize_scalar(&card_sk_bytes).unwrap(),
         );
         assert!(split::sign_split(
             &mut card,
@@ -1276,9 +1649,10 @@ mod tests {
         let mut gpk = vec![];
         assert!(generate_issuer_keypair(&mut isk, &mut gpk));
 
-        let card = MockCard::new();
-        let (host_sk, pk, _combined_sk) =
-            generate_split_wallet_keypair(&card, &nonce).unwrap();
+        let mut card = MockCard::new();
+        let card_sk_bytes = card.secret_key_share();
+        let (host_sk, pk) =
+            generate_split_wallet_keypair(&mut card, &nonce).unwrap();
 
         let mut cred = vec![];
         let mut cred_sig = vec![];
@@ -1287,7 +1661,7 @@ mod tests {
         let message = b"test".to_vec();
         let mut sig = vec![];
         let mut card = MockCard::from_secret(
-            deserialize_scalar(&card.secret_key_share()).unwrap(),
+            deserialize_scalar(&card_sk_bytes).unwrap(),
         );
         assert!(split::sign_split(
             &mut card,

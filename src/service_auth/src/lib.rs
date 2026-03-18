@@ -19,7 +19,7 @@
 //! This keeps the security model self-contained within Briolette's existing
 //! credential infrastructure — no secondary PKI (mTLS) needed.
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use briolette_proto::briolette::registrar::registrar_client::RegistrarClient;
 use briolette_proto::briolette::registrar::{
     Algorithm, CredentialRequest, HardwareId, RegisterRequest, Signature,
@@ -28,7 +28,9 @@ use briolette_proto::briolette::service_auth::{ServiceAuthMetadata, ServiceGroup
 use briolette_proto::briolette::Version;
 use log::*;
 use prost::Message;
+use rand::RngCore;
 use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Request, Status};
@@ -50,27 +52,82 @@ pub struct ServiceIdentity {
     pub group_public_key: Vec<u8>,
 }
 
+/// On-disk state for a service identity, persisted so that the service
+/// keeps the same hw_id and keypair across restarts.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedServiceState {
+    hw_id: Vec<u8>,
+    nonce: Vec<u8>,
+}
+
 impl ServiceIdentity {
+    /// Compute the state file path for a given service group.
+    fn state_path(state_dir: &Path, group: ServiceGroup) -> PathBuf {
+        state_dir.join(format!("service_{}.json", group.as_str_name()))
+    }
+
+    /// Load or create persisted state (random hw_id + nonce).
+    fn load_or_create_state(
+        state_dir: &Path,
+        group: ServiceGroup,
+    ) -> Result<PersistedServiceState, Box<dyn std::error::Error>> {
+        let path = Self::state_path(state_dir, group);
+        if path.exists() {
+            let data = std::fs::read_to_string(&path)?;
+            let state: PersistedServiceState = serde_json::from_str(&data)?;
+            info!("loaded service identity state from {}", path.display());
+            return Ok(state);
+        }
+
+        // Generate random hw_id and nonce.
+        let mut hw_id = vec![0u8; 32];
+        rand::thread_rng().fill_bytes(&mut hw_id);
+        let mut nonce = vec![0u8; 32];
+        rand::thread_rng().fill_bytes(&mut nonce);
+
+        let state = PersistedServiceState { hw_id, nonce };
+
+        // Persist to disk.
+        std::fs::create_dir_all(state_dir)?;
+        let json = serde_json::to_string_pretty(&state)?;
+        std::fs::write(&path, &json)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        info!("created new service identity state at {}", path.display());
+
+        Ok(state)
+    }
+
     /// Register this service with the registrar to obtain a NAC credential.
     ///
-    /// The service identifies itself with a synthetic hardware ID derived from
-    /// its group number. The registrar issues a NAC credential that the service
-    /// uses for all subsequent service-to-service authentication.
+    /// Uses a randomly-generated hardware ID persisted to `state_dir` so
+    /// that the identity is stable across restarts but not predictable.
     pub async fn register(
         registrar_uri: &str,
         group: ServiceGroup,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // Generate keypair for this service identity.
-        // Use the service group name as the nonce for key generation.
-        let nonce = format!("service-{}", group.as_str_name()).into_bytes();
+        // Default state directory next to typical data dirs.
+        let state_dir = PathBuf::from("data/service_auth");
+        Self::register_with_state_dir(registrar_uri, group, &state_dir).await
+    }
+
+    /// Register with an explicit state directory for persisting the identity.
+    pub async fn register_with_state_dir(
+        registrar_uri: &str,
+        group: ServiceGroup,
+        state_dir: &Path,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let state = Self::load_or_create_state(state_dir, group)?;
+
+        // Generate keypair using the persisted random nonce.
         let mut secret_key = vec![];
         let mut public_key = vec![];
-        if !v0::generate_wallet_keypair(&nonce, &mut secret_key, &mut public_key) {
+        if !v1::generate_wallet_keypair(&state.nonce, &mut secret_key, &mut public_key) {
             return Err("failed to generate service keypair".into());
         }
-
-        // Create a synthetic hardware ID for the service.
-        let hw_id = Sha256::digest(&nonce).to_vec();
 
         let request = RegisterRequest {
             version: Version::Current.into(),
@@ -78,7 +135,7 @@ impl ServiceIdentity {
                 vendor_id: 0,
                 software_id: 0,
                 hardware_id: group as u64,
-                hw_id: hw_id.clone(),
+                hw_id: state.hw_id.clone(),
                 security: 0, // LOW
             }),
             hwid_signature: Some(Signature {
@@ -92,6 +149,8 @@ impl ServiceIdentity {
             transfer_credential: Some(CredentialRequest {
                 public_key: public_key.clone(),
             }),
+            split_key_proof: None,
+            card_attestation: None,
         };
 
         let mut client = RegistrarClient::connect(registrar_uri.to_string()).await?;
@@ -131,7 +190,7 @@ impl ServiceIdentity {
         message.extend_from_slice(&timestamp_nanos.to_le_bytes());
 
         let mut signature = vec![];
-        if !v0::sign(
+        if !v1::sign(
             &message.to_vec(),
             &self.credential,
             &self.secret_key,
@@ -219,7 +278,7 @@ pub fn verify_service_auth(
     message.extend_from_slice(&auth_metadata.timestamp_nanos.to_le_bytes());
 
     // Verify the ECDAA signature.
-    if !v0::verify(
+    if !v1::verify(
         &nac_group_public_key.to_vec(),
         &None, // no basename
         &None, // credential not needed for verification (embedded in signature)
@@ -281,18 +340,18 @@ mod tests {
         // Generate issuer keypair for NAC.
         let mut issuer_sk = vec![];
         let mut group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+        assert!(v1::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
 
         // Generate service keypair.
         let nonce = b"test-service-nonce".to_vec();
         let mut sk = vec![];
         let mut pk = vec![];
-        assert!(v0::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
+        assert!(v1::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
 
         // Issue credential.
         let mut credential = vec![];
         let mut credential_sig = vec![];
-        assert!(v0::issue_credential(
+        assert!(v1::issue_credential(
             &pk,
             &issuer_sk,
             &nonce,
@@ -322,7 +381,7 @@ mod tests {
         let mut message = request_hash.to_vec();
         message.extend_from_slice(&auth.timestamp_nanos.to_le_bytes());
 
-        assert!(v0::verify(
+        assert!(v1::verify(
             &group_pk,
             &None,
             &None,
@@ -336,11 +395,11 @@ mod tests {
         // Generate two separate issuer keypairs.
         let mut issuer_sk = vec![];
         let mut group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+        assert!(v1::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
 
         let mut wrong_issuer_sk = vec![];
         let mut wrong_group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(
+        assert!(v1::generate_issuer_keypair(
             &mut wrong_issuer_sk,
             &mut wrong_group_pk
         ));
@@ -349,11 +408,11 @@ mod tests {
         let nonce = b"test-nonce".to_vec();
         let mut sk = vec![];
         let mut pk = vec![];
-        assert!(v0::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
+        assert!(v1::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
 
         let mut credential = vec![];
         let mut credential_sig = vec![];
-        assert!(v0::issue_credential(
+        assert!(v1::issue_credential(
             &pk,
             &issuer_sk,
             &nonce,
@@ -378,7 +437,7 @@ mod tests {
         let mut message = request_hash.to_vec();
         message.extend_from_slice(&auth.timestamp_nanos.to_le_bytes());
 
-        assert!(!v0::verify(
+        assert!(!v1::verify(
             &wrong_group_pk,
             &None,
             &None,
@@ -391,16 +450,16 @@ mod tests {
     fn test_verify_rejects_tampered_message() {
         let mut issuer_sk = vec![];
         let mut group_pk = vec![];
-        assert!(v0::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
+        assert!(v1::generate_issuer_keypair(&mut issuer_sk, &mut group_pk));
 
         let nonce = b"tamper-test".to_vec();
         let mut sk = vec![];
         let mut pk = vec![];
-        assert!(v0::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
+        assert!(v1::generate_wallet_keypair(&nonce, &mut sk, &mut pk));
 
         let mut credential = vec![];
         let mut credential_sig = vec![];
-        assert!(v0::issue_credential(
+        assert!(v1::issue_credential(
             &pk,
             &issuer_sk,
             &nonce,
@@ -426,7 +485,7 @@ mod tests {
         let mut message = request_hash.to_vec();
         message.extend_from_slice(&auth.timestamp_nanos.to_le_bytes());
 
-        assert!(!v0::verify(
+        assert!(!v1::verify(
             &group_pk,
             &None,
             &None,

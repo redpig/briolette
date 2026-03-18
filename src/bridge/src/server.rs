@@ -103,7 +103,7 @@ impl BrioletteBridge {
                 &self.ticket_signing_keys,
             )?;
             total_amount =
-                total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap();
+                (total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap())?;
         }
 
         // 2. Convert Briolette amount to wei.

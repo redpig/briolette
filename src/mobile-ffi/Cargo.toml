@@ -1,0 +1,30 @@
+[package]
+name = "briolette-mobile-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "UniFFI bridge exposing Briolette wallet operations to Kotlin/Swift"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "briolette_mobile"
+
+[dependencies]
+briolette-integration = { path = "../integration", version = "*" }
+briolette-wallet = { path = "../wallet", version = "*" }
+briolette-crypto = { path = "../crypto", version = "*" }
+briolette-proto = { path = "../proto", version = "*" }
+uniffi = { version = "0.25", features = ["cli"] }
+thiserror = "1"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+prost = "0.11"
+serde_json = "1.0"
+log = "0.4"
+base64 = "0.21"
+sha256 = "1.1.2"
+
+[build-dependencies]
+uniffi = { version = "0.25", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"

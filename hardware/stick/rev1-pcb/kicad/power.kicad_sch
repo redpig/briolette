@@ -1,0 +1,692 @@
+(kicad_sch
+  (version 20231120)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (uuid "a1b2c3d4-0001-4000-8000-000000000001")
+  (paper "A4")
+  (title_block
+    (title "Briolette Credstick — Power Supply")
+    (date "2026-03-13")
+    (rev "1.0")
+    (comment 1 "USB-C → ESD → Current Limiter → Supercaps → LDO → VCC")
+    (comment 2 "Piezo harvester trickle-charges supercaps")
+  )
+
+  (lib_symbols)
+
+  ;; ============================================================
+  ;; Hierarchical labels (interface to parent sheet)
+  ;; ============================================================
+  (hierarchical_label "VBUS"
+    (shape input)
+    (at 25.4 50.8 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-pwr-0001")
+  )
+  (hierarchical_label "VCC"
+    (shape output)
+    (at 200.66 50.8 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-pwr-0002")
+  )
+  (hierarchical_label "GND"
+    (shape passive)
+    (at 25.4 127 180)
+    (effects (font (size 1.27 1.27)) (justify right))
+    (uuid "hl-pwr-0003")
+  )
+  (hierarchical_label "VSCAP"
+    (shape output)
+    (at 200.66 76.2 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-pwr-0004")
+  )
+  (hierarchical_label "USB_DP"
+    (shape bidirectional)
+    (at 200.66 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-pwr-0005")
+  )
+  (hierarchical_label "USB_DM"
+    (shape bidirectional)
+    (at 200.66 60.96 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl-pwr-0006")
+  )
+
+  ;; ============================================================
+  ;; J1: USB-C Connector (USB4135-GF-A)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:USB_C_2.0")
+    (at 38.1 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0001-4000-8000-000000000001")
+    (property "Reference" "J1"
+      (at 38.1 45.72 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "USB4135-GF-A"
+      (at 38.1 81.28 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:USB_C_GCT_USB4135"
+      (at 38.1 83.82 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; U1: ESD Protection (IP4292CZ12)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:IP4292CZ12")
+    (at 71.12 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0002-4000-8000-000000000001")
+    (property "Reference" "U1"
+      (at 71.12 48.26 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "IP4292CZ12"
+      (at 71.12 78.74 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_SO:TSSOP-16_4.4x5mm_P0.65mm"
+      (at 71.12 81.28 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; U2: Charge Current Limiter (TPS2553)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:TPS2553")
+    (at 106.68 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0003-4000-8000-000000000001")
+    (property "Reference" "U2"
+      (at 106.68 52.07 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "TPS2553"
+      (at 106.68 74.93 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:SOT-23-6"
+      (at 106.68 77.47 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; R1: Current limit set resistor
+  (symbol
+    (lib_id "Device:R")
+    (at 96.52 78.74 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0004-4000-8000-000000000001")
+    (property "Reference" "R1"
+      (at 99.06 78.74 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "10k"
+      (at 99.06 81.28 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 99.06 83.82 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C1, C2: Supercapacitors (2x 5F 3V)
+  (symbol
+    (lib_id "Device:CP")
+    (at 134.62 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0005-4000-8000-000000000001")
+    (property "Reference" "C1"
+      (at 137.16 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5F 3V"
+      (at 137.16 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "stick-lib:Supercap_Cylindrical_14mm"
+      (at 134.62 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "MPN" "SCCR14E505SRB"
+      (at 134.62 81.28 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Device:CP")
+    (at 144.78 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0006-4000-8000-000000000001")
+    (property "Reference" "C2"
+      (at 147.32 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5F 3V"
+      (at 147.32 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "stick-lib:Supercap_Cylindrical_14mm"
+      (at 144.78 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "MPN" "SCCR14E505SRB"
+      (at 144.78 81.28 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; U3: LDO Regulator (AP2112K-3.3)
+  (symbol
+    (lib_id "stick-lib:AP2112K-3.3")
+    (at 170.18 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0007-4000-8000-000000000001")
+    (property "Reference" "U3"
+      (at 170.18 52.07 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "AP2112K-3.3"
+      (at 170.18 74.93 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:SOT-23-5"
+      (at 170.18 77.47 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C3: LDO input bypass cap (10µF)
+  (symbol
+    (lib_id "Device:C")
+    (at 157.48 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0008-4000-8000-000000000001")
+    (property "Reference" "C3"
+      (at 160.02 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "10uF"
+      (at 160.02 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 157.48 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C4: LDO output bypass cap (10µF)
+  (symbol
+    (lib_id "Device:C")
+    (at 190.5 76.2 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0009-4000-8000-000000000001")
+    (property "Reference" "C4"
+      (at 193.04 73.66 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "10uF"
+      (at 193.04 76.2 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 190.5 76.2 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; D1: BAT54S Piezo Rectifier
+  (symbol
+    (lib_id "stick-lib:BAT54S")
+    (at 134.62 106.68 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000a-4000-8000-000000000001")
+    (property "Reference" "D1"
+      (at 134.62 99.06 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "BAT54S"
+      (at 134.62 114.3 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:SOT-23"
+      (at 134.62 116.84 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C5: Piezo buffer cap (100µF)
+  (symbol
+    (lib_id "Device:C")
+    (at 152.4 111.76 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000b-4000-8000-000000000001")
+    (property "Reference" "C5"
+      (at 154.94 109.22 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "100uF"
+      (at 154.94 111.76 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
+      (at 152.4 111.76 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; PIEZO1: Piezo harvester connector pads
+  (symbol
+    (lib_id "Connector:Conn_01x02_Pin")
+    (at 111.76 106.68 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-0010-4000-8000-000000000001")
+    (property "Reference" "J3"
+      (at 111.76 99.06 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "PIEZO"
+      (at 111.76 114.3 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:Piezo_Cantilever_25x5mm"
+      (at 111.76 116.84 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; LED1: Charge status LED
+  (symbol
+    (lib_id "Device:LED")
+    (at 119.38 88.9 270)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000c-4000-8000-000000000001")
+    (property "Reference" "LED1"
+      (at 114.3 88.9 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "Green"
+      (at 124.46 88.9 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "LED_SMD:LED_0402_1005Metric"
+      (at 119.38 88.9 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; R2: LED series resistor
+  (symbol
+    (lib_id "Device:R")
+    (at 119.38 96.52 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000d-4000-8000-000000000001")
+    (property "Reference" "R2"
+      (at 121.92 96.52 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "1k"
+      (at 121.92 99.06 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 119.38 96.52 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; R3: CC1 pull-down (5.1k for USB UFP)
+  (symbol
+    (lib_id "Device:R")
+    (at 55.88 88.9 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000e-4000-8000-000000000001")
+    (property "Reference" "R3"
+      (at 58.42 88.9 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5.1k"
+      (at 58.42 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 55.88 88.9 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; R4: CC2 pull-down (5.1k for USB UFP)
+  (symbol
+    (lib_id "Device:R")
+    (at 63.5 88.9 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000001-000f-4000-8000-000000000001")
+    (property "Reference" "R4"
+      (at 66.04 88.9 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "5.1k"
+      (at 66.04 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 63.5 88.9 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; Net labels (connect same-named points)
+  ;; ============================================================
+
+  ;; --- VBUS net: USB-C VBUS → ESD → Charge limiter ---
+  (label "VBUS" (at 48.26 52.07 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vbus-01"))
+  (label "VBUS" (at 71.12 49.53 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vbus-02"))
+  (label "VBUS" (at 96.52 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vbus-03"))
+
+  ;; --- USB D+/D-: USB-C → ESD in → ESD out → sheet labels ---
+  (label "USB_DP_RAW" (at 48.26 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-dp-raw-01"))
+  (label "USB_DP_RAW" (at 58.42 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-dp-raw-02"))
+  (label "USB_DM_RAW" (at 48.26 66.04 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-dm-raw-01"))
+  (label "USB_DM_RAW" (at 58.42 66.04 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-dm-raw-02"))
+  (label "USB_DP" (at 83.82 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-dp-01"))
+  (label "USB_DM" (at 83.82 66.04 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-dm-01"))
+
+  ;; --- CC pins → R3/R4 pull-downs ---
+  (label "CC1" (at 48.26 60.96 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-cc1-01"))
+  (label "CC1" (at 55.88 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-cc1-02"))
+  (label "CC2" (at 48.26 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-cc2-01"))
+  (label "CC2" (at 63.5 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-cc2-02"))
+
+  ;; --- VSCAP net: TPS2553 OUT → Supercaps+ → LDO VIN → Piezo buffer ---
+  (label "VSCAP" (at 116.84 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-01"))
+  (label "VSCAP" (at 134.62 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-02"))
+  (label "VSCAP" (at 144.78 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-03"))
+  (label "VSCAP" (at 157.48 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-04"))
+  (label "VSCAP" (at 160.02 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-05"))
+  (label "VSCAP" (at 142.24 106.68 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-06"))
+  (label "VSCAP" (at 152.4 104.14 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-07"))
+  (label "VSCAP" (at 119.38 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vscap-08"))
+
+  ;; --- VCC net: LDO VOUT → output cap → sheet label ---
+  (label "VCC" (at 180.34 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vcc-01"))
+  (label "VCC" (at 190.5 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-vcc-02"))
+
+  ;; --- LDO enable: tie EN to VSCAP (always on when powered) ---
+  (label "VSCAP" (at 160.02 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-en-01"))
+
+  ;; --- GND connections ---
+  (label "GND" (at 38.1 80.01 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-j1"))
+  (label "GND" (at 71.12 77.47 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-u1"))
+  (label "GND" (at 106.68 73.66 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-u2"))
+  (label "GND" (at 96.52 86.36 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-r1"))
+  (label "GND" (at 134.62 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-c1"))
+  (label "GND" (at 144.78 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-c2"))
+  (label "GND" (at 157.48 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-c3"))
+  (label "GND" (at 170.18 73.66 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-u3"))
+  (label "GND" (at 190.5 83.82 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-c4"))
+  (label "GND" (at 55.88 96.52 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-r3"))
+  (label "GND" (at 63.5 96.52 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-r4"))
+  (label "GND" (at 119.38 104.14 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-r2"))
+  (label "GND" (at 134.62 114.3 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-d1"))
+  (label "GND" (at 152.4 119.38 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-gnd-c5"))
+
+  ;; --- ILIM: TPS2553 ILIM pin → R1 → GND ---
+  (label "ILIM" (at 96.52 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-ilim-01"))
+  (label "ILIM" (at 96.52 73.66 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-ilim-02"))
+
+  ;; --- Piezo connections ---
+  (label "PIEZO_P" (at 119.38 104.14 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-piezo-p-01"))
+  (label "PIEZO_P" (at 127.0 104.14 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-piezo-p-02"))
+  (label "PIEZO_N" (at 119.38 109.22 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-piezo-n-01"))
+  (label "PIEZO_N" (at 127.0 109.22 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-piezo-n-02"))
+
+  ;; --- TPS2553 enable: tie high to VBUS (always on when USB connected) ---
+  (label "VBUS" (at 96.52 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "nl-pwr-en-u2"))
+
+  ;; ============================================================
+  ;; Wires (direct connections between adjacent components)
+  ;; ============================================================
+
+  ;; VBUS label to J1 VBUS output
+  (wire (pts (xy 25.4 50.8) (xy 48.26 50.8))
+    (stroke (width 0) (type default))
+    (uuid "w-pwr-vbus-hl"))
+  (wire (pts (xy 48.26 50.8) (xy 48.26 52.07))
+    (stroke (width 0) (type default))
+    (uuid "w-pwr-vbus-j1"))
+
+  ;; VSCAP label to output
+  (wire (pts (xy 200.66 76.2) (xy 190.5 76.2))
+    (stroke (width 0) (type default))
+    (uuid "w-pwr-vscap-hl"))
+
+  ;; VCC label to output
+  (wire (pts (xy 200.66 50.8) (xy 190.5 50.8))
+    (stroke (width 0) (type default))
+    (uuid "w-pwr-vcc-hl"))
+
+  ;; USB_DP/DM to output labels
+  (wire (pts (xy 200.66 58.42) (xy 190.5 58.42))
+    (stroke (width 0) (type default))
+    (uuid "w-pwr-dp-hl"))
+  (wire (pts (xy 200.66 60.96) (xy 190.5 60.96))
+    (stroke (width 0) (type default))
+    (uuid "w-pwr-dm-hl"))
+
+  ;; GND label to output
+  (wire (pts (xy 25.4 127) (xy 38.1 127))
+    (stroke (width 0) (type default))
+    (uuid "w-pwr-gnd-hl"))
+
+  ;; ============================================================
+  ;; Annotations
+  ;; ============================================================
+  (text "POWER SUPPLY CHAIN"
+    (exclude_from_sim no)
+    (at 25.4 25.4 0)
+    (effects (font (size 2.54 2.54) bold))
+    (uuid "txt-pwr-0001")
+  )
+
+  (text "USB-C VBUS (5V) → IP4292CZ12 ESD → TPS2553 (1A limit) → Supercaps (2×5F 3V = 10F)"
+    (exclude_from_sim no)
+    (at 25.4 30.48 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0002")
+  )
+
+  (text "VSCAP (2.0-3.0V) → AP2112K-3.3 LDO → VCC (3.3V regulated)"
+    (exclude_from_sim no)
+    (at 25.4 33.02 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0003")
+  )
+
+  (text "Piezo harvester → BAT54S full-wave rectifier → 100µF buffer → VSCAP (trickle-charge)"
+    (exclude_from_sim no)
+    (at 25.4 35.56 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0004")
+  )
+
+  (text "CC1/CC2: 5.1kΩ pull-downs identify device as USB UFP (sink)"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0005")
+  )
+
+  (text "R1 sets TPS2553 current limit: 10kΩ ≈ 1.05A, 47kΩ ≈ 0.21A"
+    (exclude_from_sim no)
+    (at 25.4 40.64 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-pwr-0006")
+  )
+)

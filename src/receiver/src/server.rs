@@ -319,8 +319,14 @@ impl BrioletteReceiver {
                 return Ok(reply);
             }
             for token in method.tokens.iter() {
-                total_amount =
-                    total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap();
+                total_amount = match total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap() {
+                    Ok(a) => a,
+                    Err(_) => {
+                        error!("currency mismatch in token amounts");
+                        reply.accept = false;
+                        return Ok(reply);
+                    }
+                };
             }
         }
         if total_amount != tx_data.amount {
@@ -389,7 +395,14 @@ impl BrioletteReceiver {
             .clone()
             .into();
         for token in request.tokens.iter() {
-            total_amount = total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap();
+            total_amount = match total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap() {
+                Ok(a) => a,
+                Err(_) => {
+                    error!("currency mismatch in token amounts");
+                    reply.accepted = false;
+                    return Ok(reply);
+                }
+            };
             // Check that the last transaction is to our ticket.
             let tx_to = token
                 .history

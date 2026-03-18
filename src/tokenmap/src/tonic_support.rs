@@ -15,8 +15,8 @@
 use crate::server::BrioletteTokenMap;
 use briolette_proto::briolette::tokenmap::token_map_server::TokenMap;
 use briolette_proto::briolette::tokenmap::{
-    ArchiveReply, ArchiveRequest, RevocationDataReply, RevocationDataRequest, StoreTicketsReply,
-    StoreTicketsRequest, UpdateReply, UpdateRequest,
+    ArchiveReply, ArchiveRequest, FindByHolderReply, FindByHolderRequest, RevocationDataReply,
+    RevocationDataRequest, StoreTicketsReply, StoreTicketsRequest, UpdateReply, UpdateRequest,
 };
 use tonic::{Request, Response, Status};
 
@@ -61,6 +61,17 @@ impl TokenMap for BrioletteTokenMap {
     ) -> Result<Response<ArchiveReply>, Status> {
         let message = request.into_inner();
         let maybe_reply = self.archive_impl(&message).await;
+        match maybe_reply {
+            Ok(reply) => Ok(Response::new(reply)),
+            Err(status) => Err(status.into()),
+        }
+    }
+    async fn find_by_holder(
+        &self,
+        request: Request<FindByHolderRequest>,
+    ) -> Result<Response<FindByHolderReply>, Status> {
+        let message = request.into_inner();
+        let maybe_reply = self.find_by_holder_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),

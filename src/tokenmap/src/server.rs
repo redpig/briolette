@@ -17,8 +17,8 @@ use briolette_proto::briolette::token::TicketExpiry;
 use briolette_proto::briolette::token::Token;
 use briolette_proto::briolette::tokenmap;
 use briolette_proto::briolette::tokenmap::{
-    ArchiveReply, ArchiveRequest, RevocationDataReply, RevocationDataRequest, StoreTicketsReply,
-    StoreTicketsRequest, UpdateReply, UpdateRequest,
+    ArchiveReply, ArchiveRequest, FindByHolderReply, FindByHolderRequest, RevocationDataReply,
+    RevocationDataRequest, StoreTicketsReply, StoreTicketsRequest, UpdateReply, UpdateRequest,
 };
 use briolette_proto::briolette::{Error as BrioletteError, ErrorCode as BrioletteErrorCode};
 use briolette_proto::vec_utils;
@@ -77,6 +77,16 @@ impl BrioletteTokenMap {
             )",
             )?;
             stmt.execute([])?;
+            // Holder index: maps credential hash -> token IDs for recovery queries.
+            let mut stmt = conn.prepare(
+                "create table if not exists holder_index (
+             credential_hash blob not null,
+             token_id blob not null,
+             updated_epoch integer not null default 0,
+             primary key (credential_hash, token_id)
+            )",
+            )?;
+            stmt.execute([])?;
             Ok::<_, rusqlite::Error>(())
         })
         .await?;
@@ -97,8 +107,11 @@ impl BrioletteTokenMap {
             self.get_tokenmap_entry(request.id.clone()).await?;
         trace!("Entry found: {:?}", maybe_entry);
         if maybe_entry.is_none() {
-            self.create_tokenmap_entry(request.id.clone(), request.token.clone().unwrap())
+            let token = request.token.clone().unwrap();
+            self.create_tokenmap_entry(request.id.clone(), token.clone())
                 .await?;
+            // Update holder index for recovery lookups
+            let _ = self.update_holder_index(request.id.clone(), &token).await;
             trace!("Token inserted!");
             return Ok(UpdateReply {
                 created: true,
@@ -128,10 +141,13 @@ impl BrioletteTokenMap {
         // Check if the token is an extension, but not a fork.
         if let Some(idx) = token_is_extension(&candidate, &entry.tokens) {
             // Replace the prior view with the updated view.
+            let updated_token = candidate.clone();
             entry.tokens[idx] = candidate;
             entry.last_update = now;
             let abuse_detected = entry.abuses.len() != 0;
             self.update_tokenmap_entry(&request.id, entry).await?;
+            // Update holder index for recovery lookups
+            let _ = self.update_holder_index(request.id.clone(), &updated_token).await;
             return Ok(UpdateReply {
                 created: false,
                 abuse_detected: abuse_detected,
@@ -143,10 +159,13 @@ impl BrioletteTokenMap {
         // TODO: Refactor to use token_get_fork()
         if token_is_second_split(&candidate, &entry.tokens) {
             // Insert the new token history.
+            let split_token = candidate.clone();
             entry.tokens.push(candidate);
             entry.last_update = now;
             let abuse_detected = entry.abuses.len() != 0;
             self.update_tokenmap_entry(&request.id, entry).await?;
+            // Update holder index for recovery lookups
+            let _ = self.update_holder_index(request.id.clone(), &split_token).await;
 
             return Ok(UpdateReply {
                 created: false,
@@ -530,6 +549,120 @@ impl BrioletteTokenMap {
             .await?;
         return Ok(ArchiveReply {});
     }
+
+    /// Update the holder_index when a token is created or updated.
+    /// Extracts the last transfer recipient's credential and indexes it.
+    async fn update_holder_index(
+        &self,
+        token_id: Vec<u8>,
+        token: &Token,
+    ) -> Result<(), BrioletteError> {
+        // Extract the credential from the last transfer recipient
+        let credential = if let Some(last_history) = token.history.last() {
+            last_history
+                .transfer
+                .as_ref()
+                .and_then(|t| t.recipient.as_ref())
+                .and_then(|r| r.ticket.as_ref())
+                .map(|t| t.credential.clone())
+        } else {
+            token
+                .base
+                .as_ref()
+                .and_then(|b| b.transfer.as_ref())
+                .and_then(|t| t.recipient.as_ref())
+                .and_then(|r| r.ticket.as_ref())
+                .map(|t| t.credential.clone())
+        };
+
+        if let Some(cred) = credential {
+            if !cred.is_empty() {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(&cred);
+                let credential_hash = hasher.finalize().to_vec();
+                let tid = token_id.clone();
+                let now = Utc::now().timestamp();
+                self.conn
+                    .call(move |conn| {
+                        conn.execute(
+                            "INSERT OR REPLACE INTO holder_index
+                             (credential_hash, token_id, updated_epoch)
+                             VALUES (?1, ?2, ?3)",
+                            rusqlite::params![credential_hash, tid, now],
+                        )?;
+                        Ok::<_, rusqlite::Error>(())
+                    })
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Find all tokens whose last transfer recipient matches the given
+    /// TTC public key. Used by the recovery server.
+    pub async fn find_by_holder_impl(
+        &self,
+        request: &FindByHolderRequest,
+    ) -> Result<FindByHolderReply, BrioletteError> {
+        if request.ttc_public_key.is_empty() {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            });
+        }
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&request.ttc_public_key);
+        let credential_hash = hasher.finalize().to_vec();
+        let expired_only = request.expired_only;
+
+        let entries: Vec<tokenmap::Entry> = self
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT t.id, t.entry FROM holder_index h
+                     INNER JOIN tokens t ON h.token_id = t.id
+                     WHERE h.credential_hash = ?",
+                )?;
+                let mut rows = stmt.query([credential_hash])?;
+                let mut results: Vec<tokenmap::Entry> = vec![];
+                while let Some(row) = rows.next()? {
+                    let data: Vec<u8> = row.get(1)?;
+                    if let Ok(entry) = tokenmap::Entry::decode(data.as_slice()) {
+                        if expired_only {
+                            // Check if the token has expired (valid_until < now)
+                            let now = chrono::Utc::now().timestamp() as u64;
+                            let is_expired = entry.tokens.iter().all(|token| {
+                                token
+                                    .base
+                                    .as_ref()
+                                    .and_then(|b| b.transfer.as_ref())
+                                    .map(|t| {
+                                        t.tags.iter().any(|tag| {
+                                            matches!(
+                                                tag.value,
+                                                Some(
+                                                    briolette_proto::briolette::token::tag::Value::ValidUntil(vu)
+                                                ) if vu < now
+                                            )
+                                        })
+                                    })
+                                    .unwrap_or(false)
+                            });
+                            if is_expired {
+                                results.push(entry);
+                            }
+                        } else {
+                            results.push(entry);
+                        }
+                    }
+                }
+                Ok::<_, rusqlite::Error>(results)
+            })
+            .await?;
+
+        Ok(FindByHolderReply { entries })
+    }
 }
 
 fn get_split_amount(maybe_transfer: &Option<token::Transfer>) -> Option<token::Amount> {
@@ -672,11 +805,12 @@ fn token_is_second_split(candidate: &Token, tokens: &Vec<Token>) -> bool {
                 if known_amount.code != unknown_amount.code {
                     return false;
                 } else {
-                    let total = known_amount + unknown_amount;
                     let original_total = token.descriptor.clone().unwrap().value.clone().unwrap();
                     // If a split doesn't sum to its original amount, it is a failure.
-                    if total == original_total {
-                        return true;
+                    if let Ok(total) = known_amount + unknown_amount {
+                        if total == original_total {
+                            return true;
+                        }
                     }
                     trace!("splits do not add up!");
                 }

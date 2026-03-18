@@ -14,7 +14,7 @@
 
 use briolette_proto::briolette::clerk::{
     AddEpochReply, EpochReply, EpochRequest, EpochUpdate, EpochVerify, GetTicketsReply,
-    GetTicketsRequest, RefreshTicketsReply, RefreshTicketsRequest,
+    GetTicketsRequest, GroupPolicy, RefreshTicketsReply, RefreshTicketsRequest,
 };
 use briolette_proto::briolette::token::{SignedTicket, Ticket, TicketData};
 use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
@@ -27,7 +27,7 @@ use briolette_proto::briolette::Version;
 use bytes::Bytes;
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey};
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use ecdsa::RecoveryId;
 use log::*;
 use p256::ecdsa::{signature::RandomizedSigner, signature::Verifier, Signature, SigningKey, VerifyingKey};
@@ -98,6 +98,11 @@ impl BrioletteClerk {
     pub fn write_key(&self, data_file: &Path) -> Result<bool, Box<dyn std::error::Error>> {
         let sk: SecretKey = self.ticket_signing_key.clone().into();
         std::fs::write(&data_file, sk.to_pkcs8_der().unwrap().as_bytes())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&data_file, std::fs::Permissions::from_mode(0o600))?;
+        }
         Ok(true)
     }
 
@@ -123,6 +128,11 @@ impl BrioletteClerk {
             tokenmap_uri: self.tokenmap_uri.to_string(),
         };
         std::fs::write(&data_file, serde_json::to_vec(&es).unwrap())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&data_file, std::fs::Permissions::from_mode(0o600))?;
+        }
         Ok(true)
     }
 
@@ -198,7 +208,7 @@ impl BrioletteClerk {
         // Serialize TicketRequests and verify the supplied NAC signature.
         let tr_msg = request.requests.clone().unwrap().encode_to_vec();
         let basename = Some(ed.epoch.to_le_bytes().to_vec());
-        if v0::verify(
+        if v1::verify(
             &request.nac_public_key,
             &basename,
             &None,
@@ -211,6 +221,13 @@ impl BrioletteClerk {
                 code: BrioletteErrorCode::InvalidSignature.into(),
             });
         }
+        // Determine ticket lifetime from the epoch's per-NAC-group policy.
+        let lifetime = ticket_lifetime_for_nac_group(
+            &eed.group_policies,
+            &request.nac_public_key,
+        );
+        trace!("ticket lifetime for TTC group: {} epochs", lifetime);
+
         let mut reply = GetTicketsReply::default();
         // Spray the secret keys all over memory! =)
         let sk: SecretKey = self.ticket_signing_key.clone().into();
@@ -225,12 +242,12 @@ impl BrioletteClerk {
                 credential: ticket_req.credential.clone(),
                 tags: Some(TicketData {
                     group_number: ticket_req.group_number,
-                    lifetime: 7, // TODO: make dynamic
+                    lifetime,
                     created_on: ed.epoch,
                 }),
             };
             // Before signing, let's confirm the credential matches the TTC.
-            if v0::credential_in_group(&ticket.credential, &request.ttc_public_key) == false {
+            if v1::credential_in_group(&ticket.credential, &request.ttc_public_key) == false {
                 trace!("NAC signature for the ticket request did not verify.");
                 return Err(BrioletteError {
                     code: BrioletteErrorCode::CredentialInvalidForGroup.into(),
@@ -243,6 +260,9 @@ impl BrioletteClerk {
             let sig: Signature = self
                 .ticket_signing_key
                 .sign_with_rng(&mut OsRng, serialized_ticket.as_slice());
+            // Append the ECDSA recovery ID byte to produce the 65-byte
+            // recoverable signature format (r‖s‖recovery_id).  Consumers
+            // must pop this byte before parsing the 64-byte ECDSA signature.
             signature = sig.to_vec();
             if let Ok(rec_id) =
                 RecoveryId::trial_recovery_from_msg(&pk.into(), serialized_ticket.as_slice(), &sig)
@@ -330,7 +350,7 @@ impl BrioletteClerk {
             buf
         };
         let basename = Some(ed.epoch.to_le_bytes().to_vec());
-        if !v0::verify(
+        if !v1::verify(
             &request.nac_public_key,
             &basename,
             &None,
@@ -370,7 +390,7 @@ impl BrioletteClerk {
                 })?;
 
             // Verify the credential belongs to the TTC group.
-            if !v0::credential_in_group(&ticket.credential, &request.ttc_public_key) {
+            if !v1::credential_in_group(&ticket.credential, &request.ttc_public_key) {
                 return Err(BrioletteError {
                     code: BrioletteErrorCode::CredentialInvalidForGroup.into(),
                 });
@@ -393,11 +413,15 @@ impl BrioletteClerk {
             }
 
             // Issue a fresh ticket with the SAME credential and group but new lifetime.
+            let lifetime = ticket_lifetime_for_nac_group(
+                &eed.group_policies,
+                &request.nac_public_key,
+            );
             let new_ticket = Ticket {
                 credential: ticket.credential.clone(),
                 tags: Some(TicketData {
                     group_number: tags.group_number,
-                    lifetime: 7, // TODO: make dynamic, same as get_tickets
+                    lifetime,
                     created_on: ed.epoch,
                 }),
             };
@@ -406,6 +430,9 @@ impl BrioletteClerk {
             let sig: Signature = self
                 .ticket_signing_key
                 .sign_with_rng(&mut OsRng, serialized_ticket.as_slice());
+            // Append the ECDSA recovery ID byte to produce the 65-byte
+            // recoverable signature format (r‖s‖recovery_id).  Consumers
+            // must pop this byte before parsing the 64-byte ECDSA signature.
             let mut signature = sig.to_vec();
             if let Ok(rec_id) =
                 RecoveryId::trial_recovery_from_msg(&pk.into(), serialized_ticket.as_slice(), &sig)
@@ -506,6 +533,20 @@ impl BrioletteClerk {
 
         return Ok(reply);
     }
+}
+
+/// Default ticket lifetime (in epochs) when no per-group policy is configured.
+const DEFAULT_TICKET_LIFETIME: u32 = 7;
+
+/// Look up the ticket lifetime for a NAC group public key from the epoch's
+/// group policies.  Returns the default lifetime if no policy matches.
+fn ticket_lifetime_for_nac_group(policies: &[GroupPolicy], nac_gpk: &[u8]) -> u32 {
+    for p in policies {
+        if p.nac_group_public_key == nac_gpk {
+            return p.ticket_lifetime;
+        }
+    }
+    DEFAULT_TICKET_LIFETIME
 }
 
 async fn update_ticket_store(

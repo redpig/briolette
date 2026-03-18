@@ -6,6 +6,10 @@ src/*/data/
 *.cred
 *.cred.sig
 
+# Gradle build artifacts
+.gradle/
+build/
+
 # Generated key material and server state — never commit secrets
 data/**/*.sk
 data/**/*.gpk

@@ -78,6 +78,25 @@ message ExtendedEpochData {
   // TODO: Add epoch key distribution to the registrar.
   // Add service URIs for failover, recovery registration, etc.
   briolette.ServiceMap service_map = 6;
+  // Per-NAC-group ticket policy.  Each entry maps a NAC group public key
+  // to its ticket lifetime (in epochs).  All wallets share the same TTC
+  // group so they can transact with each other — the differentiation is
+  // purely on the NAC side.  The clerk looks up the requesting wallet's
+  // NAC GPK to determine the applicable lifetime.  Merchants only see
+  // tickets with varying expiry, never the underlying security rationale.
+  // If a NAC GPK has no entry, the default lifetime applies.
+  repeated GroupPolicy group_policies = 7;
+}
+
+// Ticket policy for a specific NAC issuer group.
+// The registrar decides which NAC group a wallet joins (based on
+// attestation strength, smart-card presence, etc.) but that rationale
+// is not visible here — only the resulting policy parameters.
+message GroupPolicy {
+  bytes nac_group_public_key = 1;
+  // Ticket lifetime in epochs.  Lower-assurance NAC groups get shorter
+  // lifetimes; the worst tier may be online-only (lifetime = 0 or 1).
+  uint32 ticket_lifetime = 2;
 }
 
 // TODO: figure out delta updates, if needed.
