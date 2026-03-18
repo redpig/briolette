@@ -7,7 +7,7 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 
 | # | Component | MPN | Package | Qty | ~$1 | ~$1k | Source |
 |---|-----------|-----|---------|-----|-----|------|--------|
-| 1 | MCU | nRF52840-QIAA-R7 (Nordic) | aQFN-73 (7×7mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
+| 1 | MCU | nRF52840-QIAA-R7 (Nordic) | QFN-48 (6×6mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
 | 2 | NFC controller | PN7150B0HN/C11002Y (NXP) | HVQFN-40 (5×5mm) | 1 | $3.50 | $2.50 | DigiKey / Mouser |
 | 3 | Solar MPPT charger | BQ25504RGTR (TI) | QFN-20 (3.5×3.5mm) | 1 | $3.50 | $2.80 | DigiKey / Mouser |
 | 4 | LDO regulator | AP2112K-3.3TRG1 (Diodes Inc) | SOT-23-5 | 1 | $0.50 | $0.30 | DigiKey |

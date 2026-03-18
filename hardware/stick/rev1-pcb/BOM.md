@@ -7,7 +7,7 @@ Prices are per-unit at qty 10 (prototype run) and qty 1000 (production).
 
 | # | Component | MPN | Package | Qty | ~$1 | ~$1k | Source |
 |---|-----------|-----|---------|-----|-----|------|--------|
-| 1 | MCU | nRF52840-QIAA-R7 | aQFN-73 (7×7mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
+| 1 | MCU | nRF52840-QIAA-R7 | QFN-48 (6×6mm) | 1 | $3.80 | $3.20 | DigiKey / Mouser |
 | 2 | SIM connector | Molex 78800-0001 | Nano-SIM push-push, 1.25mm low-profile | 1 | $1.20 | $0.65 | DigiKey / Mouser |
 | 2b | SIM card (SE) | SIMalliance JavaCard | Nano-SIM (4FF), P-256 ECDSA capable | 1 | $2.00 | $1.00 | Vendor-specific |
 | 3 | E-ink display | GDEY0154D67 (Good Display) | 24-pin FPC | 1 | $8.00 | $4.00 | Good Display |
@@ -120,7 +120,7 @@ layer. Rectangular spiral, ~25mm × 20mm, 4-5 turns, 0.3mm trace width,
 1. **Export from KiCad**: Generate Gerbers, BOM CSV, and CPL (component placement list)
 2. **JLCPCB plugin**: Install the JLCPCB KiCad plugin — it auto-generates BOM + CPL in their format
 3. **Upload to JLCPCB**: Select 4-layer, 1.6mm thickness, ENIG finish (for NFC antenna pads)
-4. **Parts sourcing**: Most passives and the LDO/ESD are in JLCPCB's basic/extended library. The nRF52840, ATECC608B, and USB-C connector may need to be ordered from DigiKey and shipped to JLCPCB (consignment) or quoted as extended parts
+4. **Parts sourcing**: Most passives and the LDO/ESD are in JLCPCB's basic/extended library. The nRF52840, SIM connector, and USB-C connector may need to be ordered from DigiKey and shipped to JLCPCB (consignment) or quoted as extended parts
 5. **THT components**: Supercapacitors and piezo are through-hole/manual — assemble these yourself after receiving SMD-assembled boards
 6. **Display + enclosure**: Order separately from Good Display and your 3D printer / injection mold vendor
 

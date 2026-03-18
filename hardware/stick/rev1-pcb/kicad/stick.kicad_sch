@@ -158,6 +158,31 @@
       (effects (font (size 1.27 1.27)) (justify left))
       (uuid "b0000002-000d-4000-8000-000000000002")
     )
+    (pin "BTN_L" output
+      (at 66.04 86.36 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-000e-4000-8000-000000000002")
+    )
+    (pin "BTN_R" output
+      (at 66.04 88.9 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-000f-4000-8000-000000000002")
+    )
+    (pin "LED" output
+      (at 66.04 91.44 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0010-4000-8000-000000000002")
+    )
+    (pin "EPD_BUSY" input
+      (at 66.04 96.52 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0011-4000-8000-000000000002")
+    )
+    (pin "VSCAP_SENSE" input
+      (at 66.04 99.06 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000002-0012-4000-8000-000000000002")
+    )
   )
 
   ;; ============================================================
@@ -222,6 +247,31 @@
       (at 25.4 139.7 180)
       (effects (font (size 1.27 1.27)) (justify left))
       (uuid "b0000003-0007-4000-8000-000000000003")
+    )
+    (pin "EPD_DC" input
+      (at 25.4 132.08 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-000c-4000-8000-000000000003")
+    )
+    (pin "EPD_RST" input
+      (at 25.4 134.62 180)
+      (effects (font (size 1.27 1.27)) (justify left))
+      (uuid "b0000003-000d-4000-8000-000000000003")
+    )
+    (pin "EPD_BUSY" output
+      (at 66.04 127 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-000e-4000-8000-000000000003")
+    )
+    (pin "BTN_L" output
+      (at 66.04 129.54 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-000f-4000-8000-000000000003")
+    )
+    (pin "BTN_R" output
+      (at 66.04 132.08 0)
+      (effects (font (size 1.27 1.27)) (justify right))
+      (uuid "b0000003-0010-4000-8000-000000000003")
     )
     (pin "NFC1" bidirectional
       (at 66.04 121.92 0)

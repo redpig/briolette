@@ -50,7 +50,7 @@
       (layer "In2.Cu" (type "copper") (thickness 0.035))
       (layer "dielectric 3" (type "prepreg") (thickness 0.2) (material "FR4") (epsilon_r 4.5))
       (layer "B.Cu" (type "copper") (thickness 0.035))
-      (copper_finish "HASL with lead")
+      (copper_finish "ENIG")
     )
     (pad_to_mask_clearance 0.05)
     (pcbplotparams
@@ -189,8 +189,8 @@
       (effects (font (size 0.8 0.8) (thickness 0.12))))
   )
 
-  ;; TCA8418 I2C Keypad Scanner (near MCU)
-  (footprint "relay-lib:WQFN-24-4x4mm" (layer "F.Cu") (at -20.0 -15.0 0)
+  ;; TCA8418 I2C Keypad Scanner (near MCU, between MCU and keypad grid)
+  (footprint "relay-lib:WQFN-24-4x4mm" (layer "F.Cu") (at -13.0 -5.0 0)
     (property "Reference" "U5" (at 0 -3.5 0) (layer "F.SilkS")
       (effects (font (size 0.6 0.6) (thickness 0.1))))
     (property "Value" "TCA8418" (at 0 3.5 0) (layer "F.Fab")
@@ -298,40 +298,58 @@
   ;; Generates 13.56 MHz field to power credsticks
   ;; ============================================================
 
-  ;; Turn 1 (outermost)
+  ;; NFC Reader Antenna: Continuous rectangular spiral, 3 turns
+  ;; Open at left side, each turn steps inward to the next.
+  ;; Trace width: 0.5mm, spacing: 0.5mm, pitch: 1.0mm
+
+  ;; Start via: F.Cu NFC_TX1 pad to B.Cu
+  (via (at -3.0 -13.5) (size 0.6) (drill 0.3)
+    (layers "F.Cu" "B.Cu") (net 19))
+
+  ;; Lead-in from via to Turn 1
+  (gr_line (start -3.0 -13.5) (end -3.0 -12.5)
+    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+
+  ;; Turn 1 (outermost): top, right, bottom (open at left)
   (gr_line (start -3.0 -12.5) (end 30.0 -12.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
   (gr_line (start 30.0 -12.5) (end 30.0 12.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
   (gr_line (start 30.0 12.5) (end -3.0 12.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start -3.0 12.5) (end -3.0 -12.5)
+  ;; Left side stops short — step inward to Turn 2
+  (gr_line (start -3.0 12.5) (end -3.0 -11.5)
+    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (gr_line (start -3.0 -11.5) (end -2.0 -11.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
 
-  ;; Turn 2
+  ;; Turn 2: top, right, bottom (open at left)
   (gr_line (start -2.0 -11.5) (end 29.0 -11.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
   (gr_line (start 29.0 -11.5) (end 29.0 11.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
   (gr_line (start 29.0 11.5) (end -2.0 11.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start -2.0 11.5) (end -2.0 -11.5)
+  ;; Left side stops short — step inward to Turn 3
+  (gr_line (start -2.0 11.5) (end -2.0 -10.5)
+    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (gr_line (start -2.0 -10.5) (end -1.0 -10.5)
     (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
 
-  ;; Turn 3 (innermost)
+  ;; Turn 3 (innermost): top, right, half bottom
   (gr_line (start -1.0 -10.5) (end 28.0 -10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 20))
+    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
   (gr_line (start 28.0 -10.5) (end 28.0 10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 20))
+    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
   (gr_line (start 28.0 10.5) (end -1.0 10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 20))
-  (gr_line (start -1.0 10.5) (end -1.0 -10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 20))
+    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
 
-  ;; NFC antenna vias (connect bottom traces to top-layer PN7150)
-  (via (at -3.0 -13.5) (size 0.6) (drill 0.3)
-    (layers "F.Cu" "B.Cu") (net 19))
-  (via (at -1.0 -11.5) (size 0.6) (drill 0.3)
+  ;; Lead-out from inner end to NFC_TX2 via
+  (gr_line (start -1.0 10.5) (end -1.0 11.5)
+    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+
+  ;; End via: inner spiral end crosses to F.Cu for NFC_TX2 connection
+  (via (at -1.0 11.5) (size 0.6) (drill 0.3)
     (layers "F.Cu" "B.Cu") (net 20))
 
   ;; ============================================================

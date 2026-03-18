@@ -58,7 +58,7 @@
       (layer "B.Mask" (type "Bottom Solder Mask") (thickness 0.01))
       (layer "B.Paste" (type "Bottom Solder Paste"))
       (layer "B.SilkS" (type "Bottom Silk Screen"))
-      (copper_finish "HASL with lead")
+      (copper_finish "ENIG")
       (dielectric_constraints no)
     )
     (pad_to_mask_clearance 0.05)
@@ -110,8 +110,10 @@
   (net 2 "VCC")
   (net 3 "VBUS")
   (net 4 "VSCAP")
-  (net 5 "SDA")
-  (net 6 "SCL")
+  (net 5 "SIM_IO")
+  (net 6 "SIM_CLK")
+  (net 29 "SIM_RST")
+  (net 30 "SIM_DET")
   (net 7 "SPI_SCK")
   (net 8 "SPI_MOSI")
   (net 9 "SPI_CS")
@@ -268,17 +270,17 @@
     )
   )
 
-  ;; --- ATECC608B: near MCU, I2C side ---
-  (footprint "stick-lib:UDFN-8-2x3mm"
+  ;; --- Nano-SIM connector: near MCU, ISO 7816 interface ---
+  (footprint "stick-lib:NanoSIM_Molex_78800"
     (layer "F.Cu")
     (at -8.0 -8.0 0)
-    (property "Reference" "U5"
-      (at 0 -2.5 0)
+    (property "Reference" "J3"
+      (at 0 -4.0 0)
       (layer "F.SilkS")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
-    (property "Value" "ATECC608B"
-      (at 0 2.5 0)
+    (property "Value" "Nano-SIM Push-Push"
+      (at 0 4.0 0)
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
@@ -333,7 +335,7 @@
   )
 
   ;; --- Left button: below display, left side ---
-  (footprint "Button_Switch_SMD:SW_SPST_PTS810"
+  (footprint "stick-lib:SW_SPST_3x3mm"
     (layer "F.Cu")
     (at -15.0 10.0 0)
     (property "Reference" "SW1"
@@ -349,7 +351,7 @@
   )
 
   ;; --- Right button: below display, right side ---
-  (footprint "Button_Switch_SMD:SW_SPST_PTS810"
+  (footprint "stick-lib:SW_SPST_3x3mm"
     (layer "F.Cu")
     (at -5.0 10.0 0)
     (property "Reference" "SW2"
@@ -387,63 +389,84 @@
   ;; Centered at (0, 2) on the bottom layer
   ;; ============================================================
 
-  ;; Turn 1 (outermost): 25x20mm
+  ;; NFC Antenna: Continuous rectangular spiral, 4.5 turns
+  ;; Each turn is open at bottom-left corner and steps inward to next turn.
+  ;; Trace width: 0.3mm, spacing: 0.3mm, pitch: 0.6mm
+  ;; All turns on single net (NFC_ANT), inner end crosses to NFC2 via top layer.
+
+  ;; Start: via from F.Cu NFC1 pad down to B.Cu at (-12.5, -8.5)
+  (via (at -12.5 -8.5) (size 0.6) (drill 0.3)
+    (layers "F.Cu" "B.Cu") (net 24))
+
+  ;; Lead-in from via to Turn 1 start
+  (gr_line (start -12.5 -8.5) (end -12.5 -7.5)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+
+  ;; Turn 1 (outermost): 3 sides — top, right, bottom (open at left)
   (gr_line (start -12.5 -7.5) (end 12.5 -7.5)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 12.5 -7.5) (end 12.5 12.5)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 12.5 12.5) (end -12.5 12.5)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
-  (gr_line (start -12.5 12.5) (end -12.5 -7.5)
+  ;; Left side stops short — step inward to Turn 2
+  (gr_line (start -12.5 12.5) (end -12.5 -6.9)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  ;; Step inward (connects Turn 1 left to Turn 2 top-left)
+  (gr_line (start -12.5 -6.9) (end -11.9 -6.9)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
 
-  ;; Turn 2: inset by 0.6mm (24.8x19.8 → ±11.9, ±6.9/±11.9)
+  ;; Turn 2: 3 sides — top, right, bottom (open at left)
   (gr_line (start -11.9 -6.9) (end 11.9 -6.9)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 11.9 -6.9) (end 11.9 11.9)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 11.9 11.9) (end -11.9 11.9)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
-  (gr_line (start -11.9 11.9) (end -11.9 -6.9)
+  ;; Left side stops short — step inward to Turn 3
+  (gr_line (start -11.9 11.9) (end -11.9 -6.3)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start -11.9 -6.3) (end -11.3 -6.3)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
 
-  ;; Turn 3: inset by another 0.6mm
+  ;; Turn 3: 3 sides — top, right, bottom (open at left)
   (gr_line (start -11.3 -6.3) (end 11.3 -6.3)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 11.3 -6.3) (end 11.3 11.3)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 11.3 11.3) (end -11.3 11.3)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
-  (gr_line (start -11.3 11.3) (end -11.3 -6.3)
+  ;; Left side stops short — step inward to Turn 4
+  (gr_line (start -11.3 11.3) (end -11.3 -5.7)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start -11.3 -5.7) (end -10.7 -5.7)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
 
-  ;; Turn 4: inset by another 0.6mm
+  ;; Turn 4: 3 sides — top, right, bottom (open at left)
   (gr_line (start -10.7 -5.7) (end 10.7 -5.7)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 10.7 -5.7) (end 10.7 10.7)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
   (gr_line (start 10.7 10.7) (end -10.7 10.7)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
-  (gr_line (start -10.7 10.7) (end -10.7 -5.7)
+  ;; Left side stops short — step inward to Turn 5
+  (gr_line (start -10.7 10.7) (end -10.7 -5.1)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+  (gr_line (start -10.7 -5.1) (end -10.1 -5.1)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
 
-  ;; Turn 5 (innermost half-turn, connects to NFC2 via)
+  ;; Turn 5 (innermost, half-turn): top and right side only
   (gr_line (start -10.1 -5.1) (end 10.1 -5.1)
-    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 25))
-  (gr_line (start 10.1 -5.1) (end 10.1 10.1)
-    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 25))
-
-  ;; Spiral interconnects (short jumps between turns)
-  ;; Outer start → Turn 1 connects via trace to NFC1 pad via
-  (gr_line (start -12.5 -7.5) (end -12.5 -8.5)
     (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
-  ;; Inner end connects via to NFC2 pad
-  (gr_line (start 10.1 10.1) (end 10.1 11.0)
-    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 25))
+  (gr_line (start 10.1 -5.1) (end 10.1 10.1)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
 
-  ;; NFC vias (connect bottom antenna to top-layer NFC pads)
-  (via (at -12.5 -8.5) (size 0.6) (drill 0.3)
-    (layers "F.Cu" "B.Cu") (net 24))
+  ;; Lead-out from inner end to NFC2 via
+  (gr_line (start 10.1 10.1) (end 10.1 11.0)
+    (stroke (width 0.3) (type default)) (layer "B.Cu") (net 24))
+
+  ;; Crossover via: inner spiral end goes to F.Cu, then routes back to NFC2
+  ;; This via transitions the inner end to NFC2 net on the top layer
   (via (at 10.1 11.0) (size 0.6) (drill 0.3)
     (layers "F.Cu" "B.Cu") (net 25))
 
