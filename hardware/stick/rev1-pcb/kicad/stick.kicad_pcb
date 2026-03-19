@@ -144,26 +144,58 @@
 
   ;; Top edge
   (gr_line (start -28.0 -15.0) (end 28.0 -15.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "be6de9e9-7eea-4415-a1ef-2c646dd7c3b9")
+
+  )
   ;; Right edge
   (gr_line (start 30.0 -13.0) (end 30.0 13.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "094be720-9866-4a58-a60b-831ece82a836")
+
+  )
   ;; Bottom edge
   (gr_line (start 28.0 15.0) (end -28.0 15.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "ca5492de-4a99-4b82-bfbc-c8d032f76804")
+
+  )
   ;; Left edge
   (gr_line (start -30.0 13.0) (end -30.0 -13.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "45af5021-3908-4bf6-aed1-dd76dcfc4493")
+
+  )
 
   ;; Rounded corners (2mm radius arcs)
   (gr_arc (start -28.0 -15.0) (mid -29.414 -14.414) (end -30.0 -13.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "8c38e780-8cb3-4449-badf-a8e75032dc02")
+
+  )
   (gr_arc (start 30.0 -13.0) (mid 29.414 -14.414) (end 28.0 -15.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "66d9c3f1-3c05-4de9-91ee-97105663ee0a")
+
+  )
   (gr_arc (start 28.0 15.0) (mid 29.414 14.414) (end 30.0 13.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "424d942f-29d2-4eab-a781-d154444f2292")
+
+  )
   (gr_arc (start -30.0 13.0) (mid -29.414 14.414) (end -28.0 15.0)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "fee906a7-5720-4637-baa2-4597d311da6f")
+
+  )
 
   ;; ============================================================
   ;; Keyring hole (3mm plated, left end)
@@ -183,6 +215,9 @@
     )
     (pad "1" thru_hole circle (at 0 0) (size 4.0 4.0) (drill 3.2)
       (layers "*.Cu" "*.Mask"))
+
+    (uuid "cd7966b7-e2b1-408b-9b4a-a35b48b0c734")
+
   )
 
   ;; ============================================================
@@ -204,6 +239,9 @@
       (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
+
+    (uuid "bafa029b-80bf-477e-a1a0-fba6d63b6829")
+
   )
 
   ;; --- ESD protection: near USB-C ---
@@ -220,6 +258,9 @@
       (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
+
+    (uuid "f9f1ad9d-8163-4dc2-a19c-269c29172f63")
+
   )
 
   ;; --- Charge current limiter: between USB and supercaps ---
@@ -236,6 +277,9 @@
       (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
+
+    (uuid "c4cb4e6a-4cb6-4013-a482-93dc5f83927f")
+
   )
 
   ;; --- LDO regulator: center-right area ---
@@ -252,6 +296,9 @@
       (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
+
+    (uuid "10f653d1-a87b-4640-95cf-ced04685152a")
+
   )
 
   ;; --- nRF52840 MCU: board center ---
@@ -268,6 +315,9 @@
       (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
+
+    (uuid "2bd2e54f-506d-47f6-8e34-513ab73000f3")
+
   )
 
   ;; --- Nano-SIM connector: near MCU, ISO 7816 interface ---
@@ -284,6 +334,9 @@
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
+
+    (uuid "bcf4066a-8324-4791-86b0-2c1a6b84b7f0")
+
   )
 
   ;; --- 32MHz crystal: close to MCU XC1/XC2 pins ---
@@ -300,6 +353,9 @@
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
+
+    (uuid "a0af3c4c-ec20-4e3d-8565-305b8c08508e")
+
   )
 
   ;; --- 32.768kHz crystal: close to MCU XL1/XL2 pins ---
@@ -316,6 +372,9 @@
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
+
+    (uuid "1bf557a3-ab3c-4ef8-8a9d-8c50ff6ca426")
+
   )
 
   ;; --- E-Ink FPC connector: upper-left area (display on top face) ---
@@ -332,6 +391,9 @@
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
+
+    (uuid "c5b5e9c4-57cc-47c4-8ee4-7b7a72a6f88e")
+
   )
 
   ;; --- Left button: below display, left side ---
@@ -348,6 +410,9 @@
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
+
+    (uuid "e3d0e21b-f2dd-433c-a73e-7af5a6d506e3")
+
   )
 
   ;; --- Right button: below display, right side ---
@@ -364,6 +429,9 @@
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
+
+    (uuid "223d6443-b08f-40cc-8352-824971e96d91")
+
   )
 
   ;; --- BAT54S piezo rectifier: lower-left area ---
@@ -380,6 +448,9 @@
       (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
+
+    (uuid "87ad5239-7e1d-4b28-af17-21fd45332b3d")
+
   )
 
   ;; ============================================================
@@ -572,18 +643,31 @@
     (at 0 -17.0 0)
     (layer "F.SilkS")
     (effects (font (size 1.5 1.5) (thickness 0.2) bold))
+
+    (uuid "079de66a-9bdc-414e-a66b-dad623854fa6")
+
   )
 
   (gr_text "NFC ANTENNA — DO NOT PLACE COPPER ON INNER LAYERS UNDER THIS AREA"
     (at 0 2.5 0)
     (layer "Cmts.User")
     (effects (font (size 1.0 1.0) (thickness 0.15)))
+
+
+    (uuid "939af211-6ee6-4242-8614-4256c799195d")
+
+
   )
 
   (gr_text "Layer Stack:\nF.Cu  — Components\nIn1   — GND plane\nIn2   — VCC plane (keep-out under antenna)\nB.Cu  — NFC antenna spiral"
     (at -20.0 -20.0 0)
     (layer "Cmts.User")
     (effects (font (size 0.8 0.8) (thickness 0.12)))
+
+
+    (uuid "1f627c1c-5493-4acf-88a7-d065a2791707")
+
+
   )
 
   ;; ============================================================
@@ -597,6 +681,9 @@
     (style (thickness 0.1) (arrow_length 1.0) (text_position_mode 0)
       (extension_height 0.5) (extension_offset 0.5)
       (keep_text_aligned yes))
+
+    (uuid "898f08fd-9b12-4738-b495-9172611d8aed")
+
   )
 
   (dimension (type aligned)
@@ -607,5 +694,10 @@
     (style (thickness 0.1) (arrow_length 1.0) (text_position_mode 0)
       (extension_height 0.5) (extension_offset 0.5)
       (keep_text_aligned yes))
+
+
+    (uuid "754b4dea-bfcc-4127-af08-890d7365dd13")
+
+
   )
 )

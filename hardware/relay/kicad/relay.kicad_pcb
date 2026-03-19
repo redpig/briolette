@@ -95,23 +95,55 @@
   ;; Origin at board center
   ;; ============================================================
   (gr_line (start -33.0 -22.5) (end 33.0 -22.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "6c3ba033-5178-498f-bfb6-07108af5b501")
+
+  )
   (gr_line (start 35.0 -20.5) (end 35.0 20.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "c528f10f-b822-4f15-b6e5-f18ab4a46992")
+
+  )
   (gr_line (start 33.0 22.5) (end -33.0 22.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "d7058fcc-e641-4dc6-a099-12582ba5af00")
+
+  )
   (gr_line (start -35.0 20.5) (end -35.0 -20.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "84dfe78f-cf01-4bd8-92b7-dd6776c7688d")
+
+  )
 
   ;; Rounded corners
   (gr_arc (start -33.0 -22.5) (mid -34.414 -21.914) (end -35.0 -20.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "9cdcdfc2-1bf2-4ea0-b172-be7358174548")
+
+  )
   (gr_arc (start 35.0 -20.5) (mid 34.414 -21.914) (end 33.0 -22.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "0d565b8f-b08b-4d34-ac4d-630d039b360c")
+
+  )
   (gr_arc (start 33.0 22.5) (mid 34.414 21.914) (end 35.0 20.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "9039fbe8-083a-4486-8e62-e98659e3585c")
+
+  )
   (gr_arc (start -35.0 20.5) (mid -34.414 21.914) (end -33.0 22.5)
-    (stroke (width 0.1) (type default)) (layer "Edge.Cuts"))
+    (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
+
+    (uuid "25912086-e746-46e9-bd3d-633260f15e0d")
+
+  )
 
   ;; ============================================================
   ;; Component placement zones (top layer)
@@ -119,15 +151,31 @@
 
   ;; Solar cell pads (top-left area, 40x30mm)
   (gr_rect (start -32 -20) (end 8 10)
-    (stroke (width 0.15) (type dash)) (fill none) (layer "Cmts.User"))
+    (stroke (width 0.15) (type dash)) (fill none) (layer "Cmts.User")
+
+    (uuid "69c62455-0e4f-4f6f-8cdc-0f8406908013")
+
+  )
   (gr_text "SOLAR CELL\n40x30mm" (at -12 -5 0) (layer "Cmts.User")
-    (effects (font (size 1.5 1.5) (thickness 0.2))))
+    (effects (font (size 1.5 1.5) (thickness 0.2)))
+
+    (uuid "b14e6476-0215-4bcf-a915-9b6c73e1ff61")
+
+  )
 
   ;; NFC reader antenna zone (bottom layer, right half)
   (gr_rect (start -5 -18) (end 32 18)
-    (stroke (width 0.15) (type dash)) (fill none) (layer "Cmts.User"))
+    (stroke (width 0.15) (type dash)) (fill none) (layer "Cmts.User")
+
+    (uuid "a124a0f6-0f57-4712-bb7b-8d55a7fd8acd")
+
+  )
   (gr_text "NFC READER ANTENNA\n~35x25mm (B.Cu)" (at 13.5 0 0) (layer "Cmts.User")
-    (effects (font (size 1.2 1.2) (thickness 0.15))))
+    (effects (font (size 1.2 1.2) (thickness 0.15)))
+
+    (uuid "1b3e7eed-e8c3-4d7b-ab34-0678660db25e")
+
+  )
 
   ;; nRF52840: center-left (under solar cell area)
   (footprint "stick-lib:QFN-48-6x6mm"
@@ -139,6 +187,9 @@
     (property "Value" "nRF52840"
       (at 0 5.5 0) (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12))))
+
+    (uuid "25f100dd-61c5-4d39-ba18-6781d3b4ad19")
+
   )
 
   ;; PN7150: center-right (near NFC antenna area)
@@ -151,6 +202,9 @@
     (property "Value" "PN7150"
       (at 0 4.5 0) (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12))))
+
+    (uuid "3cc7f5c7-8298-4c8e-a29c-40cf213a30e7")
+
   )
 
   ;; BQ25504: upper-left (near solar cell connections)
@@ -163,6 +217,9 @@
     (property "Value" "BQ25504"
       (at 0 3.5 0) (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1))))
+
+    (uuid "c8c9b4ea-335d-4998-8603-bcc2cf2c51c2")
+
   )
 
   ;; LDO: near BQ25504
@@ -175,6 +232,9 @@
     (property "Value" "AP2112K-3.3"
       (at 0 3.0 0) (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1))))
+
+    (uuid "9aa5512d-a4a2-4496-8fa5-8b93a251e351")
+
   )
 
   ;; USB-C: bottom edge
@@ -187,6 +247,9 @@
     (property "Value" "USB4135-GF-A"
       (at 0 7.0 0) (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12))))
+
+    (uuid "82c10f9b-b904-4b8e-9bc8-f35cb0458f15")
+
   )
 
   ;; TCA8418 I2C Keypad Scanner (near MCU, between MCU and keypad grid)
@@ -194,7 +257,11 @@
     (property "Reference" "U5" (at 0 -3.5 0) (layer "F.SilkS")
       (effects (font (size 0.6 0.6) (thickness 0.1))))
     (property "Value" "TCA8418" (at 0 3.5 0) (layer "F.Fab")
-      (effects (font (size 0.6 0.6) (thickness 0.1)))))
+      (effects (font (size 0.6 0.6) (thickness 0.1))))
+
+    (uuid "98f81fd9-b592-4c8a-b5c6-46082c57cc2d")
+
+  )
 
   ;; 13-Key Numeric Keypad: 4x4 grid, 6mm pitch
   ;; Grid origin: X=-32, Y=-15 (top-left of grid)
@@ -208,90 +275,154 @@
     (property "Reference" "SW1" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_1" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "5f04b0c1-a2d2-4ac1-b8ba-ff87de40d430")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -26.0 -15.0 0)
     (property "Reference" "SW2" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_2" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "b4d7b357-38bb-4805-97e3-0ad22497fcc0")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -20.0 -15.0 0)
     (property "Reference" "SW3" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_3" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "ce24eb1b-40e5-43b7-8c14-7fe009608c00")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -14.0 -15.0 0)
     (property "Reference" "SW4" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_CLR" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "f7c63722-14c1-4ff5-8a4b-071e2166bb92")
+
+  )
 
   ;; Row 1: keys 4, 5, 6
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -32.0 -9.0 0)
     (property "Reference" "SW5" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_4" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "64ab525e-11c2-4bd2-a224-6b4cb2f6f981")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -26.0 -9.0 0)
     (property "Reference" "SW6" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_5" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "e1bf9e44-c4e1-4a3f-8b31-746b5c543879")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -20.0 -9.0 0)
     (property "Reference" "SW7" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_6" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "24ea40af-6aba-48cb-b6c3-ed61e9d72211")
+
+  )
 
   ;; Row 2: keys 7, 8, 9
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -32.0 -3.0 0)
     (property "Reference" "SW8" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_7" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "ee95f1cc-02c7-41e9-8bad-3ff74a46d17b")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -26.0 -3.0 0)
     (property "Reference" "SW9" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_8" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "98fae475-0e54-48a5-9b9a-2d099dc9c4e0")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -20.0 -3.0 0)
     (property "Reference" "SW10" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_9" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "084af351-aad7-461b-bf49-3b04fe0aab43")
+
+  )
 
   ;; Row 3: keys ., 0, OK
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -32.0 3.0 0)
     (property "Reference" "SW11" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_DOT" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "f330b1dc-a9ba-4adf-ab48-c44039a5b1b6")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -26.0 3.0 0)
     (property "Reference" "SW12" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_0" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "12885491-52e0-49ea-9a4f-3878c67048cc")
+
+  )
   (footprint "stick-lib:SW_SPST_3x3mm" (layer "F.Cu") (at -20.0 3.0 0)
     (property "Reference" "SW13" (at 0 -2.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "KEY_OK" (at 0 2.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "ca2cc084-6ec5-4715-8efe-15b6ca87d395")
+
+  )
 
   ;; 3 LEDs: above keypad grid
   (footprint "LED_SMD:LED_0402_1005Metric" (layer "F.Cu") (at -29.0 8.0 0)
     (property "Reference" "LED1" (at 0 -1.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "RED" (at 0 1.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "8f29f5d5-9dc0-422c-bfbd-c409eae47058")
+
+  )
   (footprint "LED_SMD:LED_0402_1005Metric" (layer "F.Cu") (at -26.0 8.0 0)
     (property "Reference" "LED2" (at 0 -1.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "GREEN" (at 0 1.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "d3ab916d-457f-4486-b87b-3897673034d8")
+
+  )
   (footprint "LED_SMD:LED_0402_1005Metric" (layer "F.Cu") (at -23.0 8.0 0)
     (property "Reference" "LED3" (at 0 -1.5 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.08))))
     (property "Value" "BLUE" (at 0 1.5 0) (layer "F.Fab")
-      (effects (font (size 0.5 0.5) (thickness 0.08)))))
+      (effects (font (size 0.5 0.5) (thickness 0.08))))
+
+    (uuid "9eb238f7-8179-433c-a7ce-fc1a11e7388b")
+
+  )
 
   ;; ============================================================
   ;; NFC Reader Antenna (bottom copper, 35x25mm, 3 turns)
@@ -384,12 +515,28 @@
   ;; Silkscreen / annotations
   ;; ============================================================
   (gr_text "Briolette Solar Relay" (at 0 -24.0 0) (layer "F.SilkS")
-    (effects (font (size 1.5 1.5) (thickness 0.2) bold)))
+    (effects (font (size 1.5 1.5) (thickness 0.2) bold))
+
+    (uuid "8ab31d8e-a518-4194-ba3d-4b1c46bd8489")
+
+  )
 
   (gr_text "TAP HERE" (at 13.5 0 0) (layer "B.SilkS")
-    (effects (font (size 2.0 2.0) (thickness 0.3) bold)))
+    (effects (font (size 2.0 2.0) (thickness 0.3) bold))
+
+
+    (uuid "2cd6f46e-c401-482f-8664-4676eee1d661")
+
+
+  )
 
   (gr_text "Layer Stack:\nF.Cu  — Components + solar cell pads\nIn1   — GND (keep-out under antenna)\nIn2   — VCC (keep-out under antenna)\nB.Cu  — NFC reader antenna (3-turn spiral)"
     (at -25.0 -28.0 0) (layer "Cmts.User")
-    (effects (font (size 0.8 0.8) (thickness 0.12))))
+    (effects (font (size 0.8 0.8) (thickness 0.12)))
+
+
+    (uuid "19a390a6-7909-4f53-b064-18586a59211a")
+
+
+  )
 )
