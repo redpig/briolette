@@ -94,12 +94,12 @@ def export_gerbers(kicad_cli, pcb_path, output_dir):
     """Export Gerber files using kicad-cli."""
     run_kicad_cli([
         kicad_cli, "pcb", "export", "gerbers",
-        "--input", pcb_path,
         "--output", output_dir + "/",
         "--layers", GERBER_LAYERS,
         "--subtract-soldermask",
         "--no-protel-ext",
         "--use-drill-file-origin",
+        pcb_path,
     ])
     gerber_files = list(Path(output_dir).glob("*.g*")) + list(Path(output_dir).glob("*.G*"))
     for f in gerber_files:
@@ -111,11 +111,11 @@ def export_drill(kicad_cli, pcb_path, output_dir):
     """Export Excellon drill files (PTH + NPTH separately)."""
     run_kicad_cli([
         kicad_cli, "pcb", "export", "drill",
-        "--input", pcb_path,
         "--output", output_dir + "/",
         "--format", "excellon",
         "--excellon-separate-th",
         "--generate-map", "--map-format", "gerberx2",
+        pcb_path,
     ])
     drill_files = list(Path(output_dir).glob("*.drl"))
     for f in drill_files:
@@ -134,11 +134,11 @@ def export_cpl(kicad_cli, pcb_path, output_dir, board_name):
     try:
         run_kicad_cli([
             kicad_cli, "pcb", "export", "pos",
-            "--input", pcb_path,
             "--output", tmp_path,
             "--format", "csv",
             "--units", "mm",
             "--smd-only",
+            pcb_path,
         ])
 
         # Read kicad-cli output and reformat to JLCPCB columns
