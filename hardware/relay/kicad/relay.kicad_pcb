@@ -304,53 +304,38 @@
 
   ;; Start via: F.Cu NFC_TX1 pad to B.Cu
   (via (at -3.0 -13.5) (size 0.6) (drill 0.3)
-    (layers "F.Cu" "B.Cu") (net 19))
+    (layers "F.Cu" "B.Cu") (net 19) (uuid "4b0b8e74-e95c-4d21-b0b4-dcdf78b2f867"))
 
   ;; Lead-in from via to Turn 1
-  (gr_line (start -3.0 -13.5) (end -3.0 -12.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (segment (start -3.0 -13.5) (end -3.0 -12.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "3698e0ef-6dad-4645-bf78-3feb276eb695"))
 
   ;; Turn 1 (outermost): top, right, bottom (open at left)
-  (gr_line (start -3.0 -12.5) (end 30.0 -12.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start 30.0 -12.5) (end 30.0 12.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start 30.0 12.5) (end -3.0 12.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (segment (start -3.0 -12.5) (end 30.0 -12.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "c4bf2182-d007-4b0e-9aee-1fab5ed4ec7a"))
+  (segment (start 30.0 -12.5) (end 30.0 12.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "5a66d35d-8c17-4adf-99bf-746680ce304d"))
+  (segment (start 30.0 12.5) (end -3.0 12.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "dbf953f4-fb86-4fa6-a21e-8c4014199109"))
   ;; Left side stops short — step inward to Turn 2
-  (gr_line (start -3.0 12.5) (end -3.0 -11.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start -3.0 -11.5) (end -2.0 -11.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (segment (start -3.0 12.5) (end -3.0 -11.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "c374905c-c5f4-4ea3-8490-e0f8715c6d0a"))
+  (segment (start -3.0 -11.5) (end -2.0 -11.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "ee915531-56b7-4b27-94fe-f0420e0d4113"))
 
   ;; Turn 2: top, right, bottom (open at left)
-  (gr_line (start -2.0 -11.5) (end 29.0 -11.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start 29.0 -11.5) (end 29.0 11.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start 29.0 11.5) (end -2.0 11.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (segment (start -2.0 -11.5) (end 29.0 -11.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "ab48d8bb-dc34-4278-8e17-2fcd32837173"))
+  (segment (start 29.0 -11.5) (end 29.0 11.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "600a292e-61cc-45d6-8001-01f0987210d8"))
+  (segment (start 29.0 11.5) (end -2.0 11.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "dc6dccbe-858b-4514-817f-2f7b6ba9df59"))
   ;; Left side stops short — step inward to Turn 3
-  (gr_line (start -2.0 11.5) (end -2.0 -10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start -2.0 -10.5) (end -1.0 -10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (segment (start -2.0 11.5) (end -2.0 -10.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "ca8424aa-7cca-46c5-b6b8-283b0bac7f0b"))
+  (segment (start -2.0 -10.5) (end -1.0 -10.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "a2255b3e-a432-4eb6-a680-ed608a7ea59d"))
 
   ;; Turn 3 (innermost): top, right, half bottom
-  (gr_line (start -1.0 -10.5) (end 28.0 -10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start 28.0 -10.5) (end 28.0 10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
-  (gr_line (start 28.0 10.5) (end -1.0 10.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (segment (start -1.0 -10.5) (end 28.0 -10.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "7905f33a-7669-410f-adb6-f65e9507c28c"))
+  (segment (start 28.0 -10.5) (end 28.0 10.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "45f36506-a462-42f1-abc7-f17963a514d2"))
+  (segment (start 28.0 10.5) (end -1.0 10.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "136ae3c4-7b32-4793-90b1-9d66a4883ab6"))
 
   ;; Lead-out from inner end to NFC_TX2 via
-  (gr_line (start -1.0 10.5) (end -1.0 11.5)
-    (stroke (width 0.5) (type default)) (layer "B.Cu") (net 19))
+  (segment (start -1.0 10.5) (end -1.0 11.5) (width 0.5) (layer "B.Cu") (net 19) (uuid "7c0313ce-147c-48c7-9bea-11dc3490a09c"))
 
   ;; End via: inner spiral end crosses to F.Cu for NFC_TX2 connection
   (via (at -1.0 11.5) (size 0.6) (drill 0.3)
-    (layers "F.Cu" "B.Cu") (net 20))
+    (layers "F.Cu" "B.Cu") (net 20) (uuid "70918345-87a7-43ec-a6ab-77391a4fb73e"))
 
   ;; ============================================================
   ;; Zones
@@ -358,7 +343,7 @@
 
   ;; GND plane (In1.Cu)
   (zone (net 1) (net_name "GND") (layer "In1.Cu")
-    (uuid "zone-relay-gnd")
+    (uuid "68d61999-de3a-4621-b05d-15f5aa1c77f5")
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
     (min_thickness 0.2)
@@ -367,7 +352,7 @@
 
   ;; VCC plane (In2.Cu)
   (zone (net 2) (net_name "VCC") (layer "In2.Cu")
-    (uuid "zone-relay-vcc")
+    (uuid "e249288d-1a6e-4587-b729-6087e7db8e65")
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
     (min_thickness 0.2)
@@ -376,7 +361,7 @@
 
   ;; Keep-out under NFC reader antenna (inner layers)
   (zone (net 0) (net_name "") (layer "In1.Cu")
-    (uuid "zone-relay-keepout-gnd")
+    (uuid "1d319d70-8957-4f42-8288-cfc20d3fc1e5")
     (hatch edge 0.5)
     (connect_pads (clearance 0))
     (min_thickness 0.2)
@@ -386,7 +371,7 @@
     (polygon (pts (xy -5 -14) (xy 32 -14) (xy 32 14) (xy -5 14))))
 
   (zone (net 0) (net_name "") (layer "In2.Cu")
-    (uuid "zone-relay-keepout-pwr")
+    (uuid "2fd1cb6c-11e4-4596-ba18-2e8fea3e3847")
     (hatch edge 0.5)
     (connect_pads (clearance 0))
     (min_thickness 0.2)
