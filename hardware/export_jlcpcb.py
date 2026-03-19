@@ -148,8 +148,11 @@ def export_bom(board, output_dir, board_name):
     components = {}
     for fp in board.GetFootprints():
         ref = fp.GetReference()
-        value = fp.GetValue()
-        footprint = fp.GetFPID().GetUniStringLibItemName()
+        if not ref:
+            continue
+        value = fp.GetValue() or ""
+        fpid = fp.GetFPID()
+        footprint = fpid.GetUniStringLibItemName() if fpid else ""
 
         # Skip non-component items (mounting holes, fiducials, test points)
         if ref.startswith("H") or ref.startswith("TP") or ref.startswith("FID"):
@@ -198,6 +201,8 @@ def export_cpl(board, output_dir, board_name):
 
         for fp in board.GetFootprints():
             ref = fp.GetReference()
+            if not ref:
+                continue
 
             # Skip non-component items
             if ref.startswith("H") or ref.startswith("TP") or ref.startswith("FID"):
@@ -207,22 +212,31 @@ def export_cpl(board, output_dir, board_name):
             # These are hand-soldered after PCBA
             if fp.HasOnlySMDPads() is False and fp.GetPadCount() > 0:
                 # Check if it has any SMD pads at all
-                has_smd = any(pad.GetAttribute() == pcbnew.PAD_ATTRIB_SMD
-                             for pad in fp.Pads())
+                pads = fp.Pads()
+                has_smd = False
+                if pads:
+                    has_smd = any(pad.GetAttribute() == pcbnew.PAD_ATTRIB_SMD
+                                 for pad in pads)
                 if not has_smd:
                     print(f"  Skipping THT component: {ref} ({fp.GetValue()})")
                     continue
 
             pos = fp.GetPosition()
+            if not pos:
+                print(f"  WARNING: Skipping {ref} - no position data")
+                continue
             x_mm = pcbnew.ToMM(pos.x)
             y_mm = -pcbnew.ToMM(pos.y)  # KiCad Y is inverted vs JLCPCB
             rotation = fp.GetOrientationDegrees()
             layer = "Top" if fp.GetLayer() == pcbnew.F_Cu else "Bottom"
 
+            fpid = fp.GetFPID()
+            package = fpid.GetUniStringLibItemName() if fpid else ""
+
             writer.writerow([
                 ref,
-                fp.GetValue(),
-                fp.GetFPID().GetUniStringLibItemName(),
+                fp.GetValue() or "",
+                package,
                 f"{x_mm:.4f}mm",
                 f"{y_mm:.4f}mm",
                 f"{rotation:.1f}",
