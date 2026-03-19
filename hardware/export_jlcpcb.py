@@ -84,8 +84,14 @@ def run_kicad_cli(args):
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"  ERROR: kicad-cli failed (exit {result.returncode})")
+        if result.stdout:
+            print(f"  stdout: {result.stdout.strip()}")
         if result.stderr:
-            print(f"  stderr: {result.stderr.strip()}")
+            # Filter wx debug noise, show actual errors
+            lines = result.stderr.strip().split("\n")
+            errors = [l for l in lines if "Adding duplicate image handler" not in l]
+            if errors:
+                print(f"  stderr: {chr(10).join(errors)}")
         raise RuntimeError(f"kicad-cli failed: {' '.join(args)}")
     return result
 

@@ -1,7 +1,7 @@
 (kicad_pcb
-  (version 20240108)
-  (generator "briolette_credstick")
-  (generator_version "8.0")
+  (version 20241229)
+  (generator "pcbnew")
+  (generator_version "9.0")
   (general
     (thickness 1.6)
     (legacy_teardrops no)
