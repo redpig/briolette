@@ -1,4 +1,5 @@
 target/
+__pycache__/
 *.db
 *.db-journal
 Cargo.lock
