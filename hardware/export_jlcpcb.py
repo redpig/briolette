@@ -103,8 +103,10 @@ def export_gerbers(board, output_dir):
         plot_controller.OpenPlotfile(suffix, pcbnew.PLOT_FORMAT_GERBER, description)
         plot_controller.SetLayer(layer_id)
         plot_controller.PlotLayer()
-        plot_controller.ClosePlot()
+        # Get filename BEFORE ClosePlot — ClosePlot frees internal state,
+        # so GetPlotFileName after close is a use-after-free segfault.
         gerber_files.append(plot_controller.GetPlotFileName())
+        plot_controller.ClosePlot()
         print(f"  Exported: {suffix} ({description})")
 
     return gerber_files
@@ -290,6 +292,9 @@ def process_board(name, config, base_dir):
     # Load the board
     print("\nLoading board...")
     board = pcbnew.LoadBoard(pcb_path)
+    if board is None:
+        print(f"ERROR: Failed to load board: {pcb_path}")
+        return None
 
     # Export gerbers
     print("\nExporting Gerber files...")
