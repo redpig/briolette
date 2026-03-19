@@ -3,7 +3,7 @@
 JLCPCB Manufacturing File Exporter for Briolette Hardware
 
 Generates Gerber files, drill files, BOM, and CPL (centroid) for JLCPCB
-ordering. Requires KiCad 8.0+ with the pcbnew Python API.
+ordering. Uses kicad-cli (KiCad 8.0+) — no pcbnew Python bindings required.
 
 Usage:
     # From the hardware/ directory, with KiCad installed:
@@ -25,25 +25,14 @@ Each zip contains:
 """
 
 import os
+import re
 import sys
 import csv
-import zipfile
 import shutil
+import subprocess
+import tempfile
+import zipfile
 from pathlib import Path
-
-try:
-    import pcbnew
-except ImportError:
-    print("ERROR: pcbnew Python module not found.")
-    print("This script must be run with KiCad's Python environment.")
-    print()
-    print("Options:")
-    print("  1. Run from KiCad's scripting console")
-    print("  2. Use KiCad's bundled Python:")
-    print("     Linux:   /usr/bin/python3 export_jlcpcb.py")
-    print("     macOS:   /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 export_jlcpcb.py")
-    print("     Windows: C:\\Program Files\\KiCad\\8.0\\bin\\python.exe export_jlcpcb.py")
-    sys.exit(1)
 
 
 # Board configurations
@@ -62,191 +51,210 @@ BOARDS = {
     },
 }
 
-# JLCPCB gerber layer mapping
-# Maps KiCad layer IDs to JLCPCB-expected file extensions
-GERBER_LAYERS = {
-    pcbnew.F_Cu: ("F_Cu", "Front Copper"),
-    pcbnew.In1_Cu: ("In1_Cu", "Inner Layer 1 (GND)"),
-    pcbnew.In2_Cu: ("In2_Cu", "Inner Layer 2 (PWR)"),
-    pcbnew.B_Cu: ("B_Cu", "Back Copper"),
-    pcbnew.F_Paste: ("F_Paste", "Front Paste"),
-    pcbnew.B_Paste: ("B_Paste", "Back Paste"),
-    pcbnew.F_SilkS: ("F_Silkscreen", "Front Silkscreen"),
-    pcbnew.B_SilkS: ("B_Silkscreen", "Back Silkscreen"),
-    pcbnew.F_Mask: ("F_Mask", "Front Soldermask"),
-    pcbnew.B_Mask: ("B_Mask", "Back Soldermask"),
-    pcbnew.Edge_Cuts: ("Edge_Cuts", "Board Outline"),
-}
+# 4-layer gerber layers for JLCPCB
+GERBER_LAYERS = "F.Cu,In1.Cu,In2.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts"
+
+# Prefixes for non-component footprints (mounting holes, test points, fiducials)
+SKIP_PREFIXES = ("H", "TP", "FID")
 
 
-def export_gerbers(board, output_dir):
-    """Export Gerber files for all required layers."""
-    plot_controller = pcbnew.PLOT_CONTROLLER(board)
-    plot_options = plot_controller.GetPlotOptions()
+def find_kicad_cli():
+    """Find kicad-cli executable."""
+    # Check PATH first
+    cli = shutil.which("kicad-cli")
+    if cli:
+        return cli
 
-    # Configure plot options for JLCPCB
-    plot_options.SetOutputDirectory(output_dir)
-    plot_options.SetPlotFrameRef(False)
-    plot_options.SetSketchPadLineWidth(pcbnew.FromMM(0.1))
-    plot_options.SetAutoScale(False)
-    plot_options.SetScale(1)
-    plot_options.SetMirror(False)
-    plot_options.SetUseGerberAttributes(True)
-    plot_options.SetUseGerberProtelExtensions(True)
-    plot_options.SetUseAuxOrigin(False)
-    plot_options.SetSubtractMaskFromSilk(True)
-    plot_options.SetDrillMarksType(0)  # No drill marks on gerbers
+    # Common install locations
+    candidates = [
+        "/usr/bin/kicad-cli",
+        "/usr/local/bin/kicad-cli",
+        "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+        r"C:\Program Files\KiCad\8.0\bin\kicad-cli.exe",
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
 
-    gerber_files = []
-
-    for layer_id, (suffix, description) in GERBER_LAYERS.items():
-        plot_controller.OpenPlotfile(suffix, pcbnew.PLOT_FORMAT_GERBER, description)
-        plot_controller.SetLayer(layer_id)
-        plot_controller.PlotLayer()
-        # Get filename BEFORE ClosePlot — ClosePlot frees internal state,
-        # so GetPlotFileName after close is a use-after-free segfault.
-        gerber_files.append(plot_controller.GetPlotFileName())
-        plot_controller.ClosePlot()
-        print(f"  Exported: {suffix} ({description})")
-
-    return gerber_files
+    return None
 
 
-def export_drill(board, output_dir):
-    """Export Excellon drill files (PTH and NPTH separately, as JLCPCB requires)."""
-    drill_writer = pcbnew.EXCELLON_WRITER(board)
-
-    drill_writer.SetOptions(
-        aMirror=False,
-        aMinimalHeader=False,
-        aOffset=pcbnew.VECTOR2I(0, 0),
-        aMerge_PTH_NPTH=False,  # JLCPCB wants separate files
-    )
-    drill_writer.SetFormat(
-        aMetric=True,
-        aZerosFmt=pcbnew.EXCELLON_WRITER.DECIMAL_FORMAT,
-    )
-    drill_writer.CreateDrillandMapFilesSet(output_dir, True, False)
-
-    drill_files = []
-    for ext in ["-PTH.drl", "-NPTH.drl", ".drl"]:
-        for f in Path(output_dir).glob(f"*{ext}"):
-            drill_files.append(str(f))
-            print(f"  Exported: {f.name}")
-
-    return drill_files
+def run_kicad_cli(args):
+    """Run a kicad-cli command, raising on failure."""
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  ERROR: kicad-cli failed (exit {result.returncode})")
+        if result.stderr:
+            print(f"  stderr: {result.stderr.strip()}")
+        raise RuntimeError(f"kicad-cli failed: {' '.join(args)}")
+    return result
 
 
-def export_bom(board, output_dir, board_name):
+def export_gerbers(kicad_cli, pcb_path, output_dir):
+    """Export Gerber files using kicad-cli."""
+    run_kicad_cli([
+        kicad_cli, "pcb", "export", "gerbers",
+        "--input", pcb_path,
+        "--output", output_dir + "/",
+        "--layers", GERBER_LAYERS,
+        "--subtract-soldermask",
+        "--no-protel-ext",
+        "--use-drill-file-origin",
+    ])
+    gerber_files = list(Path(output_dir).glob("*.g*")) + list(Path(output_dir).glob("*.G*"))
+    for f in gerber_files:
+        print(f"  Exported: {f.name}")
+    return [str(f) for f in gerber_files]
+
+
+def export_drill(kicad_cli, pcb_path, output_dir):
+    """Export Excellon drill files (PTH + NPTH separately)."""
+    run_kicad_cli([
+        kicad_cli, "pcb", "export", "drill",
+        "--input", pcb_path,
+        "--output", output_dir + "/",
+        "--format", "excellon",
+        "--excellon-separate-th",
+        "--generate-map", "--map-format", "gerberx2",
+    ])
+    drill_files = list(Path(output_dir).glob("*.drl"))
+    for f in drill_files:
+        print(f"  Exported: {f.name}")
+    return [str(f) for f in drill_files]
+
+
+def export_cpl(kicad_cli, pcb_path, output_dir, board_name):
+    """Export CPL/centroid in JLCPCB format using kicad-cli pos export."""
+    cpl_path = os.path.join(output_dir, f"{board_name}-CPL-JLCPCB.csv")
+
+    # kicad-cli exports position file; we reformat for JLCPCB
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="r") as tmp:
+        tmp_path = tmp.name
+
+    try:
+        run_kicad_cli([
+            kicad_cli, "pcb", "export", "pos",
+            "--input", pcb_path,
+            "--output", tmp_path,
+            "--format", "csv",
+            "--units", "mm",
+            "--smd-only",
+        ])
+
+        # Read kicad-cli output and reformat to JLCPCB columns
+        with open(tmp_path, "r") as infile, open(cpl_path, "w", newline="") as outfile:
+            reader = csv.DictReader(infile)
+            writer = csv.writer(outfile)
+            writer.writerow(["Designator", "Val", "Package", "Mid X", "Mid Y", "Rotation", "Layer"])
+
+            for row in reader:
+                ref = row.get("Ref", "")
+                if ref.startswith(SKIP_PREFIXES):
+                    continue
+                writer.writerow([
+                    ref,
+                    row.get("Val", ""),
+                    row.get("Package", ""),
+                    f"{row.get('PosX', '0')}mm",
+                    f"{row.get('PosY', '0')}mm",
+                    row.get("Rot", "0"),
+                    "Top" if row.get("Side", "top").lower() == "top" else "Bottom",
+                ])
+    finally:
+        os.unlink(tmp_path)
+
+    print(f"  Exported: {os.path.basename(cpl_path)}")
+    return cpl_path
+
+
+def parse_footprints_from_pcb(pcb_path):
     """
-    Export BOM in JLCPCB format.
-
-    JLCPCB BOM format requires columns:
-        Comment, Designator, Footprint, LCSC Part #
+    Parse footprint data directly from .kicad_pcb S-expression file.
+    Avoids pcbnew SWIG bindings entirely.
     """
+    with open(pcb_path, "r") as f:
+        content = f.read()
+
+    footprints = []
+    # Match top-level footprint blocks
+    # Each footprint starts with (footprint "..." and we need ref + value properties
+    fp_pattern = re.compile(r'\(footprint\s+"([^"]*)"', re.MULTILINE)
+    ref_pattern = re.compile(r'\(fp_text\s+reference\s+"([^"]*)"')
+    val_pattern = re.compile(r'\(fp_text\s+value\s+"([^"]*)"')
+
+    # Walk the file finding footprint blocks by tracking parenthesis depth
+    i = 0
+    while i < len(content):
+        match = fp_pattern.search(content, i)
+        if not match:
+            break
+
+        fp_name = match.group(1)
+        # Find the extent of this footprint block by counting parens
+        start = match.start()
+        depth = 0
+        j = start
+        while j < len(content):
+            if content[j] == "(":
+                depth += 1
+            elif content[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+
+        fp_block = content[start:j + 1]
+
+        ref_match = ref_pattern.search(fp_block)
+        val_match = val_pattern.search(fp_block)
+
+        ref = ref_match.group(1) if ref_match else ""
+        value = val_match.group(1) if val_match else ""
+
+        if ref and not ref.startswith(SKIP_PREFIXES):
+            footprints.append({
+                "ref": ref,
+                "value": value,
+                "footprint": fp_name,
+            })
+
+        i = j + 1
+
+    return footprints
+
+
+def export_bom(pcb_path, output_dir, board_name):
+    """Export BOM in JLCPCB format by parsing the .kicad_pcb file directly."""
     bom_path = os.path.join(output_dir, f"{board_name}-BOM-JLCPCB.csv")
 
-    # Group components by value + footprint
+    footprints = parse_footprints_from_pcb(pcb_path)
+
+    # Group by value + footprint
     components = {}
-    for fp in board.GetFootprints():
-        ref = fp.GetReference()
-        if not ref:
-            continue
-        value = fp.GetValue() or ""
-        fpid = fp.GetFPID()
-        footprint = fpid.GetUniStringLibItemName() if fpid else ""
-
-        # Skip non-component items (mounting holes, fiducials, test points)
-        if ref.startswith("H") or ref.startswith("TP") or ref.startswith("FID"):
-            continue
-
-        key = (value, footprint)
+    for fp in footprints:
+        key = (fp["value"], fp["footprint"])
         if key not in components:
             components[key] = {
-                "comment": value,
+                "comment": fp["value"],
                 "designators": [],
-                "footprint": footprint,
-                "lcsc": "",  # User fills in LCSC part numbers
+                "footprint": fp["footprint"],
+                "lcsc": "",
             }
-        components[key]["designators"].append(ref)
+        components[key]["designators"].append(fp["ref"])
 
     with open(bom_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["Comment", "Designator", "Footprint", "LCSC Part #"])
         for key in sorted(components.keys()):
             comp = components[key]
-            designators = ",".join(sorted(comp["designators"],
-                                          key=lambda r: (r[0], int("".join(filter(str.isdigit, r)) or "0"))))
-            writer.writerow([
-                comp["comment"],
-                designators,
-                comp["footprint"],
-                comp["lcsc"],
-            ])
+            designators = ",".join(sorted(
+                comp["designators"],
+                key=lambda r: (r[0], int("".join(filter(str.isdigit, r)) or "0")),
+            ))
+            writer.writerow([comp["comment"], designators, comp["footprint"], comp["lcsc"]])
 
     print(f"  Exported: {os.path.basename(bom_path)} ({len(components)} unique parts)")
     return bom_path
-
-
-def export_cpl(board, output_dir, board_name):
-    """
-    Export CPL (Component Placement List / Centroid) in JLCPCB format.
-
-    JLCPCB CPL format requires columns:
-        Designator, Val, Package, Mid X, Mid Y, Rotation, Layer
-    """
-    cpl_path = os.path.join(output_dir, f"{board_name}-CPL-JLCPCB.csv")
-
-    with open(cpl_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Designator", "Val", "Package", "Mid X", "Mid Y", "Rotation", "Layer"])
-
-        for fp in board.GetFootprints():
-            ref = fp.GetReference()
-            if not ref:
-                continue
-
-            # Skip non-component items
-            if ref.startswith("H") or ref.startswith("TP") or ref.startswith("FID"):
-                continue
-
-            # Skip through-hole-only components (supercapacitors, piezo)
-            # These are hand-soldered after PCBA
-            if fp.HasOnlySMDPads() is False and fp.GetPadCount() > 0:
-                # Check if it has any SMD pads at all
-                pads = fp.Pads()
-                has_smd = False
-                if pads:
-                    has_smd = any(pad.GetAttribute() == pcbnew.PAD_ATTRIB_SMD
-                                 for pad in pads)
-                if not has_smd:
-                    print(f"  Skipping THT component: {ref} ({fp.GetValue()})")
-                    continue
-
-            pos = fp.GetPosition()
-            if not pos:
-                print(f"  WARNING: Skipping {ref} - no position data")
-                continue
-            x_mm = pcbnew.ToMM(pos.x)
-            y_mm = -pcbnew.ToMM(pos.y)  # KiCad Y is inverted vs JLCPCB
-            rotation = fp.GetOrientationDegrees()
-            layer = "Top" if fp.GetLayer() == pcbnew.F_Cu else "Bottom"
-
-            fpid = fp.GetFPID()
-            package = fpid.GetUniStringLibItemName() if fpid else ""
-
-            writer.writerow([
-                ref,
-                fp.GetValue() or "",
-                package,
-                f"{x_mm:.4f}mm",
-                f"{y_mm:.4f}mm",
-                f"{rotation:.1f}",
-                layer,
-            ])
-
-    print(f"  Exported: {os.path.basename(cpl_path)}")
-    return cpl_path
 
 
 def create_zip(output_dir, zip_name, gerber_files, drill_files, bom_path, cpl_path):
@@ -254,15 +262,8 @@ def create_zip(output_dir, zip_name, gerber_files, drill_files, bom_path, cpl_pa
     zip_path = os.path.join(output_dir, zip_name)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Add gerber files
-        for f in gerber_files:
+        for f in gerber_files + drill_files:
             zf.write(f, os.path.basename(f))
-
-        # Add drill files
-        for f in drill_files:
-            zf.write(f, os.path.basename(f))
-
-        # Add BOM and CPL
         zf.write(bom_path, os.path.basename(bom_path))
         zf.write(cpl_path, os.path.basename(cpl_path))
 
@@ -270,7 +271,7 @@ def create_zip(output_dir, zip_name, gerber_files, drill_files, bom_path, cpl_pa
     return zip_path
 
 
-def process_board(name, config, base_dir):
+def process_board(kicad_cli, name, config, base_dir):
     """Process a single board: export all files and create zip."""
     pcb_path = os.path.join(base_dir, config["pcb_path"])
     output_dir = os.path.join(base_dir, config["output_dir"])
@@ -281,38 +282,24 @@ def process_board(name, config, base_dir):
     print(f"Output:     {output_dir}")
     print(f"{'='*60}")
 
-    # Verify PCB file exists
     if not os.path.exists(pcb_path):
         print(f"ERROR: PCB file not found: {pcb_path}")
         return None
 
-    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Load the board
-    print("\nLoading board...")
-    board = pcbnew.LoadBoard(pcb_path)
-    if board is None:
-        print(f"ERROR: Failed to load board: {pcb_path}")
-        return None
-
-    # Export gerbers
     print("\nExporting Gerber files...")
-    gerber_files = export_gerbers(board, output_dir)
+    gerber_files = export_gerbers(kicad_cli, pcb_path, output_dir)
 
-    # Export drill files
     print("\nExporting drill files...")
-    drill_files = export_drill(board, output_dir)
+    drill_files = export_drill(kicad_cli, pcb_path, output_dir)
 
-    # Export BOM
     print("\nExporting BOM (JLCPCB format)...")
-    bom_path = export_bom(board, output_dir, name)
+    bom_path = export_bom(pcb_path, output_dir, name)
 
-    # Export CPL / centroid
     print("\nExporting CPL/centroid (JLCPCB format)...")
-    cpl_path = export_cpl(board, output_dir, name)
+    cpl_path = export_cpl(kicad_cli, pcb_path, output_dir, name)
 
-    # Create zip
     print("\nCreating JLCPCB zip package...")
     zip_path = create_zip(output_dir, config["zip_name"], gerber_files,
                           drill_files, bom_path, cpl_path)
@@ -321,11 +308,17 @@ def process_board(name, config, base_dir):
 
 
 def main():
-    # Determine base directory (hardware/)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    base_dir = script_dir  # Script lives in hardware/
+    kicad_cli = find_kicad_cli()
+    if not kicad_cli:
+        print("ERROR: kicad-cli not found.")
+        print("This script requires KiCad 8.0+ with kicad-cli in PATH.")
+        print()
+        print("Install KiCad 8.0+ or add kicad-cli to your PATH.")
+        sys.exit(1)
 
-    # Determine which boards to process
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = script_dir
+
     if len(sys.argv) > 1:
         targets = [arg.lower() for arg in sys.argv[1:]]
         for t in targets:
@@ -336,14 +329,18 @@ def main():
         targets = list(BOARDS.keys())
 
     print("Briolette JLCPCB Manufacturing File Exporter")
+    print(f"Using: {kicad_cli}")
     print(f"Boards to process: {', '.join(targets)}")
 
     results = {}
     for name in targets:
-        zip_path = process_board(name, BOARDS[name], base_dir)
-        results[name] = zip_path
+        try:
+            zip_path = process_board(kicad_cli, name, BOARDS[name], base_dir)
+            results[name] = zip_path
+        except RuntimeError as e:
+            print(f"\nERROR processing {name}: {e}")
+            results[name] = None
 
-    # Summary
     print(f"\n{'='*60}")
     print("EXPORT COMPLETE")
     print(f"{'='*60}")
