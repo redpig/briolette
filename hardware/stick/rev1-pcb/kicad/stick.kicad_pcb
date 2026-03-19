@@ -112,8 +112,6 @@
   (net 4 "VSCAP")
   (net 5 "SIM_IO")
   (net 6 "SIM_CLK")
-  (net 29 "SIM_RST")
-  (net 30 "SIM_DET")
   (net 7 "SPI_SCK")
   (net 8 "SPI_MOSI")
   (net 9 "SPI_CS")
@@ -136,6 +134,8 @@
   (net 26 "CC1")
   (net 27 "CC2")
   (net 28 "CHARGE_EN")
+  (net 29 "SIM_RST")
+  (net 30 "SIM_DET")
 
   ;; ============================================================
   ;; Board outline (60mm x 30mm with rounded corners)

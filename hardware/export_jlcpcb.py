@@ -328,8 +328,12 @@ def main():
     else:
         targets = list(BOARDS.keys())
 
+    # Print kicad-cli version for diagnostics
+    ver_result = subprocess.run([kicad_cli, "version"], capture_output=True, text=True)
+    kicad_version = ver_result.stdout.strip() if ver_result.returncode == 0 else "unknown"
+
     print("Briolette JLCPCB Manufacturing File Exporter")
-    print(f"Using: {kicad_cli}")
+    print(f"Using: {kicad_cli} (version {kicad_version})")
     print(f"Boards to process: {', '.join(targets)}")
 
     results = {}
