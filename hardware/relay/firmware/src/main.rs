@@ -72,6 +72,15 @@ async fn main(spawner: Spawner) {
     let twi_config = twim::Config::default();
     let twi = twim::Twim::new(p.TWISPI0, Irqs, p.P0_26, p.P0_27, twi_config);
 
+    // --- Keypad scanner (TCA8418) control pins ---
+    // KEY_INT on P0.09: interrupt output from TCA8418 (active low, open drain)
+    let _key_int = Input::new(p.P0_09, Pull::Up);
+    // KEY_RST on P0.10: reset input to TCA8418 (active low)
+    let _key_rst = Output::new(p.P0_10, Level::High, OutputDrive::Standard);
+    // TODO: Share the I2C bus between PN7150 and TCA8418 using
+    // embassy_embedded_hal::shared_bus, then initialize the Keypad driver
+    // and spawn a keypad_task to populate EVENT_CHANNEL with KeyPress events.
+
     // --- Initialize PN7150 NFC reader ---
     let nfc_irq = Input::new(p.P0_19, Pull::Up);
     let nfc_ven = Output::new(p.P0_20, Level::Low, OutputDrive::Standard);

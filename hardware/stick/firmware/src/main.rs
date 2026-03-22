@@ -80,12 +80,15 @@ async fn main(spawner: Spawner) {
 
     let mut sim = sim_card::SimCard::new(uart, sim_rst, sim_det);
 
-    // Initialize e-ink display (SPI).
+    // Initialize e-ink display control pins (match schematic MCU sheet).
+    // SPI data pins: P0.13 = SCK, P0.14 = MOSI (configured via SPIM peripheral).
+    // TODO: Initialize SPIM0 peripheral on P0.13 (SCK) + P0.14 (MOSI) for
+    // display data transfer. Currently only control GPIOs are wired.
     let display = display::Display::new(
-        Output::new(p.P0_13, Level::Low, OutputDrive::Standard),  // DC
-        Output::new(p.P0_14, Level::High, OutputDrive::Standard), // CS
-        Input::new(p.P0_15, Pull::None),                          // BUSY
-        Output::new(p.P0_16, Level::High, OutputDrive::Standard), // RST
+        Output::new(p.P0_16, Level::Low, OutputDrive::Standard),  // DC
+        Output::new(p.P0_15, Level::High, OutputDrive::Standard), // CS
+        Input::new(p.P0_18, Pull::None),                          // BUSY
+        Output::new(p.P0_17, Level::High, OutputDrive::Standard), // RST
     );
 
     // Run storage init, SIM init, and initial display update concurrently.

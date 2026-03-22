@@ -8,7 +8,7 @@
 | NFC field detect wake | 1mA | 5ms | 5µAs |
 | BLS12-381 scalar mul | 15mA | 2s | 30mAs |
 | BLS12-381 hash-to-curve | 10mA | 0.5s | 5mAs |
-| ATECC608B P-256 sign | 15mA | 50ms | 0.75mAs |
+| SIM card P-256 sign (ISO 7816) | 10mA | 50ms | 0.5mAs |
 | NFC transceive (active) | 5mA | 3s | 15mAs |
 | E-ink full refresh | 40mA | 0.8s | 32mAs |
 | E-ink partial refresh | 20mA | 0.3s | 6mAs |
@@ -24,11 +24,12 @@ A single tap-to-pay transaction:
 | NFC handshake | 200ms | 1mAs |
 | Receive APDU | 100ms | 0.5mAs |
 | BLS12-381 sign | 2.5s | 37.5mAs |
-| ATECC608B attest | 50ms | 0.75mAs |
+| SIM card attest (APDU) | 50ms | 0.5mAs |
 | NFC response | 100ms | 0.5mAs |
 | E-ink update | 800ms | 32mAs |
 | Shutdown | 5ms | 0.025mAs |
 | **Total** | **~3.8s** | **~72mAs** |
+
 
 ## Energy Sources
 

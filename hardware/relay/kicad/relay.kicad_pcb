@@ -707,4 +707,850 @@
     (uuid "19a390a6-7909-4f53-b064-18586a59211a")
 
   )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -16 -3.5 0)
+    (property "Reference" "C10"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "115de6ae-1727-4e8d-8f0a-921a8a8f5573")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -16 3.5 0)
+    (property "Reference" "C11"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "3f42be46-2c77-494f-b2a7-a466518e106c")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -24 -3.5 0)
+    (property "Reference" "C12"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "6b2b4685-7996-4331-8e22-9052cb050f6b")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -24 3.5 0)
+    (property "Reference" "C13"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "485de310-edfc-484b-aa1b-d714a5931a93")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -19 -4.5 0)
+    (property "Reference" "C14"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "811bdbca-dac7-483a-8f0c-e25dc7ea8d2e")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -21 -4.5 0)
+    (property "Reference" "C15"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "7c22b5c5-7a32-4586-ad88-76704994e422")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 13 -2 0)
+    (property "Reference" "C20"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "df883dfc-ff0e-402a-9452-3692a754bdf8")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 13 0 0)
+    (property "Reference" "C21"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "354989d4-b35e-44aa-a950-48ab18e47679")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 13 2 0)
+    (property "Reference" "C22"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "22661828-9930-4593-b8e6-15386cb3c246")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -16 -5 0)
+    (property "Reference" "C23"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "27b952d6-9dd2-4fa4-8747-fd4352eb2433")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -5 -15 0)
+    (property "Reference" "C30"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "02fd54a1-f51f-454c-8ab0-52a58277e7e4")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -5 -13 0)
+    (property "Reference" "C31"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "4.7uF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "bd62d72e-258a-4260-a35c-93d55032867e")
+  )
+
+  (footprint "Capacitor_SMD:C_0805_2012Metric"
+    (layer "F.Cu")
+    (at -11 -15 0)
+    (property "Reference" "C32"
+      (at 0 -1.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "22uF"
+      (at 0 1.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.9 0) (size 1.0 1.2) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.9 0) (size 1.0 1.2) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "d186e4a0-ff10-4a18-b99c-94931178c457")
+  )
+
+  (footprint "Inductor_SMD:L_0402_1005Metric"
+    (layer "F.Cu")
+    (at -8 -18 0)
+    (property "Reference" "L2"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "2.2uH"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "f600b350-1797-4ec6-8e25-28b2e0c095dc")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -5 -17 0)
+    (property "Reference" "R10"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "5.76M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "2a363162-218a-49f4-9d55-e6acd2c5fc29")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -5 -19 0)
+    (property "Reference" "R11"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "8.06M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "f10596cf-5064-488e-876e-47afa10d1171")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -11 -17 0)
+    (property "Reference" "R12"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "5.76M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "8f8ab43a-53c9-400c-a57c-10a7b9a127a0")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -11 -19 0)
+    (property "Reference" "R13"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "8.87M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "348d3ef2-678b-416e-a411-f88a245fcedb")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -3 -15 0)
+    (property "Reference" "R14"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "5.76M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "3eb0cecf-26d6-4034-be47-da2578012003")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -3 -17 0)
+    (property "Reference" "R15"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "13.3M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "de59fdc1-6c02-4c0c-bf83-573c91472864")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -13 -15 0)
+    (property "Reference" "R16"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "5.76M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "babc65d2-06b2-439e-93a8-dc5735602ed8")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -13 -17 0)
+    (property "Reference" "R17"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "8.87M"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "9e3cfc69-a659-4e7f-b010-f57da9af17d9")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -15 3 0)
+    (property "Reference" "C6"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "12pF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "b574a909-c0c3-495a-b79d-50d6edd1d9ea")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -19 3 0)
+    (property "Reference" "C7"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "12pF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "ccbb11e1-82b3-4a96-a1be-22a7f83590e0")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -15 7 0)
+    (property "Reference" "C8"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "6.8pF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "e249e00d-e7be-4d12-bbe8-a2256c942365")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -19 7 0)
+    (property "Reference" "C9"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "6.8pF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "8598913c-6b09-4567-9a15-88e301b21e76")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -5 -8 0)
+    (property "Reference" "C3"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "10uF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "c66e2d46-b658-428c-a482-e86c7846cc86")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at -11 -8 0)
+    (property "Reference" "C4"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "10uF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "9987ed5e-276c-40f1-8993-e4d05ec5e4e2")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -17 -3 0)
+    (property "Reference" "R8"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "4.7k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "ecae921c-960f-49de-9d5a-55c582d5b21a")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -17 -5 0)
+    (property "Reference" "R9"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "4.7k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "3794900c-5055-42b2-90e3-20e60e49a0fe")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -2 17 0)
+    (property "Reference" "R6"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "5.1k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "23291b0b-5103-4af3-9275-aa909386e504")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at 2 17 0)
+    (property "Reference" "R7"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "5.1k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "c08999e7-0709-494d-aeb2-62c22e004480")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at 3 17 0)
+    (property "Reference" "R1"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "10k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "38f7a37b-dfb8-43df-84d4-c9478396bee8")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -27 10 0)
+    (property "Reference" "R2"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "1k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "408ff2c1-09ce-4a4e-948a-82e31811fd29")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -23 10 0)
+    (property "Reference" "R3"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "1k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "74807ce7-996d-4f25-9131-7a173fdbfe4b")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -19 10 0)
+    (property "Reference" "R4"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "1k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "39d2e5a2-f030-40c1-8be2-c4981109e7cf")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at -23 -3 0)
+    (property "Reference" "R5"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "10k"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "53991562-866a-4aaa-9950-6a2ee47c289e")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 6 -3 0)
+    (property "Reference" "C40"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "150pF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "a49afe45-c8e6-4206-85d9-c3d4fb6b3632")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 6 3 0)
+    (property "Reference" "C41"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "150pF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "6c25a4a2-6056-48f7-9fee-fba4ab3cf474")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 14 -3 0)
+    (property "Reference" "C42"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "27pF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "6f7f0fd6-3317-4f87-a897-ec511426dbf2")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 14 3 0)
+    (property "Reference" "C43"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "d0a6b92f-715b-4221-8f20-e9930a6f88fa")
+  )
+
+  (footprint "Capacitor_SMD:C_0402_1005Metric"
+    (layer "F.Cu")
+    (at 6 -5 0)
+    (property "Reference" "C44"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100nF"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "4305d8b8-fa37-48ff-b961-70e13ba2ec74")
+  )
+
+  (footprint "Inductor_SMD:L_0402_1005Metric"
+    (layer "F.Cu")
+    (at 6 0 0)
+    (property "Reference" "L1"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "390nH"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "335ac7fc-7d36-4f96-80ef-8326de289eb5")
+  )
+
+  (footprint "Resistor_SMD:R_0402_1005Metric"
+    (layer "F.Cu")
+    (at 14 0 0)
+    (property "Reference" "R20"
+      (at 0 -1.2 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "10R"
+      (at 0 1.2 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.48 0) (size 0.56 0.62) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "c5e3923a-4b68-4a2c-9b8d-42efab9c67d0")
+  )
+
+  (footprint "Capacitor_SMD:C_0805_2012Metric"
+    (layer "F.Cu")
+    (at 20 18 0)
+    (property "Reference" "C5"
+      (at 0 -1.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (property "Value" "100uF"
+      (at 0 1.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (pad "1" smd roundrect (at -0.9 0) (size 1.0 1.2) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (pad "2" smd roundrect (at 0.9 0) (size 1.0 1.2) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25))
+    (uuid "99fa2848-887f-4062-b35f-a4da6d4d4356")
+  )
+
+  (footprint "stick-lib:Supercap_Cylindrical_14mm"
+    (layer "F.Cu")
+    (at 25 -15 0)
+    (property "Reference" "C1"
+      (at 0 -9.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (property "Value" "10F 3V"
+      (at 0 9.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (pad "1" thru_hole circle (at -2.5 0) (size 2.0 2.0) (drill 1.0) (layers "*.Cu" "*.Mask"))
+    (pad "2" thru_hole circle (at 2.5 0) (size 2.0 2.0) (drill 1.0) (layers "*.Cu" "*.Mask"))
+    (uuid "8f0f385c-6018-4b24-a1b0-342e9c7cc578")
+  )
+
+  (footprint "stick-lib:Supercap_Cylindrical_14mm"
+    (layer "F.Cu")
+    (at 25 15 0)
+    (property "Reference" "C2"
+      (at 0 -9.5 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (property "Value" "10F 3V"
+      (at 0 9.5 0)
+      (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (pad "1" thru_hole circle (at -2.5 0) (size 2.0 2.0) (drill 1.0) (layers "*.Cu" "*.Mask"))
+    (pad "2" thru_hole circle (at 2.5 0) (size 2.0 2.0) (drill 1.0) (layers "*.Cu" "*.Mask"))
+    (uuid "c67ba805-93c9-4da5-916b-ad9ae4dc69f0")
+  )
 )
