@@ -35,7 +35,85 @@ Each zip contains gerbers, drill files, BOM CSV, and CPL (centroid) CSV.
 5. Tools → Edit Symbol Fields → Export as CSV
    - Or use the JLCPCB KiCad plugin for auto-formatted BOM + CPL
 
-## 2. Upload to JLCPCB
+## 2. Route the PCB in KiCad
+
+The `.kicad_pcb` files have all components placed with correct footprints,
+pads, and net assignments, but **signal traces have not been routed** (except
+the NFC antenna spirals on B.Cu). You must route traces before exporting
+gerbers.
+
+### 2a. Open the board in KiCad
+
+```
+kicad stick/rev1-pcb/kicad/stick.kicad_pcb
+# or
+kicad relay/kicad/relay.kicad_pcb
+```
+
+When KiCad opens the board, you'll see a **ratsnest** — thin lines showing
+all unrouted connections. Each line connects two pads that share a net.
+
+### 2b. Import the schematic netlist (optional)
+
+If the ratsnest doesn't appear, import the netlist from the schematic:
+1. Open the PCB editor
+2. **Tools → Update PCB from Schematic** (or press F8)
+3. Click **Update PCB**
+
+This synchronizes the schematic net assignments with the board. The net
+assignments are already embedded in the PCB pads, so this step may not
+be needed — but it ensures everything is consistent.
+
+### 2c. Route traces
+
+Use KiCad's interactive router to connect all pads:
+
+1. Press **X** to enter routing mode
+2. Click a pad to start a trace, click another pad on the same net to finish
+3. Use **V** during routing to add a via and switch layers
+4. The 4-layer stackup means:
+   - **F.Cu** — Signal traces and component connections
+   - **In1.Cu** — GND plane (zone fill handles most GND connections via vias)
+   - **In2.Cu** — VCC plane (zone fill handles most VCC connections via vias)
+   - **B.Cu** — NFC antenna (already routed) + additional signals if needed
+
+**Routing tips for these boards:**
+- **GND/VCC connections**: Drop a via from the pad — the inner plane zone
+  pour connects automatically. No trace needed.
+- **QFN breakout**: Route the nRF52840's 48 pins outward from the center,
+  using both F.Cu and B.Cu with vias. Fan-out the inner pins first.
+- **Crystal traces**: Keep Y1/Y2 traces short (<10mm) and avoid routing
+  other signals near the crystal area.
+- **USB D+/D-**: Route as a differential pair (90Ω impedance target). Keep
+  traces equal length and close together.
+- **SPI bus**: Keep SCK/MOSI/CS traces reasonably short to the FPC connector.
+- **I2C bus** (relay): SDA/SCL can be longer — pull-ups (R8/R9) handle
+  signal integrity.
+- **BQ25504 inductor** (relay): Keep the L2 → U3 trace short and wide
+  (0.5mm+) — this carries the boost converter switching current.
+
+### 2d. Run DRC
+
+After routing, run **Inspect → Design Rules Check** (or press Shift+D):
+- Fix any clearance violations (traces too close)
+- Fix any unconnected nets (missed connections)
+- Fix any short circuits
+
+### 2e. Fill zones
+
+**Edit → Fill All Zones** (press B) to generate the copper pours on the
+inner layers. This creates the GND and VCC planes.
+
+### 2f. Re-export gerbers
+
+Once DRC passes with no errors, re-run the export script:
+```bash
+python3 export_jlcpcb.py
+```
+
+The resulting zip files now contain fully-routed gerbers ready for fab.
+
+## 3. Upload to JLCPCB
 
 Go to [jlcpcb.com](https://www.jlcpcb.com/) and click **"Order Now"** (or
 **"Instant Quote"**).
@@ -49,7 +127,7 @@ gerbers and show a board preview. Verify:
 - All layers are detected (should show 4 copper layers)
 - Board outline looks correct with rounded corners
 
-## 3. PCB Specification Settings
+## 4. PCB Specification Settings
 
 Select these options for both boards:
 
@@ -83,7 +161,7 @@ Select these options for both boards:
 - **Paper between PCBs**: Only if you care about scratches
 - **4-Wire Kelvin Test**: Overkill for prototypes
 
-## 4. Enable SMT Assembly (PCBA)
+## 5. Enable SMT Assembly (PCBA)
 
 Toggle **"PCB Assembly"** on. This is below the PCB options.
 
@@ -97,7 +175,7 @@ Toggle **"PCB Assembly"** on. This is below the PCB options.
 
 Click **"Next"** to proceed to BOM & CPL upload.
 
-## 5. Upload BOM and CPL
+## 6. Upload BOM and CPL
 
 Upload the two CSV files from the zip:
 - **BOM file**: `stick-BOM-JLCPCB.csv` or `relay-BOM-JLCPCB.csv`
@@ -105,7 +183,7 @@ Upload the two CSV files from the zip:
 
 Click **"Process BOM & CPL"**.
 
-### 5a: Match Parts to LCSC Numbers
+### 6a: Match Parts to LCSC Numbers
 
 JLCPCB will attempt to auto-match components. For any unmatched parts, you
 need to search and assign LCSC part numbers manually.
@@ -154,7 +232,7 @@ need to search and assign LCSC part numbers manually.
 on [lcsc.com](https://www.lcsc.com/) before ordering. Basic parts are cheaper
 to assemble (~$0.0017/pad); Extended parts cost ~$0.007/pad extra.
 
-### 5b: Review Component Placement
+### 6b: Review Component Placement
 
 After matching parts, JLCPCB shows a placement preview. Check that:
 - All components are on the correct side (Top)
@@ -165,7 +243,7 @@ After matching parts, JLCPCB shows a placement preview. Check that:
 relative to KiCad. If a part looks wrong, note the correction in the
 JLCPCB interface — they have a rotation offset tool.
 
-## 6. Parts Not Available on JLCPCB
+## 7. Parts Not Available on JLCPCB
 
 Some components will likely not be in JLCPCB's library or may be out of
 stock. You have two options:
@@ -189,7 +267,7 @@ These components are through-hole or special and should be hand-soldered:
 - Piezo harvester (PPA-1014) — cantilever, glue + wire
 - Solar cell (KXOB25-05X3F) — attach with conductive epoxy or solder tabs
 
-## 7. Review and Pay
+## 8. Review and Pay
 
 1. Review the final quote breakdown:
    - PCB fabrication cost
@@ -202,7 +280,7 @@ These components are through-hole or special and should be hand-soldered:
 3. Pay and wait for production file review (if you selected "Confirm
    Production File")
 
-## 8. Post-Assembly Checklist
+## 9. Post-Assembly Checklist
 
 When boards arrive:
 
