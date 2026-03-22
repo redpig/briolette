@@ -419,7 +419,7 @@
 
   )
 
-  (footprint "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm"
+  (footprint "Crystal:Crystal_SMD_3225-2Pin_3.2x2.5mm"
     (layer "F.Cu")
     (at -8.0 4.0 0)
     (property "Reference" "Y1"
@@ -1263,4 +1263,27 @@
     (pad "2" thru_hole circle (at 2.5 0) (size 2.0 2.0) (drill 1.0) (layers "*.Cu" "*.Mask"))
     (uuid "02faca5e-ebb3-4e35-b5e9-e9e92083a52c")
   )
+
+  (footprint "stick-lib:Piezo_Cantilever_25x5mm"
+    (layer "F.Cu")
+    (at -20.0 -12.0 90)
+    (property "Reference" "J4"
+      (at 0 -5.0 0)
+      (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (property "Value" "PPA-1014"
+      (at 0 5.0 0)
+      (layer "F.Fab")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (pad "1" smd rect (at 11.0 -1.5) (size 2.0 1.5) (layers "F.Cu" "F.Paste" "F.Mask"))
+    (pad "2" smd rect (at 11.0 1.5) (size 2.0 1.5) (layers "F.Cu" "F.Paste" "F.Mask"))
+    (pad "MP" thru_hole circle (at 12.0 0) (size 1.6 1.6) (drill 1.0) (layers "*.Cu" "*.Mask"))
+    (uuid "73aa6656-a68b-43f2-8092-08a709b172e9")
+  )
+
+  (segment (start 10.1 11.0) (end 10.1 13.0) (width 0.3) (layer "F.Cu") (net 25) (uuid "8ea833a6-cb0e-4b10-953c-45a09313fd35"))
+  (segment (start 10.1 13.0) (end -13.0 13.0) (width 0.3) (layer "F.Cu") (net 25) (uuid "6c6a7acb-a167-4a48-946f-1bb2059c9a1d"))
+  (segment (start -13.0 13.0) (end -13.0 -6.0) (width 0.3) (layer "F.Cu") (net 25) (uuid "1f4ce1f4-88ca-409b-a4c7-1a9ba65b4dbf"))
 )
