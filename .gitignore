@@ -17,3 +17,7 @@ data/**/*.gpk
 data/**/*.pk
 data/**/*.state
 data/**/*.pb
+
+# Generated manufacturing files
+hardware/stick/rev1-pcb/gerbers/
+hardware/relay/gerbers/

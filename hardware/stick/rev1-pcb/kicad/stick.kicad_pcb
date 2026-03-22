@@ -15,9 +15,6 @@
     (comment 2 "Bottom layer: NFC antenna trace coil")
   )
 
-  ;; ============================================================
-  ;; 4-Layer Stackup
-  ;; ============================================================
   (layers
     (0 "F.Cu" signal)
     (1 "In1.Cu" signal "GND")
@@ -102,9 +99,6 @@
     )
   )
 
-  ;; ============================================================
-  ;; Net definitions
-  ;; ============================================================
   (net 0 "")
   (net 1 "GND")
   (net 2 "VCC")
@@ -137,33 +131,24 @@
   (net 29 "SIM_RST")
   (net 30 "SIM_DET")
 
-  ;; ============================================================
-  ;; Board outline (60mm x 30mm with rounded corners)
-  ;; Origin at board center
-  ;; ============================================================
-
-  ;; Top edge
   (gr_line (start -28.0 -15.0) (end 28.0 -15.0)
     (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
 
     (uuid "be6de9e9-7eea-4415-a1ef-2c646dd7c3b9")
 
   )
-  ;; Right edge
   (gr_line (start 30.0 -13.0) (end 30.0 13.0)
     (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
 
     (uuid "094be720-9866-4a58-a60b-831ece82a836")
 
   )
-  ;; Bottom edge
   (gr_line (start 28.0 15.0) (end -28.0 15.0)
     (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
 
     (uuid "ca5492de-4a99-4b82-bfbc-c8d032f76804")
 
   )
-  ;; Left edge
   (gr_line (start -30.0 13.0) (end -30.0 -13.0)
     (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
 
@@ -171,7 +156,6 @@
 
   )
 
-  ;; Rounded corners (2mm radius arcs)
   (gr_arc (start -28.0 -15.0) (mid -29.414 -14.414) (end -30.0 -13.0)
     (stroke (width 0.1) (type default)) (layer "Edge.Cuts")
 
@@ -197,9 +181,6 @@
 
   )
 
-  ;; ============================================================
-  ;; Keyring hole (3mm plated, left end)
-  ;; ============================================================
   (footprint "MountingHole:MountingHole_3.2mm_M3"
     (layer "F.Cu")
     (at -25.0 0)
@@ -220,12 +201,6 @@
 
   )
 
-  ;; ============================================================
-  ;; Component placement (top layer)
-  ;; All coordinates relative to board center (0,0)
-  ;; ============================================================
-
-  ;; --- USB-C connector: right edge, centered vertically ---
   (footprint "stick-lib:USB_C_GCT_USB4135"
     (layer "F.Cu")
     (at 27.0 0 0)
@@ -244,7 +219,6 @@
 
   )
 
-  ;; --- ESD protection: near USB-C ---
   (footprint "Package_SO:TSSOP-16_4.4x5mm_P0.65mm"
     (layer "F.Cu")
     (at 20.0 0 0)
@@ -263,7 +237,6 @@
 
   )
 
-  ;; --- Charge current limiter: between USB and supercaps ---
   (footprint "Package_TO_SOT_SMD:SOT-23-6"
     (layer "F.Cu")
     (at 14.0 -5.0 0)
@@ -282,7 +255,6 @@
 
   )
 
-  ;; --- LDO regulator: center-right area ---
   (footprint "Package_TO_SOT_SMD:SOT-23-5"
     (layer "F.Cu")
     (at 14.0 5.0 0)
@@ -301,7 +273,6 @@
 
   )
 
-  ;; --- nRF52840 MCU: board center ---
   (footprint "stick-lib:QFN-48-6x6mm"
     (layer "F.Cu")
     (at 0 0 0)
@@ -320,7 +291,6 @@
 
   )
 
-  ;; --- Nano-SIM connector: near MCU, ISO 7816 interface ---
   (footprint "stick-lib:NanoSIM_Molex_78800"
     (layer "F.Cu")
     (at -8.0 -8.0 0)
@@ -339,7 +309,6 @@
 
   )
 
-  ;; --- 32MHz crystal: close to MCU XC1/XC2 pins ---
   (footprint "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm"
     (layer "F.Cu")
     (at -8.0 4.0 0)
@@ -358,7 +327,6 @@
 
   )
 
-  ;; --- 32.768kHz crystal: close to MCU XL1/XL2 pins ---
   (footprint "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm"
     (layer "F.Cu")
     (at -8.0 8.0 0)
@@ -377,7 +345,6 @@
 
   )
 
-  ;; --- E-Ink FPC connector: upper-left area (display on top face) ---
   (footprint "stick-lib:FPC_24pin_0.5mm"
     (layer "F.Cu")
     (at -10.0 -12.0 0)
@@ -396,7 +363,6 @@
 
   )
 
-  ;; --- Left button: below display, left side ---
   (footprint "stick-lib:SW_SPST_3x3mm"
     (layer "F.Cu")
     (at -15.0 10.0 0)
@@ -415,7 +381,6 @@
 
   )
 
-  ;; --- Right button: below display, right side ---
   (footprint "stick-lib:SW_SPST_3x3mm"
     (layer "F.Cu")
     (at -5.0 10.0 0)
@@ -434,7 +399,6 @@
 
   )
 
-  ;; --- BAT54S piezo rectifier: lower-left area ---
   (footprint "Package_TO_SOT_SMD:SOT-23"
     (layer "F.Cu")
     (at -18.0 2.0 0)
@@ -453,73 +417,43 @@
 
   )
 
-  ;; ============================================================
-  ;; NFC Antenna Trace (Bottom copper layer)
-  ;; Rectangular spiral: ~25mm x 20mm, 4.5 turns
-  ;; Trace width: 0.3mm, spacing: 0.3mm, pitch: 0.6mm
-  ;; Centered at (0, 2) on the bottom layer
-  ;; ============================================================
-
-  ;; NFC Antenna: Continuous rectangular spiral, 4.5 turns
-  ;; Each turn is open at bottom-left corner and steps inward to next turn.
-  ;; Trace width: 0.3mm, spacing: 0.3mm, pitch: 0.6mm
-  ;; All turns on single net (NFC_ANT), inner end crosses to NFC2 via top layer.
-
-  ;; Start: via from F.Cu NFC1 pad down to B.Cu at (-12.5, -8.5)
   (via (at -12.5 -8.5) (size 0.6) (drill 0.3)
     (layers "F.Cu" "B.Cu") (net 24) (uuid "60afb061-c47c-4a9c-b601-04aa1f28a154"))
 
-  ;; Lead-in from via to Turn 1 start
   (segment (start -12.5 -8.5) (end -12.5 -7.5) (width 0.3) (layer "B.Cu") (net 24) (uuid "d900df1f-7449-4a54-a0e8-d4e3b78f91f9"))
 
-  ;; Turn 1 (outermost): 3 sides — top, right, bottom (open at left)
   (segment (start -12.5 -7.5) (end 12.5 -7.5) (width 0.3) (layer "B.Cu") (net 24) (uuid "f887a9a0-7603-4a23-9fe1-9b2e582d71ab"))
   (segment (start 12.5 -7.5) (end 12.5 12.5) (width 0.3) (layer "B.Cu") (net 24) (uuid "f2ac4331-b946-448e-891a-1dcf95377c9c"))
   (segment (start 12.5 12.5) (end -12.5 12.5) (width 0.3) (layer "B.Cu") (net 24) (uuid "fafb56db-e386-452b-a498-8cffe42e60a8"))
-  ;; Left side stops short — step inward to Turn 2
   (segment (start -12.5 12.5) (end -12.5 -6.9) (width 0.3) (layer "B.Cu") (net 24) (uuid "2c204aff-3cdc-4a1e-bb4d-d8820778f96d"))
-  ;; Step inward (connects Turn 1 left to Turn 2 top-left)
   (segment (start -12.5 -6.9) (end -11.9 -6.9) (width 0.3) (layer "B.Cu") (net 24) (uuid "9b1a1631-3629-40cd-93fc-624f2c71b6c1"))
 
-  ;; Turn 2: 3 sides — top, right, bottom (open at left)
   (segment (start -11.9 -6.9) (end 11.9 -6.9) (width 0.3) (layer "B.Cu") (net 24) (uuid "52c06db8-f3fa-4cde-b22e-0b160efeb8f0"))
   (segment (start 11.9 -6.9) (end 11.9 11.9) (width 0.3) (layer "B.Cu") (net 24) (uuid "cdb4856f-fba3-4c3f-90f6-01cbdd6560fc"))
   (segment (start 11.9 11.9) (end -11.9 11.9) (width 0.3) (layer "B.Cu") (net 24) (uuid "5f1997b2-3923-4d5c-bf3f-48bb4e8793b0"))
-  ;; Left side stops short — step inward to Turn 3
   (segment (start -11.9 11.9) (end -11.9 -6.3) (width 0.3) (layer "B.Cu") (net 24) (uuid "77dd1a1a-fabc-442b-815a-6f04c249517c"))
   (segment (start -11.9 -6.3) (end -11.3 -6.3) (width 0.3) (layer "B.Cu") (net 24) (uuid "a12c6024-d2de-4691-bd15-b6229d420e7d"))
 
-  ;; Turn 3: 3 sides — top, right, bottom (open at left)
   (segment (start -11.3 -6.3) (end 11.3 -6.3) (width 0.3) (layer "B.Cu") (net 24) (uuid "795563db-b0a8-40a7-83c8-2a35f0d7dfe7"))
   (segment (start 11.3 -6.3) (end 11.3 11.3) (width 0.3) (layer "B.Cu") (net 24) (uuid "15f13c88-d24d-4ade-ae2f-c61da8bf5e57"))
   (segment (start 11.3 11.3) (end -11.3 11.3) (width 0.3) (layer "B.Cu") (net 24) (uuid "b7b7e7e4-b524-4e63-bd88-6a0c1b1fbbf4"))
-  ;; Left side stops short — step inward to Turn 4
   (segment (start -11.3 11.3) (end -11.3 -5.7) (width 0.3) (layer "B.Cu") (net 24) (uuid "d61c36ab-ba9d-4edb-94ad-7e17c336b497"))
   (segment (start -11.3 -5.7) (end -10.7 -5.7) (width 0.3) (layer "B.Cu") (net 24) (uuid "3854757a-b3e0-4240-bae2-29b7252c1f21"))
 
-  ;; Turn 4: 3 sides — top, right, bottom (open at left)
   (segment (start -10.7 -5.7) (end 10.7 -5.7) (width 0.3) (layer "B.Cu") (net 24) (uuid "cb21a10c-8b7a-40a8-ad86-af564a859bac"))
   (segment (start 10.7 -5.7) (end 10.7 10.7) (width 0.3) (layer "B.Cu") (net 24) (uuid "f7026f30-9c74-46c9-9c48-bde3d39544d4"))
   (segment (start 10.7 10.7) (end -10.7 10.7) (width 0.3) (layer "B.Cu") (net 24) (uuid "e0f2c9dc-fa4b-4196-88a9-95c2cc42ce91"))
-  ;; Left side stops short — step inward to Turn 5
   (segment (start -10.7 10.7) (end -10.7 -5.1) (width 0.3) (layer "B.Cu") (net 24) (uuid "df530c59-8d10-4433-a6b3-1b50a354a93c"))
   (segment (start -10.7 -5.1) (end -10.1 -5.1) (width 0.3) (layer "B.Cu") (net 24) (uuid "d7ddfcfe-6dfd-45a3-ab6e-de69aef71eca"))
 
-  ;; Turn 5 (innermost, half-turn): top and right side only
   (segment (start -10.1 -5.1) (end 10.1 -5.1) (width 0.3) (layer "B.Cu") (net 24) (uuid "1989e1e0-bac8-45aa-9377-521d94df0794"))
   (segment (start 10.1 -5.1) (end 10.1 10.1) (width 0.3) (layer "B.Cu") (net 24) (uuid "d3ec995c-561b-4be1-934a-28479e61d919"))
 
-  ;; Lead-out from inner end to NFC2 via
   (segment (start 10.1 10.1) (end 10.1 11.0) (width 0.3) (layer "B.Cu") (net 24) (uuid "4d844b5f-84df-4296-a8c3-e21188efa161"))
 
-  ;; Crossover via: inner spiral end goes to F.Cu, then routes back to NFC2
-  ;; This via transitions the inner end to NFC2 net on the top layer
   (via (at 10.1 11.0) (size 0.6) (drill 0.3)
     (layers "F.Cu" "B.Cu") (net 25) (uuid "e6fe07c5-43f8-449e-ac57-976498ca4674"))
 
-  ;; ============================================================
-  ;; Ground plane zones (In1.Cu = full ground pour)
-  ;; ============================================================
   (zone
     (net 1)
     (net_name "GND")
@@ -540,9 +474,6 @@
     )
   )
 
-  ;; ============================================================
-  ;; Power plane zone (In2.Cu = VCC pour)
-  ;; ============================================================
   (zone
     (net 2)
     (net_name "VCC")
@@ -563,10 +494,6 @@
     )
   )
 
-  ;; ============================================================
-  ;; Ground plane zone (B.Cu — around the NFC antenna area)
-  ;; Note: keep-out around antenna, ground pour fills the rest
-  ;; ============================================================
   (zone
     (net 1)
     (net_name "GND")
@@ -587,10 +514,6 @@
     )
   )
 
-  ;; ============================================================
-  ;; Keep-out zone: No copper on In1.Cu under NFC antenna
-  ;; (ground plane opening to avoid detuning the antenna)
-  ;; ============================================================
   (zone
     (net 0)
     (net_name "")
@@ -612,9 +535,6 @@
     )
   )
 
-  ;; ============================================================
-  ;; Keep-out zone: No copper on In2.Cu under NFC antenna
-  ;; ============================================================
   (zone
     (net 0)
     (net_name "")
@@ -636,9 +556,6 @@
     )
   )
 
-  ;; ============================================================
-  ;; Fabrication notes on F.Fab
-  ;; ============================================================
   (gr_text "Briolette Credstick Rev1"
     (at 0 -17.0 0)
     (layer "F.SilkS")
@@ -653,9 +570,7 @@
     (layer "Cmts.User")
     (effects (font (size 1.0 1.0) (thickness 0.15)))
 
-
     (uuid "939af211-6ee6-4242-8614-4256c799195d")
-
 
   )
 
@@ -664,15 +579,10 @@
     (layer "Cmts.User")
     (effects (font (size 0.8 0.8) (thickness 0.12)))
 
-
     (uuid "1f627c1c-5493-4acf-88a7-d065a2791707")
-
 
   )
 
-  ;; ============================================================
-  ;; Dimension annotations
-  ;; ============================================================
   (dimension (type aligned)
     (layer "Dwgs.User")
     (pts (xy -30.0 16.5) (xy 30.0 16.5))
@@ -695,9 +605,7 @@
       (extension_height 0.5) (extension_offset 0.5)
       (keep_text_aligned yes))
 
-
     (uuid "754b4dea-bfcc-4127-af08-890d7365dd13")
-
 
   )
 )

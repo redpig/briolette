@@ -3,7 +3,7 @@
 JLCPCB Manufacturing File Exporter for Briolette Hardware
 
 Generates Gerber files, drill files, BOM, and CPL (centroid) for JLCPCB
-ordering. Uses kicad-cli (KiCad 8.0+) — no pcbnew Python bindings required.
+ordering. Uses kicad-cli (KiCad 8.0+ / 9.x) -- no pcbnew Python bindings required.
 
 Usage:
     # From the hardware/ directory, with KiCad installed:
@@ -185,8 +185,9 @@ def parse_footprints_from_pcb(pcb_path):
     # Match top-level footprint blocks
     # Each footprint starts with (footprint "..." and we need ref + value properties
     fp_pattern = re.compile(r'\(footprint\s+"([^"]*)"', re.MULTILINE)
-    ref_pattern = re.compile(r'\(fp_text\s+reference\s+"([^"]*)"')
-    val_pattern = re.compile(r'\(fp_text\s+value\s+"([^"]*)"')
+    # KiCad 7: (fp_text reference "R1"), KiCad 8+: (property "Reference" "R1")
+    ref_pattern = re.compile(r'(?:\(fp_text\s+reference\s+"([^"]*)"|\(property\s+"Reference"\s+"([^"]*)")')
+    val_pattern = re.compile(r'(?:\(fp_text\s+value\s+"([^"]*)"|\(property\s+"Value"\s+"([^"]*)")')
 
     # Walk the file finding footprint blocks by tracking parenthesis depth
     i = 0
@@ -214,8 +215,8 @@ def parse_footprints_from_pcb(pcb_path):
         ref_match = ref_pattern.search(fp_block)
         val_match = val_pattern.search(fp_block)
 
-        ref = ref_match.group(1) if ref_match else ""
-        value = val_match.group(1) if val_match else ""
+        ref = (ref_match.group(1) or ref_match.group(2)) if ref_match else ""
+        value = (val_match.group(1) or val_match.group(2)) if val_match else ""
 
         if ref and not ref.startswith(SKIP_PREFIXES):
             footprints.append({
