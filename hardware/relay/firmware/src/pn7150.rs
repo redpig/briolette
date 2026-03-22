@@ -25,9 +25,8 @@
 //!   periods mean bigger APDUs and more RF time per transaction.
 
 use embassy_nrf::gpio::{Input, Output};
-use embassy_nrf::twim::Twim;
-use embassy_nrf::peripherals;
 use embassy_time::{Duration, Timer};
+use embedded_hal_async::i2c::I2c;
 use heapless::Vec;
 
 const PN7150_I2C_ADDR: u8 = 0x28;
@@ -132,11 +131,10 @@ pub enum Error {
 ///
 /// Manages the PN7150 over I2C with interrupt-driven reads.
 /// The INT pin signals when the PN7150 has data ready to read.
-pub struct Pn7150<'a> {
+/// Generic over the I2C bus type to support shared bus patterns.
+pub struct Pn7150<'a, I2C> {
     state: State,
-    /// I2C bus shared with other peripherals (e.g., TCA8418 keypad).
-    /// Caller must ensure exclusive access during NFC operations.
-    i2c: Twim<'a, peripherals::TWISPI0>,
+    i2c: I2C,
     /// Interrupt pin from PN7150 (active-low, open-drain).
     irq: Input<'a>,
     /// VEN (enable) pin — high to enable PN7150, low to power down.
@@ -147,12 +145,11 @@ pub struct Pn7150<'a> {
     conn_id: u8,
 }
 
-impl<'a> Pn7150<'a> {
-    pub fn new(
-        i2c: Twim<'a, peripherals::TWISPI0>,
-        irq: Input<'a>,
-        ven: Output<'a>,
-    ) -> Self {
+impl<'a, I2C, E> Pn7150<'a, I2C>
+where
+    I2C: I2c<Error = E>,
+{
+    pub fn new(i2c: I2C, irq: Input<'a>, ven: Output<'a>) -> Self {
         Self {
             state: State::Uninitialized,
             i2c,

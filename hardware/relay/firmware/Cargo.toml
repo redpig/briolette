@@ -32,6 +32,8 @@ heapless = "0.8"
 
 # Embedded HAL traits
 embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embassy-embedded-hal = "0.2"
 
 # Logging
 defmt = "0.3"

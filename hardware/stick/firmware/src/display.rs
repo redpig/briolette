@@ -22,6 +22,8 @@
 //! or when ghosting accumulates.
 
 use embassy_nrf::gpio::{Input, Output};
+use embassy_nrf::peripherals;
+use embassy_nrf::spim::Spim;
 
 /// Display update commands sent from the main loop.
 pub enum DisplayUpdate {
@@ -63,6 +65,8 @@ const FB_SIZE: usize = WIDTH * HEIGHT / 8;
 
 /// SPI-connected e-ink display driver.
 pub struct Display<'d> {
+    /// SPI bus for data transfer (SCK + MOSI, write-only).
+    spi: Spim<'d, peripherals::TWISPI1>,
     /// Data/Command pin.
     dc: Output<'d>,
     /// Chip Select pin.
@@ -79,12 +83,14 @@ pub struct Display<'d> {
 
 impl<'d> Display<'d> {
     pub fn new(
+        spi: Spim<'d, peripherals::TWISPI1>,
         dc: Output<'d>,
         cs: Output<'d>,
         busy: Input<'d>,
         rst: Output<'d>,
     ) -> Self {
         Self {
+            spi,
             dc,
             cs,
             busy,
@@ -250,39 +256,87 @@ impl<'d> Display<'d> {
         //       .draw(&mut self.display_target)?;
     }
 
+    /// Send a command byte over SPI (DC low = command).
+    fn send_cmd(&mut self, cmd: u8) {
+        self.dc.set_low();
+        self.cs.set_low();
+        // Use blocking write since embassy Spim requires async context.
+        // In a real async context, these would be .await calls.
+        let _ = embassy_futures::block_on(self.spi.write(&[cmd]));
+        self.cs.set_high();
+    }
+
+    /// Send data bytes over SPI (DC high = data).
+    fn send_data(&mut self, data: &[u8]) {
+        self.dc.set_high();
+        self.cs.set_low();
+        let _ = embassy_futures::block_on(self.spi.write(data));
+        self.cs.set_high();
+    }
+
+    /// Wait for the display busy pin to go high (not busy).
+    fn wait_busy(&self) {
+        while self.busy.is_low() {
+            cortex_m::asm::nop();
+        }
+    }
+
     /// Send the framebuffer to the e-ink display.
+    ///
+    /// Uses SSD1681/IL0373-compatible SPI protocol.
     fn flush(&mut self) {
-        // Use partial refresh if available, full refresh periodically.
         self.partial_count += 1;
         let full_refresh = self.partial_count >= 10;
         if full_refresh {
             self.partial_count = 0;
         }
 
-        // E-ink SPI protocol (typical for SSD1681/IL0373 controllers):
-        //
-        // Full refresh:
-        //   1. Send SW reset (0x12), wait busy
-        //   2. Set driver output control (0x01)
-        //   3. Set data entry mode (0x11)
-        //   4. Set RAM X/Y address (0x44, 0x45, 0x4E, 0x4F)
-        //   5. Write RAM data (0x24): send framebuffer
-        //   6. Display update (0x22, 0x20): apply and refresh
-        //   7. Wait busy (~800ms for full refresh)
-        //
-        // Partial refresh:
-        //   1. Set partial mode (0x22 with partial flag)
-        //   2. Write RAM data (0x24)
-        //   3. Display update (0x20)
-        //   4. Wait busy (~300ms for partial)
-
-        // TODO: SPI transactions via embassy-nrf SPI driver.
-        // For now, placeholder.
         if full_refresh {
             defmt::debug!("Display: full refresh");
-        } else {
-            defmt::debug!("Display: partial refresh");
+            // SW Reset
+            self.send_cmd(0x12);
+            self.wait_busy();
+
+            // Driver output control: 200 lines
+            self.send_cmd(0x01);
+            self.send_data(&[0xC7, 0x00, 0x00]); // 199 = 0xC7, gate scan direction
+
+            // Data entry mode: X increment, Y increment
+            self.send_cmd(0x11);
+            self.send_data(&[0x03]);
+
+            // Set RAM X address range: 0 to 24 (200/8 - 1)
+            self.send_cmd(0x44);
+            self.send_data(&[0x00, 0x18]);
+
+            // Set RAM Y address range: 0 to 199
+            self.send_cmd(0x45);
+            self.send_data(&[0x00, 0x00, 0xC7, 0x00]);
+
+            // Set RAM X counter
+            self.send_cmd(0x4E);
+            self.send_data(&[0x00]);
+
+            // Set RAM Y counter
+            self.send_cmd(0x4F);
+            self.send_data(&[0x00, 0x00]);
         }
+
+        // Write RAM data (0x24)
+        self.send_cmd(0x24);
+        self.send_data(&self.fb);
+
+        // Display update control 2: full or partial refresh
+        self.send_cmd(0x22);
+        if full_refresh {
+            self.send_data(&[0xF7]); // Full update sequence
+        } else {
+            self.send_data(&[0xFF]); // Partial update sequence
+        }
+
+        // Master activation
+        self.send_cmd(0x20);
+        self.wait_busy();
     }
 }
 

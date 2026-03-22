@@ -10,12 +10,15 @@ mod transaction;
 use defmt_rtt as _;
 use panic_probe as _;
 
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::peripherals;
 use embassy_nrf::{bind_interrupts, twim};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
 
@@ -68,23 +71,30 @@ async fn main(spawner: Spawner) {
     let config = Config::load_from_flash();
     defmt::info!("Mode: {}", config.mode);
 
-    // --- Initialize I2C bus (shared by PN7150 + TCA8418) ---
+    // --- Initialize shared I2C bus (PN7150 + TCA8418) ---
     let twi_config = twim::Config::default();
     let twi = twim::Twim::new(p.TWISPI0, Irqs, p.P0_26, p.P0_27, twi_config);
 
-    // --- Keypad scanner (TCA8418) control pins ---
-    // KEY_INT on P0.09: interrupt output from TCA8418 (active low, open drain)
-    let _key_int = Input::new(p.P0_09, Pull::Up);
-    // KEY_RST on P0.10: reset input to TCA8418 (active low)
-    let _key_rst = Output::new(p.P0_10, Level::High, OutputDrive::Standard);
-    // TODO: Share the I2C bus between PN7150 and TCA8418 using
-    // embassy_embedded_hal::shared_bus, then initialize the Keypad driver
-    // and spawn a keypad_task to populate EVENT_CHANNEL with KeyPress events.
+    static I2C_BUS: StaticCell<Mutex<NoopRawMutex, twim::Twim<'static, peripherals::TWISPI0>>> =
+        StaticCell::new();
+    let i2c_bus = I2C_BUS.init(Mutex::new(twi));
 
-    // --- Initialize PN7150 NFC reader ---
+    // --- Initialize PN7150 NFC reader (shared I2C) ---
     let nfc_irq = Input::new(p.P0_19, Pull::Up);
     let nfc_ven = Output::new(p.P0_20, Level::Low, OutputDrive::Standard);
-    let mut nfc = Pn7150::new(twi, nfc_irq, nfc_ven);
+    let nfc_i2c = I2cDevice::new(i2c_bus);
+    let mut nfc = Pn7150::new(nfc_i2c, nfc_irq, nfc_ven);
+
+    // --- Initialize TCA8418 keypad scanner (shared I2C) ---
+    // KEY_INT on P0.09: interrupt output from TCA8418 (active low, open drain)
+    let key_int = Input::new(p.P0_09, Pull::Up);
+    // KEY_RST on P0.10: reset input to TCA8418 (active low)
+    let mut key_rst = Output::new(p.P0_10, Level::High, OutputDrive::Standard);
+    // Reset TCA8418
+    key_rst.set_low();
+    Timer::after(Duration::from_millis(1)).await;
+    key_rst.set_high();
+    Timer::after(Duration::from_millis(5)).await;
 
     // --- Initialize LEDs ---
     let mut leds = Leds::new(
@@ -122,6 +132,10 @@ async fn main(spawner: Spawner) {
             leds.play(led::patterns::FAILURE).await;
         }
     }
+
+    // Initialize keypad and spawn polling task.
+    spawner.spawn(keypad_task(i2c_bus, key_int)).unwrap();
+    defmt::info!("Keypad task started");
 
     defmt::info!("Solar relay ready, entering main loop");
 
@@ -405,5 +419,106 @@ async fn main(spawner: Spawner) {
 
         // Brief pause before next transaction.
         Timer::after(Duration::from_secs(1)).await;
+    }
+}
+
+/// Keypad polling task: reads TCA8418 events via shared I2C and sends them
+/// to the main event channel.
+#[embassy_executor::task]
+async fn keypad_task(
+    i2c_bus: &'static Mutex<NoopRawMutex, twim::Twim<'static, peripherals::TWISPI0>>,
+    mut key_int: Input<'static>,
+) {
+    use embedded_hal_async::i2c::I2c;
+
+    const TCA8418_ADDR: u8 = 0x34;
+    const REG_CFG: u8 = 0x01;
+    const REG_INT_STAT: u8 = 0x02;
+    const REG_KEY_LCK_EC: u8 = 0x03;
+    const REG_KEY_EVENT_A: u8 = 0x04;
+    const REG_KP_GPIO1: u8 = 0x1D;
+    const REG_KP_GPIO2: u8 = 0x1E;
+    const REG_KP_GPIO3: u8 = 0x1F;
+
+    // Initialize TCA8418 via I2C
+    {
+        let mut dev = I2cDevice::new(i2c_bus);
+        // Configure ROW0-ROW3 as keypad rows
+        let _ = dev.write(TCA8418_ADDR, &[REG_KP_GPIO1, 0x0F]).await;
+        // Configure COL0-COL3 as keypad columns
+        let _ = dev.write(TCA8418_ADDR, &[REG_KP_GPIO2, 0x0F]).await;
+        let _ = dev.write(TCA8418_ADDR, &[REG_KP_GPIO3, 0x00]).await;
+        // Enable key event interrupt
+        let _ = dev.write(TCA8418_ADDR, &[REG_CFG, 0x11]).await;
+        // Clear pending interrupts
+        let _ = dev.write(TCA8418_ADDR, &[REG_INT_STAT, 0x01]).await;
+    }
+
+    defmt::info!("TCA8418 keypad initialized");
+
+    loop {
+        // Wait for KEY_INT to go low (key event available)
+        key_int.wait_for_low().await;
+
+        let mut dev = I2cDevice::new(i2c_bus);
+
+        // Read all queued events from the FIFO
+        loop {
+            let mut buf = [0u8];
+
+            // Check event count
+            if dev.write_read(TCA8418_ADDR, &[REG_KEY_LCK_EC], &mut buf).await.is_err() {
+                break;
+            }
+            let count = buf[0] & 0x0F;
+            if count == 0 {
+                break;
+            }
+
+            // Read event
+            if dev.write_read(TCA8418_ADDR, &[REG_KEY_EVENT_A], &mut buf).await.is_err() {
+                break;
+            }
+            let event = buf[0];
+            if event == 0 {
+                break;
+            }
+
+            let pressed = (event & 0x80) != 0;
+            let key_code = event & 0x7F;
+
+            // Only handle press events
+            if !pressed {
+                continue;
+            }
+
+            // TCA8418 key codes: row * 10 + col + 1 (1-indexed)
+            let row = (key_code - 1) / 10;
+            let col = (key_code - 1) % 10;
+
+            let key = match (row, col) {
+                (0, 0) => Some(Key::Digit(1)),
+                (0, 1) => Some(Key::Digit(2)),
+                (0, 2) => Some(Key::Digit(3)),
+                (0, 3) => Some(Key::Clear),
+                (1, 0) => Some(Key::Digit(4)),
+                (1, 1) => Some(Key::Digit(5)),
+                (1, 2) => Some(Key::Digit(6)),
+                (2, 0) => Some(Key::Digit(7)),
+                (2, 1) => Some(Key::Digit(8)),
+                (2, 2) => Some(Key::Digit(9)),
+                (3, 0) => Some(Key::Dot),
+                (3, 1) => Some(Key::Digit(0)),
+                (3, 2) => Some(Key::Ok),
+                _ => None,
+            };
+
+            if let Some(k) = key {
+                EVENT_CHANNEL.send(Event::KeyPress(k)).await;
+            }
+        }
+
+        // Clear interrupt
+        let _ = dev.write(TCA8418_ADDR, &[REG_INT_STAT, 0x01]).await;
     }
 }

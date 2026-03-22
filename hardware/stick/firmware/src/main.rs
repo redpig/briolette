@@ -17,6 +17,8 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join3;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::peripherals;
+use embassy_nrf::pwm::{self, Prescaler, SimplePwm};
+use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, uarte};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
@@ -28,6 +30,7 @@ use crate::display::DisplayUpdate;
 
 bind_interrupts!(struct Irqs {
     UARTE0_UART0 => uarte::InterruptHandler<peripherals::UARTE0>;
+    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1 => spim::InterruptHandler<peripherals::TWISPI1>;
 });
 
 /// Messages from NFC/button tasks to the main coordinator.
@@ -75,16 +78,24 @@ async fn main(spawner: Spawner) {
     let sim_rst = Output::new(p.P0_22, Level::Low, OutputDrive::Standard);
     // SIM_DET on P0.24 (card detect, active low with external pull-up).
     let sim_det = Input::new(p.P0_24, Pull::Up);
-    // SIM_CLK on P0.27 (3.25 MHz PWM — started by PWM peripheral).
-    // TODO: Configure PWM0 to output 3.25 MHz clock on P0.27.
+    // SIM_CLK on P0.27: ISO 7816 requires 1-5 MHz clock (40-60% duty).
+    // PWM0 at 16 MHz base / countertop 5 = 3.2 MHz, within spec.
+    let mut sim_clk = SimplePwm::new_1ch(p.PWM0, p.P0_27);
+    sim_clk.set_prescaler(Prescaler::Div1);
+    sim_clk.set_max_duty(5);
+    sim_clk.set_duty(0, 2); // 2/5 = 40% duty, 3.2 MHz
 
     let mut sim = sim_card::SimCard::new(uart, sim_rst, sim_det);
 
-    // Initialize e-ink display control pins (match schematic MCU sheet).
-    // SPI data pins: P0.13 = SCK, P0.14 = MOSI (configured via SPIM peripheral).
-    // TODO: Initialize SPIM0 peripheral on P0.13 (SCK) + P0.14 (MOSI) for
-    // display data transfer. Currently only control GPIOs are wired.
+    // Initialize SPI for e-ink display data transfer.
+    // P0.13 = SCK, P0.14 = MOSI (write-only, no MISO needed).
+    let mut spi_config = spim::Config::default();
+    spi_config.frequency = spim::Frequency::M4;
+    let spi = Spim::new_txonly(p.TWISPI1, Irqs, p.P0_13, p.P0_14, spi_config);
+
+    // Initialize e-ink display with SPI + control pins (match schematic MCU sheet).
     let display = display::Display::new(
+        spi,
         Output::new(p.P0_16, Level::Low, OutputDrive::Standard),  // DC
         Output::new(p.P0_15, Level::High, OutputDrive::Standard), // CS
         Input::new(p.P0_18, Pull::None),                          // BUSY
