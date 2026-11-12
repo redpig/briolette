@@ -205,33 +205,15 @@ impl From<token::Token> for TokenEntry {
             .unwrap()
             .credential
             .clone();
+        let value = item
+            .effective_amount()
+            .unwrap_or_else(|| item.descriptor.as_ref().unwrap().value.clone().unwrap());
         Self {
             token: item.encode_to_vec(),
             credential,
-            whole_value: item
-                .descriptor
-                .as_ref()
-                .unwrap()
-                .value
-                .as_ref()
-                .unwrap()
-                .whole,
-            fractional_value: item
-                .descriptor
-                .as_ref()
-                .unwrap()
-                .value
-                .as_ref()
-                .unwrap()
-                .fractional,
-            value_code: item
-                .descriptor
-                .as_ref()
-                .unwrap()
-                .value
-                .as_ref()
-                .unwrap()
-                .code,
+            whole_value: value.whole,
+            fractional_value: value.fractional,
+            value_code: value.code,
         }
     }
 }
@@ -1480,6 +1462,146 @@ mod tests {
         // Validate should fail...
         assert_eq!(wd.validate().await, false);
         // TODO: check the revocation database.
+
+        teardown();
+    }
+
+    fn sign_split_transfer(
+        base_token: &token::Token,
+        recipient: &token::SignedTicket,
+        split_amount: token::Amount,
+        secret_key: &[u8],
+    ) -> token::Token {
+        let mut tok = base_token.clone();
+        let last_sig = tok.base.as_ref().unwrap().signature.clone();
+        let committed_credential = tok
+            .base
+            .as_ref()
+            .unwrap()
+            .transfer
+            .as_ref()
+            .unwrap()
+            .recipient
+            .as_ref()
+            .unwrap()
+            .ticket
+            .as_ref()
+            .unwrap()
+            .credential
+            .clone();
+        let mut transfer = token::Transfer {
+            recipient: Some(recipient.clone()),
+            tags: vec![token::Tag {
+                value: Some(token::tag::Value::SplitValue(split_amount)),
+            }],
+            previous_signature: last_sig.clone(),
+        };
+        let serialized_transfer = transfer.encode_to_vec();
+        let basename = Some(last_sig);
+        let mut signature = vec![];
+        assert!(v0::sign(
+            &serialized_transfer,
+            &committed_credential,
+            &secret_key.to_vec(),
+            &basename,
+            false,
+            &mut signature,
+        ));
+        transfer.previous_signature.clear();
+        v0::deflate_signature(&mut signature);
+        tok.history.push(token::History {
+            transfer: Some(transfer),
+            signature,
+        });
+        tok
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn withdraw_and_split_validate() {
+        let tmp = TempDir::new("briolette-svc").expect("create new TempDir");
+        let tokenmap_uri = setup_tokenmap(&tmp).await.unwrap();
+        let registrar_uri = setup_registrar(&tmp).await.unwrap();
+        let clerk_uri = setup_clerk(&tmp, &tokenmap_uri).await.unwrap();
+        let mint_uri = setup_mint(&tmp, tokenmap_uri.clone()).await.unwrap();
+        let validate_uri = setup_validate(&tmp, clerk_uri.clone(), tokenmap_uri.clone())
+            .await
+            .unwrap();
+        let mut wd = WalletData::new(
+            registrar_uri.to_string(),
+            clerk_uri.to_string(),
+            mint_uri.to_string(),
+            validate_uri.to_string(),
+        )
+        .unwrap();
+        assert_eq!(wd.initialize_keys(b"test-split"), true);
+        assert_eq!(wd.initialize_credential().await, true);
+        assert_eq!(wd.synchronize().await, true);
+        assert_eq!(wd.get_tickets(5).await, true);
+        assert_eq!(wd.withdraw(1).await, true);
+        let base_token = token::Token::decode(wd.tokens[0].token.as_slice()).unwrap();
+        let dest_a: token::SignedTicket = wd.tickets[0].clone().into();
+        let dest_b: token::SignedTicket = wd.tickets[1].clone().into();
+        let dest_c: token::SignedTicket = wd.tickets[2].clone().into();
+
+        // An over-split (whole=2 on a 1-unit token) must fail TokenVerify::verify.
+        let tok_over = sign_split_transfer(
+            &base_token,
+            &dest_a,
+            token::Amount {
+                whole: 2,
+                fractional: 0.0,
+                code: token::AmountType::TestToken as i32,
+            },
+            &wd.transfer_credential.secret_key,
+        );
+        assert_eq!(
+            Err(BrioletteErrorCode::InvalidAmountType),
+            tok_over.verify(
+                wd.transfer_credential.group_public_key.as_ref().unwrap(),
+                &wd.epoch.mint_signing_keys,
+                &wd.epoch.ticket_signing_keys,
+            )
+        );
+        assert_eq!(wd.validate_tokens(&vec![tok_over]).await, false);
+
+        // A valid PoP split pair ({1, 0} and {0, 0}) passes validation, with effective
+        // amounts 1 and 0 respectively, while a third branch at the same fork fails.
+        let tok_a = sign_split_transfer(
+            &base_token,
+            &dest_a,
+            token::Amount {
+                whole: 1,
+                fractional: 0.0,
+                code: token::AmountType::TestToken as i32,
+            },
+            &wd.transfer_credential.secret_key,
+        );
+        let tok_b = sign_split_transfer(
+            &base_token,
+            &dest_b,
+            token::Amount {
+                whole: 0,
+                fractional: 0.0,
+                code: token::AmountType::TestToken as i32,
+            },
+            &wd.transfer_credential.secret_key,
+        );
+        let tok_c = sign_split_transfer(
+            &base_token,
+            &dest_c,
+            token::Amount {
+                whole: 0,
+                fractional: 0.0,
+                code: token::AmountType::TestToken as i32,
+            },
+            &wd.transfer_credential.secret_key,
+        );
+
+        assert_eq!(wd.validate_tokens(&vec![tok_a.clone()]).await, true);
+        assert_eq!(wd.validate_tokens(&vec![tok_b.clone()]).await, true);
+        assert_eq!(TokenEntry::from(tok_a).whole_value, 1);
+        assert_eq!(TokenEntry::from(tok_b).whole_value, 0);
+        assert_eq!(wd.validate_tokens(&vec![tok_c]).await, false);
 
         teardown();
     }

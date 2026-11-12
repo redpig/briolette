@@ -48,7 +48,10 @@ impl TokenVerify for Token {
         trusted_mints: &Vec<Vec<u8>>,
         trusted_clerks: &Vec<Vec<u8>>,
     ) -> Result<bool, BrioletteErrorCode> {
-        if self.base.is_none() || self.descriptor.is_none() {
+        if self.base.is_none()
+            || self.descriptor.is_none()
+            || self.descriptor.as_ref().unwrap().value.is_none()
+        {
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
         // 1. Verify the base
@@ -94,8 +97,52 @@ impl TokenVerify for Token {
                 .unwrap()
                 .credential;
         }
-        // 3. Enjoy a valid token.
+        // 3. Verify that descriptor and split tag amounts are well-formed and
+        //    never exceed the available token value along the transfer chain.
+        if self.effective_amount().is_none() {
+            return Err(BrioletteErrorCode::InvalidAmountType);
+        }
+        // 4. Enjoy a valid token.
         return Ok(true);
+    }
+}
+
+impl Token {
+    // Returns the effective amount of the token after applying any SplitValue
+    // tags across its transfer history, or None if the descriptor value or any
+    // split tag in the history is missing or invalid.
+    pub fn effective_amount(&self) -> Option<Amount> {
+        self.effective_amount_at(self.history.len())
+    }
+
+    // Returns the effective amount of the token after the first `history_len`
+    // transfers (0 returns the descriptor value).
+    pub fn effective_amount_at(&self, history_len: usize) -> Option<Amount> {
+        if history_len > self.history.len() {
+            return None;
+        }
+        let mut current = self.descriptor.as_ref()?.value.as_ref()?.clone();
+        if !current.is_positive() {
+            return None;
+        }
+        for history in self.history.iter().take(history_len) {
+            let transfer = history.transfer.as_ref()?;
+            let mut split_seen = false;
+            for t in transfer.tags.iter() {
+                if let Some(tag::Value::SplitValue(amount)) = &t.value {
+                    if split_seen {
+                        return None;
+                    }
+                    if amount.code != current.code || !amount.is_valid() || amount.exceeds(&current)
+                    {
+                        return None;
+                    }
+                    current = amount.clone();
+                    split_seen = true;
+                }
+            }
+        }
+        Some(current)
     }
 }
 pub trait HistoryVerify {
@@ -402,15 +449,39 @@ impl VerifyTicket for SignedTicket {
     }
 }
 
+impl Amount {
+    pub fn is_valid(&self) -> bool {
+        self.whole >= 0
+            && self.fractional.is_finite()
+            && self.fractional >= 0.0
+            && self.fractional < 1.0
+    }
+
+    pub fn is_positive(&self) -> bool {
+        self.is_valid() && (self.whole > 0 || self.fractional > 0.0)
+    }
+
+    pub fn exceeds(&self, other: &Self) -> bool {
+        self.whole > other.whole
+            || (self.whole == other.whole && self.fractional > other.fractional)
+    }
+}
+
 impl Add for Amount {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
         // TODO clean up
         assert_eq!(self.code, other.code);
+        let sum_fractional = self.fractional + other.fractional;
+        let carry = if sum_fractional.is_finite() && sum_fractional >= 1.0 {
+            sum_fractional.floor() as i32
+        } else {
+            0
+        };
         Self {
-            whole: self.whole + other.whole,
-            fractional: self.fractional + other.fractional,
+            whole: self.whole.saturating_add(other.whole).saturating_add(carry),
+            fractional: sum_fractional - (carry as f32),
             code: self.code,
         }
     }

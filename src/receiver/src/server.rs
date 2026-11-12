@@ -321,8 +321,17 @@ impl BrioletteReceiver {
                 return Ok(reply);
             }
             for token in method.tokens.iter() {
-                total_amount =
-                    total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap();
+                let Some(effective) = token.effective_amount() else {
+                    error!("proposal had token with invalid effective amount!");
+                    reply.accept = false;
+                    return Ok(reply);
+                };
+                if !effective.is_positive() {
+                    error!("proposal had non-positive token amount: {:?}", effective);
+                    reply.accept = false;
+                    return Ok(reply);
+                }
+                total_amount = total_amount + effective;
             }
         }
         let total = total_amount.whole as f32 + total_amount.fractional;
@@ -392,7 +401,17 @@ impl BrioletteReceiver {
             .clone()
             .into();
         for token in request.tokens.iter() {
-            total_amount = total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap();
+            let Some(effective) = token.effective_amount() else {
+                error!("transfer had token with invalid effective amount!");
+                reply.accepted = false;
+                return Ok(reply);
+            };
+            if !effective.is_positive() {
+                error!("transfer had non-positive token amount: {:?}", effective);
+                reply.accepted = false;
+                return Ok(reply);
+            }
+            total_amount = total_amount + effective;
             // Check that the last transaction is to our ticket.
             let tx_to = token
                 .history
