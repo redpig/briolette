@@ -14,7 +14,7 @@ briolette-wallet = { path = "../wallet", version = "*" }
 briolette-http-common = { path = "../http_common", version = "*" }
 briolette-a2a = { path = "../a2a", version = "*" }
 briolette-x402 = { path = "../x402", version = "*" }
-tonic = "0.8"
+tonic = "0.12"
 axum = "0.6"
 tower = "0.4"
 tower-http = { version = "0.4", features = ["cors", "trace"] }

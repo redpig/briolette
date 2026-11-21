@@ -18,8 +18,8 @@ path = "src/epoch_generate.rs"
 
 
 [dependencies]
-tonic = { version = "0.8" }
-prost = "0.11"
+tonic = { version = "0.12" }
+prost = "0.13.5"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 briolette-crypto = { path = "../crypto", version = "*" }
 briolette-proto = { path = "../proto", version = "*" }
@@ -41,4 +41,4 @@ stderrlog = "0.5.4"
 clap = { version = "4.3.2", features = ["derive"] }
 
 [build-dependencies]
-tonic-build = "0.8"
+tonic-build = "0.12"

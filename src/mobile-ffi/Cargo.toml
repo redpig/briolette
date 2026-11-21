@@ -16,7 +16,7 @@ briolette-proto = { path = "../proto", version = "*" }
 uniffi = { version = "0.25", features = ["cli"] }
 thiserror = "1"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
-prost = "0.11"
+prost = "0.13.5"
 serde_json = "1.0"
 log = "0.4"
 base64 = "0.21"

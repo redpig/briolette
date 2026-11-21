@@ -19,8 +19,8 @@ alloy = ["dep:alloy", "dep:url", "dep:serde", "dep:serde_json"]
 briolette-crypto = { path = "../crypto", version = "*" }
 briolette-proto = { path = "../proto", version = "*" }
 briolette-service-auth = { path = "../service_auth", version = "*" }
-tonic = { version = "0.8" }
-prost = "0.11"
+tonic = { version = "0.12" }
+prost = "0.13.5"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "time", "sync"] }
 log = { version = "0.4.17", features = ["max_level_trace", "release_max_level_info"] }
 stderrlog = "0.5.4"
@@ -32,4 +32,4 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
 [build-dependencies]
-tonic-build = "0.8"
+tonic-build = "0.12"
