@@ -1,0 +1,65 @@
+(footprint "UDFN-8-2x3mm"
+  (version 20240108)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (layer "F.Cu")
+  (descr "UDFN-8 2x3mm 0.5mm pitch, ATECC608B")
+  (tags "UDFN DFN-8 ATECC608B secure-element")
+  (property "Reference" "REF**"
+    (at 0 -2.5 0)
+    (layer "F.SilkS")
+    (effects (font (size 0.8 0.8) (thickness 0.12)))
+  )
+  (property "Value" "UDFN-8-2x3mm"
+    (at 0 2.5 0)
+    (layer "F.Fab")
+    (effects (font (size 0.8 0.8) (thickness 0.12)))
+  )
+  (attr smd)
+
+  ;; Courtyard
+  (fp_rect
+    (start -1.75 -2.0)
+    (end 1.75 2.0)
+    (stroke (width 0.05) (type default))
+    (fill none)
+    (layer "F.CrtYd")
+  )
+
+  ;; Fab outline
+  (fp_rect
+    (start -1.0 -1.5)
+    (end 1.0 1.5)
+    (stroke (width 0.1) (type default))
+    (fill none)
+    (layer "F.Fab")
+  )
+
+  ;; Pin 1 indicator
+  (fp_circle
+    (center -1.4 -1.6)
+    (end -1.25 -1.6)
+    (stroke (width 0.15) (type solid))
+    (fill solid)
+    (layer "F.SilkS")
+  )
+
+  ;; Exposed pad (GND)
+  (pad "9" smd rect
+    (at 0 0)
+    (size 0.7 1.6)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+  )
+
+  ;; Left side pads (pins 1-4, top to bottom)
+  (pad "1" smd rect (at -0.95 -0.75) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "2" smd rect (at -0.95 -0.25) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "3" smd rect (at -0.95 0.25) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "4" smd rect (at -0.95 0.75) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+
+  ;; Right side pads (pins 5-8, bottom to top)
+  (pad "5" smd rect (at 0.95 0.75) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "6" smd rect (at 0.95 0.25) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "7" smd rect (at 0.95 -0.25) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "8" smd rect (at 0.95 -0.75) (size 0.6 0.3) (layers "F.Cu" "F.Paste" "F.Mask"))
+)

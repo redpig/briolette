@@ -1,0 +1,164 @@
+(footprint "NanoSIM_Molex_78800"
+  (version 20231120)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (layer "F.Cu")
+  (descr "Molex 78800-0001 Nano-SIM (4FF) push-push connector, low-profile 1.25mm")
+  (tags "nano-SIM 4FF push-push low-profile Molex 78800")
+  (property "Reference" "REF**"
+    (at 0 -5.0 0)
+    (layer "F.SilkS")
+    (uuid "fp-nsim-ref-001")
+    (effects (font (size 1 1) (thickness 0.15)))
+  )
+  (property "Value" "NanoSIM_Molex_78800"
+    (at 0 5.0 0)
+    (layer "F.Fab")
+    (uuid "fp-nsim-val-001")
+    (effects (font (size 1 1) (thickness 0.15)))
+  )
+  (property "Footprint" ""
+    (at 0 0 0)
+    (layer "F.Fab")
+    (hide yes)
+    (uuid "fp-nsim-fp-001")
+    (effects (font (size 1.27 1.27) (thickness 0.15)))
+  )
+
+  (attr smd)
+
+  ;; Nano-SIM card: 12.3mm x 8.8mm
+  ;; Connector body: ~13.5mm x 11.2mm x 1.25mm (low-profile)
+  ;; Push-push mechanism: card flush when inserted
+
+  ;; Courtyard
+  (fp_rect
+    (start -7.5 -6.0)
+    (end 7.5 6.0)
+    (stroke (width 0.05) (type default))
+    (fill none)
+    (layer "F.CrtYd")
+    (uuid "fp-nsim-crt-001")
+  )
+
+  ;; Fabrication outline (connector body)
+  (fp_rect
+    (start -6.75 -5.6)
+    (end 6.75 5.6)
+    (stroke (width 0.1) (type default))
+    (fill none)
+    (layer "F.Fab")
+    (uuid "fp-nsim-fab-001")
+  )
+
+  ;; Silkscreen outline
+  (fp_rect
+    (start -6.85 -5.7)
+    (end 6.85 5.7)
+    (stroke (width 0.12) (type default))
+    (fill none)
+    (layer "F.SilkS")
+    (uuid "fp-nsim-silk-001")
+  )
+
+  ;; Card insertion arrow (silkscreen)
+  (fp_line (start -8.0 0) (end -7.0 0)
+    (stroke (width 0.12) (type default)) (layer "F.SilkS") (uuid "fp-nsim-arr-001"))
+  (fp_line (start -7.5 -0.5) (end -7.0 0)
+    (stroke (width 0.12) (type default)) (layer "F.SilkS") (uuid "fp-nsim-arr-002"))
+  (fp_line (start -7.5 0.5) (end -7.0 0)
+    (stroke (width 0.12) (type default)) (layer "F.SilkS") (uuid "fp-nsim-arr-003"))
+
+  ;; ISO 7816 contact pads (nano-SIM 4FF pinout)
+  ;; Pad layout follows ETSI TS 102 221 for 4FF form factor
+  ;; Contact pitch: 1.27mm, pad size: 0.7mm x 1.0mm
+
+  ;; C1 - VCC
+  (pad "C1" smd rect
+    (at -2.54 -2.0)
+    (size 0.7 1.0)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-c1-001")
+  )
+
+  ;; C2 - RST
+  (pad "C2" smd rect
+    (at -2.54 0)
+    (size 0.7 1.0)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-c2-001")
+  )
+
+  ;; C3 - CLK
+  (pad "C3" smd rect
+    (at -2.54 2.0)
+    (size 0.7 1.0)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-c3-001")
+  )
+
+  ;; C5 - GND
+  (pad "C5" smd rect
+    (at 2.54 -2.0)
+    (size 0.7 1.0)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-c5-001")
+  )
+
+  ;; C6 - VPP
+  (pad "C6" smd rect
+    (at 2.54 0)
+    (size 0.7 1.0)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-c6-001")
+  )
+
+  ;; C7 - I/O
+  (pad "C7" smd rect
+    (at 2.54 2.0)
+    (size 0.7 1.0)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-c7-001")
+  )
+
+  ;; Card detect switch pad
+  (pad "CD" smd rect
+    (at 5.5 4.0)
+    (size 0.6 0.8)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-cd-001")
+  )
+
+  ;; Shield / mechanical mounting pads (4 corners)
+  (pad "SH" smd rect
+    (at -6.0 -4.5)
+    (size 1.0 1.2)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-sh-001")
+  )
+  (pad "SH" smd rect
+    (at 6.0 -4.5)
+    (size 1.0 1.2)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-sh-002")
+  )
+  (pad "SH" smd rect
+    (at -6.0 4.5)
+    (size 1.0 1.2)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-sh-003")
+  )
+  (pad "SH" smd rect
+    (at 6.0 4.5)
+    (size 1.0 1.2)
+    (layers "F.Cu" "F.Paste" "F.Mask")
+    (uuid "fp-nsim-sh-004")
+  )
+
+  ;; 3D model reference
+  (model "${KICAD8_3DMODEL_DIR}/Connector_Card.3dshapes/SIM_Nano_Molex_78800.wrl"
+    (offset (xyz 0 0 0))
+    (scale (xyz 1 1 1))
+    (rotate (xyz 0 0 0))
+  )
+)

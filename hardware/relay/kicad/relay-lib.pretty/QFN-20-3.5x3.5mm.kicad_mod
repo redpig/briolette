@@ -1,0 +1,67 @@
+(footprint "QFN-20-3.5x3.5mm"
+  (version 20240108)
+  (generator "briolette_relay")
+  (generator_version "8.0")
+  (layer "F.Cu")
+  (descr "QFN-20 3.5x3.5mm 0.5mm pitch, BQ25504 solar MPPT charger")
+  (tags "QFN QFN-20 BQ25504 boost charger solar")
+  (property "Reference" "REF**"
+    (at 0 -3.0 0)
+    (layer "F.SilkS")
+    (effects (font (size 0.8 0.8) (thickness 0.12)))
+  )
+  (property "Value" "QFN-20-3.5x3.5mm"
+    (at 0 3.0 0)
+    (layer "F.Fab")
+    (effects (font (size 0.8 0.8) (thickness 0.12)))
+  )
+  (attr smd)
+
+  ;; Courtyard
+  (fp_rect (start -2.5 -2.5) (end 2.5 2.5)
+    (stroke (width 0.05) (type default)) (fill none) (layer "F.CrtYd"))
+
+  ;; Fab outline
+  (fp_rect (start -1.75 -1.75) (end 1.75 1.75)
+    (stroke (width 0.1) (type default)) (fill none) (layer "F.Fab"))
+
+  ;; Pin 1 indicator
+  (fp_circle (center -2.2 -2.2) (end -2.05 -2.2)
+    (stroke (width 0.15) (type solid)) (fill solid) (layer "F.SilkS"))
+
+  ;; Exposed pad
+  (pad "21" smd rect (at 0 0) (size 1.7 1.7)
+    (layers "F.Cu" "F.Paste" "F.Mask"))
+
+  ;; Thermal vias
+  (pad "21" thru_hole circle (at -0.4 -0.4) (size 0.3 0.3) (drill 0.15) (layers "*.Cu"))
+  (pad "21" thru_hole circle (at 0.4 -0.4) (size 0.3 0.3) (drill 0.15) (layers "*.Cu"))
+  (pad "21" thru_hole circle (at -0.4 0.4) (size 0.3 0.3) (drill 0.15) (layers "*.Cu"))
+  (pad "21" thru_hole circle (at 0.4 0.4) (size 0.3 0.3) (drill 0.15) (layers "*.Cu"))
+
+  ;; 20 pads, 5 per side, 0.5mm pitch
+  ;; Bottom
+  (pad "1" smd rect (at -1.0 1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "2" smd rect (at -0.5 1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "3" smd rect (at 0.0 1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "4" smd rect (at 0.5 1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "5" smd rect (at 1.0 1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; Right
+  (pad "6" smd rect (at 1.65 1.0) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "7" smd rect (at 1.65 0.5) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "8" smd rect (at 1.65 0.0) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "9" smd rect (at 1.65 -0.5) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "10" smd rect (at 1.65 -1.0) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; Top
+  (pad "11" smd rect (at 1.0 -1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "12" smd rect (at 0.5 -1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "13" smd rect (at 0.0 -1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "14" smd rect (at -0.5 -1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "15" smd rect (at -1.0 -1.65) (size 0.25 0.6) (layers "F.Cu" "F.Paste" "F.Mask"))
+  ;; Left
+  (pad "16" smd rect (at -1.65 -1.0) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "17" smd rect (at -1.65 -0.5) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "18" smd rect (at -1.65 0.0) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "19" smd rect (at -1.65 0.5) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+  (pad "20" smd rect (at -1.65 1.0) (size 0.6 0.25) (layers "F.Cu" "F.Paste" "F.Mask"))
+)

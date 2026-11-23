@@ -1,0 +1,93 @@
+{
+  "board": {
+    "3dviewports": [],
+    "design_settings": {
+      "defaults": {
+        "apply_defaults_to_fp_fields": false,
+        "board_outline_line_width": 0.1,
+        "copper_line_width": 0.2,
+        "copper_text_size_h": 1.5,
+        "copper_text_size_v": 1.5,
+        "copper_text_thickness": 0.3,
+        "courtyard_line_width": 0.05,
+        "fab_line_width": 0.1,
+        "fab_text_size_h": 1.0,
+        "fab_text_size_v": 1.0,
+        "fab_text_thickness": 0.15,
+        "other_line_width": 0.1,
+        "silk_line_width": 0.1,
+        "silk_text_size_h": 1.0,
+        "silk_text_size_v": 1.0,
+        "silk_text_thickness": 0.15
+      },
+      "rules": {
+        "min_clearance": 0.15,
+        "min_track_width": 0.15,
+        "min_via_diameter": 0.5,
+        "min_via_annular_width": 0.1
+      },
+      "track_widths": [0.0, 0.15, 0.2, 0.25, 0.3, 0.5, 1.0],
+      "via_dimensions": [{"diameter": 0.0, "drill": 0.0}, {"diameter": 0.5, "drill": 0.3}]
+    },
+    "layer_presets": [],
+    "viewports": []
+  },
+  "libraries": {
+    "pinned_footprint_libs": [],
+    "pinned_symbol_libs": []
+  },
+  "meta": {
+    "filename": "relay.kicad_pro",
+    "version": 1
+  },
+  "net_settings": {
+    "classes": [
+      {
+        "name": "Default",
+        "clearance": 0.15,
+        "track_width": 0.2,
+        "via_diameter": 0.5,
+        "via_drill": 0.3
+      },
+      {
+        "name": "Power",
+        "clearance": 0.3,
+        "track_width": 0.5,
+        "via_diameter": 0.5,
+        "via_drill": 0.3
+      },
+      {
+        "name": "NFC_Reader",
+        "clearance": 0.3,
+        "track_width": 0.3,
+        "via_diameter": 0.5,
+        "via_drill": 0.3
+      }
+    ],
+    "meta": { "version": 3 }
+  },
+  "pcbnew": {
+    "last_paths": {
+      "plot": "../gerbers/"
+    }
+  },
+  "schematic": {
+    "drawing": {
+      "default_line_thickness": 6.0,
+      "default_text_size": 50.0
+    },
+    "meta": { "version": 1 }
+  },
+  "sheets": [
+    ["f0000001-0000-4000-8000-000000000001", "Root"],
+    ["f0000001-0001-4000-8000-000000000001", "Power"],
+    ["f0000001-0002-4000-8000-000000000001", "MCU"],
+    ["f0000001-0003-4000-8000-000000000001", "NFC_Reader"],
+    ["f0000001-0004-4000-8000-000000000001", "IO"]
+  ],
+  "text_variables": {
+    "BOARD_TITLE": "Briolette Solar Relay",
+    "BOARD_REV": "1.0",
+    "BOARD_DATE": "2026-03-13"
+  }
+}

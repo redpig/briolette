@@ -1,0 +1,426 @@
+(kicad_sch
+  (version 20231120)
+  (generator "briolette_credstick")
+  (generator_version "8.0")
+  (uuid "a1b2c3d4-0003-4000-8000-000000000003")
+  (paper "A4")
+  (title_block
+    (title "Briolette Credstick — Peripherals")
+    (date "2026-03-14")
+    (rev "1.1")
+    (comment 1 "Nano-SIM (ISO 7816), E-Ink Display, Buttons, NFC Antenna Matching")
+  )
+
+  (lib_symbols)
+
+  ;; ============================================================
+  ;; Hierarchical labels
+  ;; ============================================================
+  (hierarchical_label "VCC" (shape input) (at 25.4 50.8 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0001"))
+  (hierarchical_label "GND" (shape passive) (at 25.4 175.26 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0002"))
+  (hierarchical_label "SIM_IO" (shape bidirectional) (at 25.4 63.5 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0003"))
+  (hierarchical_label "SIM_CLK" (shape input) (at 25.4 66.04 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0004"))
+  (hierarchical_label "SIM_RST" (shape input) (at 25.4 68.58 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0004b"))
+  (hierarchical_label "SIM_DET" (shape output) (at 25.4 71.12 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0004c"))
+  (hierarchical_label "SPI_SCK" (shape input) (at 25.4 101.6 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0005"))
+  (hierarchical_label "SPI_MOSI" (shape input) (at 25.4 104.14 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0006"))
+  (hierarchical_label "SPI_CS" (shape input) (at 25.4 106.68 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0007"))
+  (hierarchical_label "EPD_DC" (shape input) (at 25.4 109.22 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0007b"))
+  (hierarchical_label "EPD_RST" (shape input) (at 25.4 111.76 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0007c"))
+  (hierarchical_label "EPD_BUSY" (shape output) (at 25.4 114.3 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-0007d"))
+  (hierarchical_label "NFC1" (shape bidirectional) (at 200.66 50.8 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "hl-per-0008"))
+  (hierarchical_label "NFC2" (shape bidirectional) (at 200.66 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "hl-per-0009"))
+  (hierarchical_label "BTN_L" (shape input) (at 25.4 139.7 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-000a"))
+  (hierarchical_label "BTN_R" (shape input) (at 25.4 142.24 180)
+    (effects (font (size 1.27 1.27)) (justify right)) (uuid "hl-per-000b"))
+
+  ;; ============================================================
+  ;; J3: Nano-SIM Push-Push Connector (ISO 7816 Secure Element)
+  ;; Replaces ATECC608B — SIM card provides P-256 ECDSA,
+  ;; key storage, monotonic counters, and tamper resistance.
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:NanoSIM_PushPush")
+    (at 76.2 63.5 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0001-4000-8000-000000000001")
+    (property "Reference" "J3"
+      (at 76.2 48.26 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "Nano-SIM Push-Push"
+      (at 76.2 78.74 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:NanoSIM_Molex_78800"
+      (at 76.2 81.28 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C17: SIM VCC decoupling (100nF)
+  (symbol (lib_id "Device:C") (at 55.88 55.88 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "c0000003-0002-4000-8000-000000000001")
+    (property "Reference" "C17" (at 58.42 53.34 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "100nF" (at 58.42 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 55.88 55.88 0) (effects (font (size 1.27 1.27)) hide)))
+
+  ;; R6: SIM I/O pull-up (10kΩ to VCC per ISO 7816-3)
+  (symbol (lib_id "Device:R") (at 40.64 55.88 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "c0000003-0003-4000-8000-000000000001")
+    (property "Reference" "R6" (at 43.18 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "10k" (at 43.18 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 40.64 55.88 0) (effects (font (size 1.27 1.27)) hide)))
+
+  ;; R7: SIM card detect pull-up (10kΩ to VCC)
+  (symbol (lib_id "Device:R") (at 48.26 55.88 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "c0000003-0004-4000-8000-000000000001")
+    (property "Reference" "R7" (at 50.8 55.88 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "10k" (at 50.8 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+      (at 48.26 55.88 0) (effects (font (size 1.27 1.27)) hide)))
+
+  ;; ============================================================
+  ;; J2: E-Ink Display FPC Connector (24-pin, 0.5mm pitch)
+  ;; ============================================================
+  (symbol
+    (lib_id "stick-lib:EINK_FPC_24")
+    (at 76.2 119.38 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0005-4000-8000-000000000001")
+    (property "Reference" "J2"
+      (at 76.2 83.82 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "GDEY0154D67"
+      (at 76.2 154.94 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:FPC_24pin_0.5mm"
+      (at 76.2 157.48 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; SW1, SW2: Tactile Switches (Left/Right buttons)
+  ;; ============================================================
+  (symbol
+    (lib_id "Switch:SW_Push")
+    (at 63.5 147.32 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0006-4000-8000-000000000001")
+    (property "Reference" "SW1"
+      (at 63.5 142.24 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "BTN_LEFT"
+      (at 63.5 152.4 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:SW_SPST_3x3mm"
+      (at 63.5 154.94 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  (symbol
+    (lib_id "Switch:SW_Push")
+    (at 88.9 147.32 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0007-4000-8000-000000000001")
+    (property "Reference" "SW2"
+      (at 88.9 142.24 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "BTN_RIGHT"
+      (at 88.9 152.4 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "stick-lib:SW_SPST_3x3mm"
+      (at 88.9 154.94 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; ============================================================
+  ;; NFC Antenna Matching Network
+  ;; ============================================================
+
+  ;; L1: NFC series inductor (390nH)
+  (symbol
+    (lib_id "Device:L")
+    (at 165.1 50.8 90)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "c0000003-0010-4000-8000-000000000001")
+    (property "Reference" "L1"
+      (at 165.1 45.72 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "390nH"
+      (at 165.1 55.88 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "Inductor_SMD:L_0402_1005Metric"
+      (at 165.1 50.8 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+  )
+
+  ;; C18: NFC matching cap 1 (180pF)
+  (symbol (lib_id "Device:C") (at 152.4 60.96 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "c0000003-0011-4000-8000-000000000001")
+    (property "Reference" "C18" (at 154.94 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "180pF" (at 154.94 60.96 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 152.4 60.96 0) (effects (font (size 1.27 1.27)) hide)))
+
+  ;; C19: NFC matching cap 2 (180pF)
+  (symbol (lib_id "Device:C") (at 177.8 60.96 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "c0000003-0012-4000-8000-000000000001")
+    (property "Reference" "C19" (at 180.34 58.42 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Value" "180pF" (at 180.34 60.96 0)
+      (effects (font (size 1.27 1.27)) (justify left)))
+    (property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+      (at 177.8 60.96 0) (effects (font (size 1.27 1.27)) hide)))
+
+  ;; ============================================================
+  ;; Net labels
+  ;; ============================================================
+
+  ;; Power
+  (label "VCC" (at 63.5 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-j3"))
+  (label "VCC" (at 55.88 48.26 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-c17"))
+  (label "VCC" (at 40.64 48.26 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-r6"))
+  (label "VCC" (at 48.26 48.26 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-r7"))
+  (label "VCC" (at 66.04 129.54 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-j2"))
+  ;; VPP tied to VCC (modern SIM cards don't use VPP)
+  (label "VCC" (at 63.5 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-vcc-vpp"))
+
+  (label "GND" (at 63.5 73.66 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-j3"))
+  (label "GND" (at 55.88 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-c17"))
+  (label "GND" (at 66.04 127 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-j2"))
+  (label "GND" (at 71.12 147.32 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-sw1"))
+  (label "GND" (at 96.52 147.32 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-sw2"))
+  (label "GND" (at 152.4 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-c18"))
+  (label "GND" (at 177.8 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-c19"))
+  ;; SIM shield to GND
+  (label "GND" (at 63.5 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-gnd-j3-sh"))
+
+  ;; SIM card ISO 7816 interface
+  (label "SIM_IO" (at 40.64 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simio-r6"))
+  (label "SIM_IO" (at 88.9 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simio-j3"))
+  (label "SIM_CLK" (at 88.9 58.42 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simclk-j3"))
+  (label "SIM_RST" (at 88.9 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simrst-j3"))
+  (label "SIM_DET" (at 48.26 63.5 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simdet-r7"))
+  (label "SIM_DET" (at 88.9 68.58 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-simdet-j3"))
+
+  ;; SPI bus: sheet labels → E-Ink FPC
+  (label "SPI_CS" (at 66.04 147.32 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-cs-j2"))
+  (label "EPD_DC" (at 66.04 144.78 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-dc-j2"))
+  (label "EPD_RST" (at 66.04 142.24 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-rst-j2"))
+  (label "EPD_BUSY" (at 66.04 139.7 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-busy-j2"))
+  (label "SPI_SCK" (at 66.04 137.16 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-sck-j2"))
+  (label "SPI_MOSI" (at 66.04 134.62 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-mosi-j2"))
+
+  ;; Buttons
+  (label "BTN_L" (at 55.88 147.32 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-btnl-sw1"))
+  (label "BTN_R" (at 81.28 147.32 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-btnr-sw2"))
+
+  ;; NFC antenna matching network
+  (label "NFC1" (at 142.24 50.8 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-nfc1-l1"))
+  (label "NFC1" (at 152.4 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-nfc1-c18"))
+  (label "NFC_ANT1" (at 175.26 50.8 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-ant1-l1"))
+  (label "NFC_ANT1" (at 177.8 53.34 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-ant1-c19"))
+  (label "NFC2" (at 190.5 50.8 0)
+    (effects (font (size 1.27 1.27)) (justify left)) (uuid "nl-per-nfc2-out"))
+
+  ;; ============================================================
+  ;; Wires
+  ;; ============================================================
+  ;; Sheet label to net
+  (wire (pts (xy 25.4 63.5) (xy 40.64 63.5))
+    (stroke (width 0) (type default)) (uuid "w-per-simio"))
+  (wire (pts (xy 25.4 66.04) (xy 88.9 66.04))
+    (stroke (width 0) (type default)) (uuid "w-per-simclk"))
+  (wire (pts (xy 25.4 68.58) (xy 88.9 68.58))
+    (stroke (width 0) (type default)) (uuid "w-per-simrst"))
+  (wire (pts (xy 25.4 71.12) (xy 48.26 71.12))
+    (stroke (width 0) (type default)) (uuid "w-per-simdet"))
+  (wire (pts (xy 25.4 101.6) (xy 66.04 101.6))
+    (stroke (width 0) (type default)) (uuid "w-per-sck"))
+  (wire (pts (xy 25.4 104.14) (xy 66.04 104.14))
+    (stroke (width 0) (type default)) (uuid "w-per-mosi"))
+  (wire (pts (xy 25.4 106.68) (xy 66.04 106.68))
+    (stroke (width 0) (type default)) (uuid "w-per-cs"))
+  (wire (pts (xy 25.4 109.22) (xy 66.04 109.22))
+    (stroke (width 0) (type default)) (uuid "w-per-dc"))
+  (wire (pts (xy 25.4 111.76) (xy 66.04 111.76))
+    (stroke (width 0) (type default)) (uuid "w-per-rst"))
+  (wire (pts (xy 25.4 114.3) (xy 66.04 114.3))
+    (stroke (width 0) (type default)) (uuid "w-per-busy"))
+
+  ;; Buttons
+  (wire (pts (xy 25.4 139.7) (xy 55.88 139.7))
+    (stroke (width 0) (type default)) (uuid "w-per-btnl"))
+  (wire (pts (xy 55.88 139.7) (xy 55.88 147.32))
+    (stroke (width 0) (type default)) (uuid "w-per-btnl-v"))
+  (wire (pts (xy 25.4 142.24) (xy 81.28 142.24))
+    (stroke (width 0) (type default)) (uuid "w-per-btnr"))
+  (wire (pts (xy 81.28 142.24) (xy 81.28 147.32))
+    (stroke (width 0) (type default)) (uuid "w-per-btnr-v"))
+
+  ;; NFC matching network
+  (wire (pts (xy 200.66 50.8) (xy 190.5 50.8))
+    (stroke (width 0) (type default)) (uuid "w-per-nfc1"))
+  (wire (pts (xy 200.66 53.34) (xy 190.5 53.34))
+    (stroke (width 0) (type default)) (uuid "w-per-nfc2"))
+
+  ;; NFC1 → inductor → antenna
+  (wire (pts (xy 142.24 50.8) (xy 157.48 50.8))
+    (stroke (width 0) (type default)) (uuid "w-per-nfc1-l1"))
+  (wire (pts (xy 172.72 50.8) (xy 175.26 50.8))
+    (stroke (width 0) (type default)) (uuid "w-per-l1-ant"))
+
+  ;; ============================================================
+  ;; Annotations
+  ;; ============================================================
+  (text "PERIPHERALS — SIM Card (ISO 7816), Display, Buttons, NFC Antenna"
+    (exclude_from_sim no)
+    (at 25.4 25.4 0)
+    (effects (font (size 2.54 2.54) bold))
+    (uuid "txt-per-0001")
+  )
+
+  (text "SIM Card: Nano-SIM (4FF) in low-profile push-push connector (Molex 78800-0001)."
+    (exclude_from_sim no)
+    (at 25.4 30.48 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0002")
+  )
+
+  (text "ISO 7816 interface: SIM_IO (half-duplex data, 10k pull-up), SIM_CLK (3.25MHz PWM),"
+    (exclude_from_sim no)
+    (at 25.4 33.02 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0002b")
+  )
+
+  (text "SIM_RST (active-low reset). VPP tied to VCC. Card detect (CD) with 10k pull-up."
+    (exclude_from_sim no)
+    (at 25.4 35.56 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0002c")
+  )
+
+  (text "E-Ink SPI: CS, D/C, RST, BUSY, SCK, MOSI (write-only, no MISO needed)"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0003")
+  )
+
+  (text "NFC Antenna: Bottom copper layer PCB trace, 25×20mm rectangular spiral, 4-5 turns"
+    (exclude_from_sim no)
+    (at 25.4 40.64 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0004")
+  )
+
+  (text "NFC Matching: L1 (390nH) series with NFC1, C18/C19 (180pF) shunt to GND"
+    (exclude_from_sim no)
+    (at 25.4 43.18 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0005")
+  )
+
+  (text "Buttons use nRF52840 internal pull-up (GPIO config). Active low. SW press → logic 0."
+    (exclude_from_sim no)
+    (at 25.4 45.72 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "txt-per-0007")
+  )
+)

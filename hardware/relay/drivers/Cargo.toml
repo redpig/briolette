@@ -1,0 +1,13 @@
+[package]
+name = "briolette-relay-drivers"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Briolette relay drivers and protocol logic (host-testable, no Embassy dependency)"
+
+[dependencies]
+embedded-hal = "1.0"
+heapless = "0.8"
+
+[dev-dependencies]
+embedded-hal-mock = "0.11"
