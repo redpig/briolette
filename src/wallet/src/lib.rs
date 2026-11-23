@@ -300,33 +300,17 @@ impl From<token::Token> for TokenEntry {
             .unwrap()
             .credential
             .clone();
+        // Record the value carried on this branch after any splits rather
+        // than the original mint value.
+        let value = item
+            .effective_amount()
+            .unwrap_or_else(|| item.descriptor.as_ref().unwrap().value.clone().unwrap());
         Self {
             token: item.encode_to_vec(),
             credential,
-            whole_value: item
-                .descriptor
-                .as_ref()
-                .unwrap()
-                .value
-                .as_ref()
-                .unwrap()
-                .whole,
-            fractional_value: item
-                .descriptor
-                .as_ref()
-                .unwrap()
-                .value
-                .as_ref()
-                .unwrap()
-                .fractional as f32,
-            value_code: item
-                .descriptor
-                .as_ref()
-                .unwrap()
-                .value
-                .as_ref()
-                .unwrap()
-                .code,
+            whole_value: value.whole,
+            fractional_value: value.fractional as f32,
+            value_code: value.code,
         }
     }
 }

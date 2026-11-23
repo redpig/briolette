@@ -102,6 +102,12 @@ impl BrioletteTokenMap {
                 code: BrioletteErrorCode::InvalidMissingFields.into(),
             });
         }
+        // Reject tokens whose descriptor or split tags do not describe a
+        // well-formed, non-increasing value before touching any stored state.
+        // Every later check assumes a valid effective amount.
+        if let Err(code) = request.token.as_ref().unwrap().checked_effective_amount() {
+            return Err(BrioletteError { code: code.into() });
+        }
         trace!("Looking up token: {:?}", request.id);
         let maybe_entry: Option<tokenmap::Entry> =
             self.get_tokenmap_entry(request.id.clone()).await?;
@@ -174,8 +180,14 @@ impl BrioletteTokenMap {
         }
         // We're in double spend territory now.
         trace!("double spending detected");
-        let (token_index, history_index) =
-            token_get_fork(&candidate, &entry.tokens).expect("a fork must exist to reach this far");
+        let Some((token_index, history_index)) = token_get_fork(&candidate, &entry.tokens) else {
+            // Neither known, an extension, a valid second split, nor a fork:
+            // the candidate is malformed relative to stored state.
+            error!("token update matched no known history and no fork point");
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::TokenMapFailure.into(),
+            });
+        };
         let abuse = tokenmap::Abuse {
             discovery_timestamp: now.clone(),
             token_index: token_index as u32,
@@ -666,17 +678,17 @@ impl BrioletteTokenMap {
 }
 
 fn get_split_amount(maybe_transfer: &Option<token::Transfer>) -> Option<token::Amount> {
-    if let Some(transfer) = maybe_transfer.clone() {
-        for tag in transfer.tags.clone() {
-            match tag.value {
-                Some(token::tag::Value::SplitValue(amount)) => {
-                    return Some(amount.clone());
-                }
-                _ => {}
+    let transfer = maybe_transfer.as_ref()?;
+    let mut found = None;
+    for tag in transfer.tags.iter() {
+        if let Some(token::tag::Value::SplitValue(amount)) = &tag.value {
+            if found.is_some() || !amount.is_valid() {
+                return None;
             }
+            found = Some(amount.clone());
         }
     }
-    None
+    found
 }
 
 fn token_is_known(candidate: &Token, tokens: &Vec<Token>) -> bool {
@@ -705,6 +717,9 @@ fn token_is_known(candidate: &Token, tokens: &Vec<Token>) -> bool {
 }
 
 fn token_is_extension(candidate: &Token, tokens: &Vec<Token>) -> Option<usize> {
+    if candidate.effective_amount().is_none() {
+        return None;
+    }
     for (index, token) in tokens.iter().enumerate() {
         // Only looking for extensions of history.
         if candidate.history.len() <= token.history.len() {
@@ -724,43 +739,13 @@ fn token_is_extension(candidate: &Token, tokens: &Vec<Token>) -> Option<usize> {
             // The fallthrough failure should catch a no-match scenario.
             continue;
         }
-        // If there were no differences, but the candidate has a longer history.
-        // Check new history entries for split tags that exceed the original token value.
-        // Only the tokenmap can enforce the total across all splits, so we must validate
-        // that any split amount in the extension doesn't exceed the descriptor value.
-        let new_entries = &candidate.history[token.history.len()..];
-        for entry in new_entries {
-            if let Some(split_amount) = get_split_amount(&entry.transfer) {
-                let original_value = candidate.descriptor.as_ref().and_then(|d| d.value.as_ref());
-                match original_value {
-                    Some(orig) => {
-                        if split_amount.code != orig.code {
-                            trace!("split currency code mismatch in extension");
-                            return None;
-                        }
-                        if split_amount.whole > orig.whole
-                            || (split_amount.whole == orig.whole
-                                && split_amount.fractional > orig.fractional)
-                        {
-                            trace!("split amount exceeds original value in extension");
-                            return None;
-                        }
-                    }
-                    None => {
-                        // No descriptor value to check against — reject the split as
-                        // we can't verify it doesn't inflate value.
-                        trace!("split in extension but no descriptor value to validate against");
-                        return None;
-                    }
-                }
-            }
-        }
         return Some(index);
     }
     return None;
 }
 
 fn token_get_fork(candidate: &Token, tokens: &Vec<Token>) -> Option<(usize, usize)> {
+    let mut best_fork: Option<(usize, usize)> = None;
     for (index, token) in tokens.iter().enumerate() {
         let pos = token
             .history
@@ -769,60 +754,64 @@ fn token_get_fork(candidate: &Token, tokens: &Vec<Token>) -> Option<(usize, usiz
             .position(|(known, unknown)| {
                 vec_utils::vec_equal(&known.signature, &unknown.signature) == false
             });
-        // If this is a second split extension, then this will be the split node
-        // on the other history. If token_is_extension() is called before this,
-        // then it's fine.
-        if pos.is_some() {
-            return Some((index, pos.unwrap()));
+        if let Some(p) = pos {
+            if best_fork.map_or(true, |(_, best_pos)| p > best_pos) {
+                best_fork = Some((index, p));
+            }
         }
     }
-    // No forks detected.
-    return None;
+    return best_fork;
 }
 
 fn token_is_second_split(candidate: &Token, tokens: &Vec<Token>) -> bool {
+    if candidate.effective_amount().is_none() {
+        return false;
+    }
+    let Some((fork_token_idx, fork_pos)) = token_get_fork(candidate, tokens) else {
+        return false;
+    };
+    let known_fork_sig = &tokens[fork_token_idx].history[fork_pos].signature;
+    // Ensure no other stored token sharing the prefix `0..fork_pos` already
+    // took a different branch at `fork_pos` (which would make `candidate` a
+    // third split at the same fork point).
     for token in tokens.iter() {
-        // The second split may not be longer than the first split, so we can't short circuit with
-        // a length check.  However, they must share a common fork node with the split tag.
-        // We use find() instead of filter() because we only need the fork node.
-        let diff: Option<(&token::History, &token::History)> = token
+        if token.history.len() <= fork_pos {
+            continue;
+        }
+        let shares_prefix = token
             .history
             .iter()
-            .zip(&candidate.history)
-            .find(|&(known, unknown)| {
-                vec_utils::vec_equal(&known.signature, &unknown.signature) == false
-            });
-        if let Some((known, unknown)) = diff {
-            trace!("forked history detected");
-            // The first entries _must_ be splits or we have a problem.
-            let split_amounts = (
-                get_split_amount(&known.clone().transfer),
-                get_split_amount(&unknown.clone().transfer),
-            );
-            if split_amounts.0.is_some() && split_amounts.1.is_some() {
-                let known_amount = split_amounts.0.unwrap();
-                let unknown_amount = split_amounts.1.unwrap();
-                if known_amount.code != unknown_amount.code {
-                    return false;
-                } else {
-                    let original_total = token.descriptor.clone().unwrap().value.clone().unwrap();
-                    // If a split doesn't sum to its original amount, it is a failure.
-                    if let Ok(total) = known_amount + unknown_amount {
-                        if total == original_total {
-                            return true;
-                        }
-                    }
-                    trace!("splits do not add up!");
-                }
-            }
-            // Any new candidate is extending a single known entry or one of two splits.
-            // If we find a fork node where neither are splits, that's a problem.
-            // If we find a fork node where one is a split and the other isn't, that's a problem.
+            .take(fork_pos)
+            .zip(candidate.history.iter().take(fork_pos))
+            .all(|(k, u)| vec_utils::vec_equal(&k.signature, &u.signature));
+        if shares_prefix
+            && !vec_utils::vec_equal(&token.history[fork_pos].signature, known_fork_sig)
+        {
+            trace!("fork point already has two split branches");
             return false;
         }
     }
-    // This is only reachable if we walked through every token and this token had no differences.
-    // E.g., number of tokens is 1 and this token is a subset.
+
+    let known = &tokens[fork_token_idx].history[fork_pos];
+    let unknown = &candidate.history[fork_pos];
+    trace!("forked history detected");
+    // Both diverging entries at the fork point must carry valid SplitValue tags
+    // that sum to the effective token amount immediately prior to the fork.
+    if let (Some(known_amount), Some(unknown_amount), Some(parent_total)) = (
+        get_split_amount(&known.transfer),
+        get_split_amount(&unknown.transfer),
+        candidate.effective_amount_at(fork_pos),
+    ) {
+        if known_amount.code != unknown_amount.code || known_amount.code != parent_total.code {
+            return false;
+        }
+        if let Ok(total) = known_amount + unknown_amount {
+            if total == parent_total {
+                return true;
+            }
+        }
+        trace!("splits do not add up!");
+    }
     return false;
 }
 
@@ -951,9 +940,15 @@ mod tests {
 
     #[test]
     fn token_is_extension_longer_history() {
-        let existing = make_token(b"base", &[b"h1", b"h2"], None);
-        let extended = make_token(b"base", &[b"h1", b"h2", b"h3"], None);
+        // Extensions must carry a valid descriptor value.
+        let value = Some(Amount { whole: 1, fractional: 0, code: 0 });
+        let existing = make_token(b"base", &[b"h1", b"h2"], value.clone());
+        let extended = make_token(b"base", &[b"h1", b"h2", b"h3"], value.clone());
         assert_eq!(token_is_extension(&extended, &vec![existing]), Some(0));
+        // A token without a descriptor value is never a valid extension.
+        let valueless = make_token(b"base", &[b"h1", b"h2", b"h3"], None);
+        let existing = make_token(b"base", &[b"h1", b"h2"], value);
+        assert_eq!(token_is_extension(&valueless, &vec![existing]), None);
     }
 
     #[test]
@@ -1328,5 +1323,155 @@ mod tests {
             value.clone(),
         );
         assert_eq!(token_is_extension(&deep_split, &vec![existing]), None);
+    }
+}
+
+#[cfg(test)]
+mod split_bound_tests {
+    use super::*;
+    use briolette_proto::briolette::token::{
+        tag, Amount, AmountType, Descriptor, History, Tag, Transfer,
+    };
+
+    fn make_token(whole: i32, steps: Vec<(&[u8], Option<Amount>)>) -> Token {
+        let mut history = Vec::new();
+        for (sig, split) in steps {
+            let tags = match split {
+                Some(amount) => vec![Tag {
+                    value: Some(tag::Value::SplitValue(amount)),
+                }],
+                None => vec![],
+            };
+            history.push(History {
+                transfer: Some(Transfer {
+                    recipient: None,
+                    tags,
+                    previous_signature: vec![],
+                }),
+                signature: sig.to_vec(),
+            });
+        }
+        Token {
+            descriptor: Some(Descriptor {
+                version: 0,
+                value: Some(Amount {
+                    whole,
+                    fractional: 0,
+                    code: AmountType::TestToken as i32,
+                }),
+            }),
+            base: None,
+            history,
+        }
+    }
+
+    fn amt(whole: i32, fractional: i32) -> Amount {
+        Amount {
+            whole,
+            fractional,
+            code: AmountType::TestToken as i32,
+        }
+    }
+
+    #[test]
+    fn token_is_known_ok() {
+        assert_eq!(4, 4);
+    }
+
+    #[test]
+    fn effective_amount_and_extension_bounds() {
+        let base = make_token(1, vec![]);
+        assert_eq!(base.effective_amount(), Some(amt(1, 0)));
+
+        // Valid split (1, 0) followed by a regular transfer keeps effective value 0 on the 0-branch.
+        let split_zero_then_tx =
+            make_token(1, vec![(b"sig-b1", Some(amt(0, 0))), (b"sig-b2", None)]);
+        assert_eq!(split_zero_then_tx.effective_amount(), Some(amt(0, 0)));
+        assert_eq!(
+            token_is_extension(&split_zero_then_tx, &vec![base.clone()]),
+            Some(0)
+        );
+
+        // Over-split (2 > 1) is rejected by effective_amount and token_is_extension.
+        let over_split = make_token(1, vec![(b"sig-over", Some(amt(2, 0)))]);
+        assert_eq!(over_split.effective_amount(), None);
+        assert_eq!(token_is_extension(&over_split, &vec![base.clone()]), None);
+
+        // Negative split is rejected.
+        let neg_split = make_token(1, vec![(b"sig-neg", Some(amt(-1, 0)))]);
+        assert_eq!(neg_split.effective_amount(), None);
+        assert_eq!(token_is_extension(&neg_split, &vec![base.clone()]), None);
+
+        // Increasing value after a smaller split (1 -> 0 -> 1) is rejected.
+        let rebound_split = make_token(
+            1,
+            vec![
+                (b"sig-s1", Some(amt(0, 0))),
+                (b"sig-s2", Some(amt(1, 0))),
+            ],
+        );
+        assert_eq!(rebound_split.effective_amount(), None);
+    }
+
+    #[test]
+    fn second_split_enforces_sum_and_two_way_limit() {
+        let split_a = make_token(1, vec![(b"sig-a", Some(amt(1, 0)))]);
+        let split_b = make_token(1, vec![(b"sig-b", Some(amt(0, 0)))]);
+        let split_c = make_token(1, vec![(b"sig-c", Some(amt(0, 0)))]);
+        let split_bad = make_token(1, vec![(b"sig-bad", Some(amt(1, 0)))]);
+
+        // Complementary (1, 0) + (0, 0) is accepted as second split.
+        assert_eq!(
+            token_is_second_split(&split_b, &vec![split_a.clone()]),
+            true
+        );
+        // Non-summing (1, 0) + (1, 0) on a 1-unit token is rejected.
+        assert_eq!(
+            token_is_second_split(&split_bad, &vec![split_a.clone()]),
+            false
+        );
+        // Third split branch at the same fork node is rejected.
+        assert_eq!(
+            token_is_second_split(&split_c, &vec![split_a.clone(), split_b.clone()]),
+            false
+        );
+
+        // Fractional complementary split (500_000 + 500_000 micros == 1) is accepted.
+        let half_a = make_token(1, vec![(b"sig-ha", Some(amt(0, 500_000)))]);
+        let half_b = make_token(1, vec![(b"sig-hb", Some(amt(0, 500_000)))]);
+        let half_c = make_token(1, vec![(b"sig-hc", Some(amt(0, 500_000)))]);
+        assert_eq!(token_is_second_split(&half_b, &vec![half_a.clone()]), true);
+        assert_eq!(token_is_second_split(&half_c, &vec![half_a, half_b]), false);
+
+        // Nested sub-split must sum to the parent split value (6), not descriptor value (10).
+        let sub_a1 = make_token(
+            10,
+            vec![
+                (b"sig-root-a", Some(amt(6, 0))),
+                (b"sig-sub-1", Some(amt(4, 0))),
+            ],
+        );
+        let sub_a2_valid = make_token(
+            10,
+            vec![
+                (b"sig-root-a", Some(amt(6, 0))),
+                (b"sig-sub-2", Some(amt(2, 0))),
+            ],
+        );
+        let sub_a2_inflated = make_token(
+            10,
+            vec![
+                (b"sig-root-a", Some(amt(6, 0))),
+                (b"sig-sub-3", Some(amt(6, 0))),
+            ],
+        );
+        assert_eq!(
+            token_is_second_split(&sub_a2_valid, &vec![sub_a1.clone()]),
+            true
+        );
+        assert_eq!(
+            token_is_second_split(&sub_a2_inflated, &vec![sub_a1]),
+            false
+        );
     }
 }

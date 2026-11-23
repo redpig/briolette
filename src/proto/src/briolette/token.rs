@@ -55,7 +55,10 @@ impl TokenVerify for Token {
         trusted_mints: &Vec<Vec<u8>>,
         trusted_clerks: &Vec<Vec<u8>>,
     ) -> Result<bool, BrioletteErrorCode> {
-        if self.base.is_none() || self.descriptor.is_none() {
+        if self.base.is_none()
+            || self.descriptor.is_none()
+            || self.descriptor.as_ref().unwrap().value.is_none()
+        {
             return Err(BrioletteErrorCode::InvalidMissingFields);
         }
         // 1. Verify the base
@@ -144,27 +147,9 @@ impl TokenVerify for Token {
             }
         }
 
-        // 5. Verify that no split amount exceeds the descriptor value.
-        let descriptor = self.descriptor.as_ref().unwrap();
-        if let Some(ref original_value) = descriptor.value {
-            for history in self.history.iter() {
-                if let Some(ref transfer) = history.transfer {
-                    for tag in transfer.tags.iter() {
-                        if let Some(tag::Value::SplitValue(ref split_amount)) = tag.value {
-                            if split_amount.code != original_value.code {
-                                return Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch);
-                            }
-                            if split_amount.whole > original_value.whole
-                                || (split_amount.whole == original_value.whole
-                                    && split_amount.fractional > original_value.fractional)
-                            {
-                                return Err(BrioletteErrorCode::InvalidSplitExceedsValue);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // 5. Verify that descriptor and split tag amounts are well-formed and
+        //    never exceed the available token value along the transfer chain.
+        self.checked_effective_amount()?;
         // 6. Enjoy a valid token.
         return Ok(true);
     }
@@ -625,6 +610,91 @@ impl VerifyTicketSignature for SignedTicket {
     }
 }
 
+/// Number of fractional units (micros) in one whole unit.
+pub const FRACTIONAL_UNITS: i32 = 1_000_000;
+
+impl Amount {
+    /// A well-formed amount is non-negative with fractional micros in
+    /// [0, FRACTIONAL_UNITS).
+    pub fn is_valid(&self) -> bool {
+        self.whole >= 0 && self.fractional >= 0 && self.fractional < FRACTIONAL_UNITS
+    }
+
+    pub fn is_positive(&self) -> bool {
+        self.is_valid() && (self.whole > 0 || self.fractional > 0)
+    }
+
+    pub fn exceeds(&self, other: &Self) -> bool {
+        self.whole > other.whole
+            || (self.whole == other.whole && self.fractional > other.fractional)
+    }
+}
+
+impl Token {
+    /// Returns the effective amount of the token after applying any SplitValue
+    /// tags across its transfer history, or None if the descriptor value or any
+    /// split tag in the history is missing or invalid.
+    pub fn effective_amount(&self) -> Option<Amount> {
+        self.checked_effective_amount().ok()
+    }
+
+    /// Returns the effective amount after the first `history_len` transfers
+    /// (0 returns the descriptor value), or None if it is invalid.
+    pub fn effective_amount_at(&self, history_len: usize) -> Option<Amount> {
+        self.checked_effective_amount_at(history_len).ok()
+    }
+
+    pub fn checked_effective_amount(&self) -> Result<Amount, BrioletteErrorCode> {
+        self.checked_effective_amount_at(self.history.len())
+    }
+
+    /// Like effective_amount_at(), but reports why the amount is invalid.
+    ///
+    /// Each transfer may carry at most one SplitValue tag. A split must be
+    /// well-formed, use the descriptor's currency code, and never exceed the
+    /// value remaining on its branch, so value can only shrink along a history.
+    pub fn checked_effective_amount_at(
+        &self,
+        history_len: usize,
+    ) -> Result<Amount, BrioletteErrorCode> {
+        if history_len > self.history.len() {
+            return Err(BrioletteErrorCode::InvalidMissingFields);
+        }
+        let mut current = self
+            .descriptor
+            .as_ref()
+            .and_then(|d| d.value.as_ref())
+            .ok_or(BrioletteErrorCode::InvalidMissingFields)?
+            .clone();
+        if !current.is_positive() {
+            return Err(BrioletteErrorCode::InvalidAmountType);
+        }
+        for history in self.history.iter().take(history_len) {
+            let transfer = history
+                .transfer
+                .as_ref()
+                .ok_or(BrioletteErrorCode::InvalidMissingFields)?;
+            let mut split_seen = false;
+            for t in transfer.tags.iter() {
+                if let Some(tag::Value::SplitValue(amount)) = &t.value {
+                    if split_seen || !amount.is_valid() {
+                        return Err(BrioletteErrorCode::InvalidAmountType);
+                    }
+                    if amount.code != current.code {
+                        return Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch);
+                    }
+                    if amount.exceeds(&current) {
+                        return Err(BrioletteErrorCode::InvalidSplitExceedsValue);
+                    }
+                    current = amount.clone();
+                    split_seen = true;
+                }
+            }
+        }
+        Ok(current)
+    }
+}
+
 impl Add for Amount {
     type Output = Result<Self, BrioletteErrorCode>;
 
@@ -632,10 +702,20 @@ impl Add for Amount {
         if self.code != other.code {
             return Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch);
         }
+        if !self.is_valid() || !other.is_valid() {
+            return Err(BrioletteErrorCode::InvalidAmountType);
+        }
+        // Both fractional parts are < FRACTIONAL_UNITS, so this cannot overflow
+        // and carries at most one whole unit.
         let total_frac = self.fractional + other.fractional;
+        let whole = self
+            .whole
+            .checked_add(other.whole)
+            .and_then(|w| w.checked_add(total_frac / FRACTIONAL_UNITS))
+            .ok_or(BrioletteErrorCode::InvalidAmountType)?;
         Ok(Self {
-            whole: self.whole + other.whole + total_frac / 1_000_000,
-            fractional: total_frac % 1_000_000,
+            whole,
+            fractional: total_frac % FRACTIONAL_UNITS,
             code: self.code,
         })
     }
@@ -711,6 +791,113 @@ mod tests {
         let c = (a + b).unwrap();
         assert_eq!(c.whole, 31);
         assert_eq!(c.fractional, 999_998);
+    }
+
+    #[test]
+    fn amount_add_overflow_returns_error() {
+        let a = Amount { whole: i32::MAX, fractional: 999_999, code: 0 };
+        let b = Amount { whole: 0, fractional: 1, code: 0 };
+        assert_eq!(a + b, Err(BrioletteErrorCode::InvalidAmountType));
+    }
+
+    #[test]
+    fn amount_add_rejects_malformed_operands() {
+        let ok = Amount { whole: 1, fractional: 0, code: 0 };
+        let neg = Amount { whole: -1, fractional: 0, code: 0 };
+        let big_frac = Amount { whole: 0, fractional: 1_000_000, code: 0 };
+        let neg_frac = Amount { whole: 1, fractional: -1, code: 0 };
+        assert_eq!(ok.clone() + neg, Err(BrioletteErrorCode::InvalidAmountType));
+        assert_eq!(ok.clone() + big_frac, Err(BrioletteErrorCode::InvalidAmountType));
+        assert_eq!(ok + neg_frac, Err(BrioletteErrorCode::InvalidAmountType));
+    }
+
+    // -----------------------------------------------------------------------
+    // Effective amount (split bounds) tests
+    // -----------------------------------------------------------------------
+
+    fn split_amt(whole: i32, fractional: i32) -> Amount {
+        Amount { whole, fractional, code: AmountType::TestToken as i32 }
+    }
+
+    fn split_token(value: Amount, splits: Vec<Vec<Amount>>) -> Token {
+        Token {
+            descriptor: Some(Descriptor { version: 0, value: Some(value) }),
+            base: None,
+            history: splits
+                .into_iter()
+                .map(|amounts| History {
+                    transfer: Some(Transfer {
+                        recipient: None,
+                        tags: amounts
+                            .into_iter()
+                            .map(|a| Tag { value: Some(tag::Value::SplitValue(a)) })
+                            .collect(),
+                        previous_signature: vec![],
+                    }),
+                    signature: vec![],
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn effective_amount_follows_splits() {
+        let t = split_token(split_amt(10, 0), vec![vec![], vec![split_amt(6, 0)], vec![]]);
+        assert_eq!(t.effective_amount(), Some(split_amt(6, 0)));
+        assert_eq!(t.effective_amount_at(0), Some(split_amt(10, 0)));
+        assert_eq!(t.effective_amount_at(4), None);
+        let half = split_token(split_amt(1, 0), vec![vec![split_amt(0, 500_000)]]);
+        assert_eq!(half.effective_amount(), Some(split_amt(0, 500_000)));
+    }
+
+    #[test]
+    fn effective_amount_rejects_bad_splits() {
+        let v = split_amt(1, 0);
+        // Exceeds value.
+        assert_eq!(
+            split_token(v.clone(), vec![vec![split_amt(1, 1)]]).checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidSplitExceedsValue)
+        );
+        // Value may not grow back after a smaller split (1 -> 0.5 -> 1).
+        assert_eq!(
+            split_token(v.clone(), vec![vec![split_amt(0, 500_000)], vec![split_amt(1, 0)]])
+                .checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidSplitExceedsValue)
+        );
+        // Negative and out-of-range fractional splits.
+        assert_eq!(
+            split_token(v.clone(), vec![vec![split_amt(-1, 0)]]).checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidAmountType)
+        );
+        assert_eq!(
+            split_token(v.clone(), vec![vec![split_amt(0, -5)]]).checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidAmountType)
+        );
+        assert_eq!(
+            split_token(v.clone(), vec![vec![split_amt(0, 1_000_000)]]).checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidAmountType)
+        );
+        // At most one split per transfer.
+        assert_eq!(
+            split_token(v.clone(), vec![vec![split_amt(0, 0), split_amt(1, 0)]])
+                .checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidAmountType)
+        );
+        // Currency must match.
+        let mut other = split_amt(0, 0);
+        other.code += 1;
+        assert_eq!(
+            split_token(v.clone(), vec![vec![other]]).checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidSplitCurrencyMismatch)
+        );
+        // Descriptor value must be present and positive.
+        assert_eq!(
+            split_token(split_amt(0, 0), vec![]).checked_effective_amount(),
+            Err(BrioletteErrorCode::InvalidAmountType)
+        );
+        let mut none = split_token(v, vec![]);
+        none.descriptor.as_mut().unwrap().value = None;
+        assert_eq!(none.effective_amount(), None);
     }
 
     // -----------------------------------------------------------------------

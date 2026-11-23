@@ -132,13 +132,17 @@ impl BrioletteSwapper {
         let wallet_shell = self.wallet.read().unwrap().clone();
         if wallet_shell.validate_tokens(&request.tokens.clone()).await {
             for token in request.tokens.iter() {
+                if token.history.is_empty() {
+                    return Err(BrioletteError {
+                        code: BrioletteErrorCode::InvalidMissingFields.into(),
+                    });
+                }
                 let sender;
                 let destination;
                 if token.history.len() > 1 {
                     sender = token
                         .history
-                        .iter()
-                        .last()
+                        .get(token.history.len() - 2)
                         .unwrap()
                         .transfer
                         .as_ref()
@@ -173,23 +177,36 @@ impl BrioletteSwapper {
                 if destination.ticket.as_ref().unwrap().credential
                     == self.ticket.ticket.as_ref().unwrap().credential
                 {
+                    // Determine the effective value of the received token. The
+                    // descriptor carries the original mint value, while SplitValue
+                    // tags in the transfer history reduce the value carried along
+                    // that branch. Paying out the descriptor value for a split
+                    // token allows a sender to be reimbursed multiple times for a
+                    // single minted token.
+                    let effective = token.effective_amount().unwrap_or_default();
+                    if effective.whole <= 0 || effective.fractional != 0 {
+                        warn!(
+                            "rejecting swap of token with non-positive or fractional effective value: {:?}",
+                            effective
+                        );
+                        return Err(BrioletteError {
+                            code: BrioletteErrorCode::InvalidMissingFields.into(),
+                        });
+                    }
                     // TODO: Handle being out of tokens and different values, whole and fractional
-                    if self.wallet.write().unwrap().transfer(
-                        token
-                            .descriptor
-                            .as_ref()
-                            .unwrap()
-                            .value
-                            .clone()
-                            .unwrap()
-                            .whole as u32,
-                        sender.clone().encode_to_vec(),
-                    ) == true
+                    if self
+                        .wallet
+                        .write()
+                        .unwrap()
+                        .transfer(effective.whole as u32, sender.clone().encode_to_vec())
+                        == true
                     {
-                        let pending = self.wallet.write().unwrap().pending_tokens.pop().unwrap();
-                        reply
-                            .tokens
-                            .push(Token::decode(pending.as_slice()).unwrap());
+                        let mut wallet = self.wallet.write().unwrap();
+                        while let Some(pending) = wallet.pending_tokens.pop() {
+                            reply
+                                .tokens
+                                .push(Token::decode(pending.as_slice()).unwrap());
+                        }
                     }
                 }
             }
