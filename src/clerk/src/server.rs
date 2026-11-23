@@ -14,7 +14,7 @@
 
 use briolette_proto::briolette::clerk::{
     AddEpochReply, EpochReply, EpochRequest, EpochUpdate, EpochVerify, GetTicketsReply,
-    GetTicketsRequest,
+    GetTicketsRequest, GroupPolicy, RefreshTicketsReply, RefreshTicketsRequest,
 };
 use briolette_proto::briolette::token::{SignedTicket, Ticket, TicketData};
 use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
@@ -27,10 +27,10 @@ use briolette_proto::briolette::Version;
 use bytes::Bytes;
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey};
 
-use briolette_crypto::v0;
+use briolette_crypto::v1;
 use ecdsa::RecoveryId;
 use log::*;
-use p256::ecdsa::{signature::RandomizedSigner, Signature, SigningKey, VerifyingKey};
+use p256::ecdsa::{signature::RandomizedSigner, signature::Verifier, Signature, SigningKey, VerifyingKey};
 use p256::{PublicKey, SecretKey};
 use prost::Message;
 use rand_core::OsRng;
@@ -98,6 +98,11 @@ impl BrioletteClerk {
     pub fn write_key(&self, data_file: &Path) -> Result<bool, Box<dyn std::error::Error>> {
         let sk: SecretKey = self.ticket_signing_key.clone().into();
         std::fs::write(&data_file, sk.to_pkcs8_der().unwrap().as_bytes())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&data_file, std::fs::Permissions::from_mode(0o600))?;
+        }
         Ok(true)
     }
 
@@ -123,6 +128,11 @@ impl BrioletteClerk {
             tokenmap_uri: self.tokenmap_uri.to_string(),
         };
         std::fs::write(&data_file, serde_json::to_vec(&es).unwrap())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&data_file, std::fs::Permissions::from_mode(0o600))?;
+        }
         Ok(true)
     }
 
@@ -198,7 +208,7 @@ impl BrioletteClerk {
         // Serialize TicketRequests and verify the supplied NAC signature.
         let tr_msg = request.requests.clone().unwrap().encode_to_vec();
         let basename = Some(ed.epoch.to_le_bytes().to_vec());
-        if v0::verify(
+        if v1::verify(
             &request.nac_public_key,
             &basename,
             &None,
@@ -211,6 +221,13 @@ impl BrioletteClerk {
                 code: BrioletteErrorCode::InvalidSignature.into(),
             });
         }
+        // Determine ticket lifetime from the epoch's per-NAC-group policy.
+        let lifetime = ticket_lifetime_for_nac_group(
+            &eed.group_policies,
+            &request.nac_public_key,
+        );
+        trace!("ticket lifetime for TTC group: {} epochs", lifetime);
+
         let mut reply = GetTicketsReply::default();
         // Spray the secret keys all over memory! =)
         let sk: SecretKey = self.ticket_signing_key.clone().into();
@@ -225,12 +242,12 @@ impl BrioletteClerk {
                 credential: ticket_req.credential.clone(),
                 tags: Some(TicketData {
                     group_number: ticket_req.group_number,
-                    lifetime: 7, // TODO: make dynamic
+                    lifetime,
                     created_on: ed.epoch,
                 }),
             };
             // Before signing, let's confirm the credential matches the TTC.
-            if v0::credential_in_group(&ticket.credential, &request.ttc_public_key) == false {
+            if v1::credential_in_group(&ticket.credential, &request.ttc_public_key) == false {
                 trace!("NAC signature for the ticket request did not verify.");
                 return Err(BrioletteError {
                     code: BrioletteErrorCode::CredentialInvalidForGroup.into(),
@@ -243,6 +260,9 @@ impl BrioletteClerk {
             let sig: Signature = self
                 .ticket_signing_key
                 .sign_with_rng(&mut OsRng, serialized_ticket.as_slice());
+            // Append the ECDSA recovery ID byte to produce the 65-byte
+            // recoverable signature format (r‖s‖recovery_id).  Consumers
+            // must pop this byte before parsing the 64-byte ECDSA signature.
             signature = sig.to_vec();
             if let Ok(rec_id) =
                 RecoveryId::trial_recovery_from_msg(&pk.into(), serialized_ticket.as_slice(), &sig)
@@ -279,6 +299,172 @@ impl BrioletteClerk {
         // 4. Return the new tickets.
         return Ok(reply);
     }
+    // Refreshes existing tickets, preserving the same credential (payment pseudonym)
+    // but issuing a fresh lifetime.  This enables persistent peer identities with
+    // medium-lived tickets instead of long-lived ones.
+    pub async fn refresh_tickets_impl(
+        &self,
+        request: &RefreshTicketsRequest,
+    ) -> Result<RefreshTicketsReply, BrioletteError> {
+        trace!("refresh_tickets: request = {:?}", &request);
+        if request.version != Version::Current as i32 {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidVersion.into(),
+            });
+        }
+        if request.tickets.is_empty() {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            });
+        }
+
+        let eu = self.epoch_update.read().unwrap().clone();
+        if eu.is_none() {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidServerState.into(),
+            });
+        }
+        let eed = eu.clone().unwrap().extended_data.unwrap();
+        if !eed.ttc_group_public_keys.contains(&request.ttc_public_key) {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::UnknownTokenTransferGroupPublicKey.into(),
+            });
+        }
+
+        let ed = eu.clone().unwrap().data.unwrap();
+        if request.known_epoch < ed.epoch {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::EpochUpdateRequired.into(),
+            });
+        }
+
+        // Verify the NAC signature over the serialized ticket list.
+        let tickets_msg: Vec<u8> = {
+            use prost::Message;
+            // Serialize the tickets as a repeated field wrapper for signing.
+            // We serialize each SignedTicket and concatenate, matching wallet-side.
+            let mut buf = Vec::new();
+            for t in &request.tickets {
+                buf.extend_from_slice(&t.encode_to_vec());
+            }
+            buf
+        };
+        let basename = Some(ed.epoch.to_le_bytes().to_vec());
+        if !v1::verify(
+            &request.nac_public_key,
+            &basename,
+            &None,
+            &request.nac_signature,
+            &tickets_msg,
+        ) {
+            trace!("NAC signature for the refresh request did not verify.");
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidSignature.into(),
+            });
+        }
+
+        // Verify the ticket signing key so we know these tickets came from us.
+        let sk: SecretKey = self.ticket_signing_key.clone().into();
+        let pk: PublicKey = sk.public_key();
+        let ticket_vk: VerifyingKey = pk.into();
+
+        let mut reply = RefreshTicketsReply::default();
+        reply.signing_key = pk.to_public_key_der().unwrap().as_bytes().to_vec();
+
+        for signed_ticket in &request.tickets {
+            let ticket = signed_ticket.ticket.as_ref().ok_or(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            })?;
+
+            // Verify the original ticket signature to ensure it was issued by us.
+            let serialized_old = ticket.encode_to_vec();
+            let mut sig_bytes = signed_ticket.signature.clone();
+            sig_bytes.pop(); // Drop RecoveryId byte
+            let old_sig = Signature::try_from(sig_bytes.as_slice()).map_err(|_| BrioletteError {
+                code: BrioletteErrorCode::UnparseableTicketSignature.into(),
+            })?;
+            ticket_vk
+                .verify(serialized_old.as_slice(), &old_sig)
+                .map_err(|_| BrioletteError {
+                    code: BrioletteErrorCode::InvalidTicketSignature.into(),
+                })?;
+
+            // Verify the credential belongs to the TTC group.
+            if !v1::credential_in_group(&ticket.credential, &request.ttc_public_key) {
+                return Err(BrioletteError {
+                    code: BrioletteErrorCode::CredentialInvalidForGroup.into(),
+                });
+            }
+
+            let tags = ticket.tags.as_ref().ok_or(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            })?;
+
+            // Check if the ticket's group has been revoked.
+            let group_num = tags.group_number as usize;
+            let byte_idx = group_num / 8;
+            let bit_idx = group_num % 8;
+            if byte_idx < ed.group_bitfield.len()
+                && (ed.group_bitfield[byte_idx] & (1 << bit_idx)) != 0
+            {
+                return Err(BrioletteError {
+                    code: BrioletteErrorCode::CredentialRevoked.into(),
+                });
+            }
+
+            // Issue a fresh ticket with the SAME credential and group but new lifetime.
+            let lifetime = ticket_lifetime_for_nac_group(
+                &eed.group_policies,
+                &request.nac_public_key,
+            );
+            let new_ticket = Ticket {
+                credential: ticket.credential.clone(),
+                tags: Some(TicketData {
+                    group_number: tags.group_number,
+                    lifetime,
+                    created_on: ed.epoch,
+                }),
+            };
+
+            let serialized_ticket = new_ticket.encode_to_vec();
+            let sig: Signature = self
+                .ticket_signing_key
+                .sign_with_rng(&mut OsRng, serialized_ticket.as_slice());
+            // Append the ECDSA recovery ID byte to produce the 65-byte
+            // recoverable signature format (r‖s‖recovery_id).  Consumers
+            // must pop this byte before parsing the 64-byte ECDSA signature.
+            let mut signature = sig.to_vec();
+            if let Ok(rec_id) =
+                RecoveryId::trial_recovery_from_msg(&pk.into(), serialized_ticket.as_slice(), &sig)
+            {
+                signature.push(rec_id.to_byte());
+            } else {
+                return Err(BrioletteError {
+                    code: BrioletteErrorCode::FailedToSignTicket.into(),
+                });
+            }
+
+            reply.tickets.push(SignedTicket {
+                ticket: Some(new_ticket),
+                signature,
+            });
+        }
+
+        // Store the refreshed tickets in the token map (same NAC linkage).
+        let nac_sig = LinkableSignature {
+            signature: request.nac_signature.clone(),
+            basename: basename.clone().unwrap(),
+            group_public_key: request.nac_public_key.clone(),
+        };
+        if !update_ticket_store(reply.tickets.clone(), nac_sig, &self.tokenmap_uri).await {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::TokenMapFailure.into(),
+            });
+        }
+
+        Ok(reply)
+    }
+
     // We always provide a non-async implementation for cleaner testing.
     // It also allows migration to different wrapping frameworks.
     pub fn add_epoch_impl(&self, request: &EpochUpdate) -> Result<AddEpochReply, BrioletteError> {
@@ -347,6 +533,20 @@ impl BrioletteClerk {
 
         return Ok(reply);
     }
+}
+
+/// Default ticket lifetime (in epochs) when no per-group policy is configured.
+const DEFAULT_TICKET_LIFETIME: u32 = 7;
+
+/// Look up the ticket lifetime for a NAC group public key from the epoch's
+/// group policies.  Returns the default lifetime if no policy matches.
+fn ticket_lifetime_for_nac_group(policies: &[GroupPolicy], nac_gpk: &[u8]) -> u32 {
+    for p in policies {
+        if p.nac_group_public_key == nac_gpk {
+            return p.ticket_lifetime;
+        }
+    }
+    DEFAULT_TICKET_LIFETIME
 }
 
 async fn update_ticket_store(

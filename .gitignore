@@ -1,0 +1,23 @@
+target/
+__pycache__/
+*.db
+*.db-journal
+Cargo.lock
+src/*/data/
+*.cred
+*.cred.sig
+
+# Gradle build artifacts
+.gradle/
+build/
+
+# Generated key material and server state — never commit secrets
+data/**/*.sk
+data/**/*.gpk
+data/**/*.pk
+data/**/*.state
+data/**/*.pb
+
+# Generated manufacturing files
+hardware/stick/rev1-pcb/gerbers/
+hardware/relay/gerbers/

@@ -171,3 +171,22 @@ pub mod swapper {
         }
     }
 }
+
+pub mod service_auth {
+    tonic::include_proto!("briolette.service_auth");
+}
+
+pub mod bridge {
+    tonic::include_proto!("briolette.bridge");
+}
+
+pub mod recovery {
+    tonic::include_proto!("briolette.recovery");
+
+    use crate::BrioletteClientHelper;
+    impl BrioletteClientHelper for recovery_client::RecoveryClient<tonic::transport::Channel> {
+        fn new_wrapper(channel: tonic::transport::Channel) -> Self {
+            Self::new(channel)
+        }
+    }
+}

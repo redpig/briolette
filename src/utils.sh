@@ -14,7 +14,10 @@
 # limitations under the License.
 
 # To use:
-#  source utils.sh
+#  cd src && source utils.sh
+
+# Workspace root is one directory up from src/
+WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 clear_data() {
   find data/ -type f \! -name .gitkeep -exec rm \{\} \;
@@ -29,23 +32,23 @@ run_cmd_at() {
 }
 
 run_server() {
-        run_cmd_at "$1" server
+	run_cmd_at "$1" server
 }
 
 run_client() {
-        run_cmd_at "$1" client
+	run_cmd_at "$1" client
 }
 
 
 start_servers() {
-        run_server registrar
-        run_client registrar
-        run_server clerk
-        run_server tokenmap
-        run_server mint
+	run_server registrar
+	run_client registrar
+	run_server clerk
+	run_server tokenmap
+	run_server mint
 
-        run_cmd_at clerk generate-epoch
-        sleep 5 
+	run_cmd_at clerk generate-epoch
+	sleep 5
 
         run_server validate
         run_server swapper
@@ -57,5 +60,5 @@ start_servers() {
 }
 
 kill_bg() {
-        kill $(jobs -p)
+	kill $(jobs -p)
 }

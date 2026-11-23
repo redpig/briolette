@@ -50,8 +50,6 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(feature = "std")]
-#[cfg_attr(doc_cfg, doc(cfg(feature = "std")))]
 impl std::error::Error for Error {}
 
 impl<R: rand::RngCore, RD: rand_distr::Distribution<f64>, T, const D: usize> Flight<R, RD, T, D> {
@@ -155,7 +153,7 @@ mod tests {
         let alpha = 1.4;
         let rng = Box::new(SeedableRng::seed_from_u64(1));
         let dist = Box::new(Levy::<f64>::new(min_step, alpha).unwrap());
-        let mut lf = Flight::<StdRng, Levy<f64>, u64, 1>::new(rng, dist, &[200]).unwrap();
+        let mut lf = Flight::<StdRng, Levy<f64>, u64, 1>::new(rng, dist, [200]).unwrap();
         let mut result = [0];
         lf.step(&[10], &mut result);
         assert_eq!(result[0], 23);
@@ -167,7 +165,7 @@ mod tests {
         let alpha = 0.9;
         let rng = Box::new(SeedableRng::seed_from_u64(1));
         let dist = Box::new(Levy::<f64>::new(min_step, alpha).unwrap());
-        let mut lf = Flight::<StdRng, Levy<f64>, u64, 2>::new(rng, dist, &[200, 200]).unwrap();
+        let mut lf = Flight::<StdRng, Levy<f64>, u64, 2>::new(rng, dist, [200, 200]).unwrap();
 
         // Show a sequence with at least one large jump and many small
         // moves to help validate the shift to 2d.
@@ -201,7 +199,7 @@ mod tests {
         let shape = 2.0;
         let rng = Box::new(SeedableRng::seed_from_u64(1));
         let dist = Box::new(Pareto::new(scale, shape).unwrap());
-        let mut lf = Flight::<StdRng, Pareto<f64>, u64, 2>::new(rng, dist, &[200, 200]).unwrap();
+        let mut lf = Flight::<StdRng, Pareto<f64>, u64, 2>::new(rng, dist, [200, 200]).unwrap();
 
         // Show a sequence with at least one large jump and many small
         // moves to help validate the shift to 2d.

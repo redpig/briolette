@@ -1,0 +1,30 @@
+[package]
+name = "briolette-card-personalize"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "briolette-card-personalize"
+path = "src/main.rs"
+
+[features]
+default = []
+nfc = ["pcsc"]
+
+[dependencies]
+# CLI argument parsing
+clap = { version = "4.3.2", features = ["derive"] }
+stderrlog = "0.5.4"
+log = "0.4.17"
+
+# P-256 ECDSA for manufacturer CA
+p256 = { version = "0.12.0", features = ["ecdsa", "pem", "pkcs8"] }
+ecdsa = { version = "0.15.1", features = ["signing", "verifying", "der", "pem"] }
+elliptic-curve = { version = "0.12.3", features = ["pem", "pkcs8"] }
+
+# Crypto utilities
+sha2 = "0.10"
+rand = "0.8"
+
+# PC/SC smart card interface (optional, requires libpcsclite-dev)
+pcsc = { version = "2", optional = true }

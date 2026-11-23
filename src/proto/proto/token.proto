@@ -30,14 +30,19 @@ message TicketData {
 
 message SignedTicket {
   Ticket ticket = 1;
-  // Signature over a serialized ticket with a recovery byte appended.
+  // ECDSA P-256 recoverable signature over the serialized Ticket.
+  // Format: 64 bytes (r || s) + 1 byte recovery ID = 65 bytes total.
+  // The recovery ID (0-3) enables public key recovery without transmitting
+  // the full verifying key. Consumers must pop the last byte as the
+  // RecoveryId before parsing the remaining 64 bytes as an ECDSA Signature.
   bytes signature = 2;
 }
 
 message Amount {
   int32 whole = 1;
-  // Must be [0.0, 1.0)
-  float fractional = 2;
+  // Fractional amount in micros (millionths of one whole unit).
+  // Range: [0, 999999]. For example, 500000 represents 0.5.
+  int32 fractional = 2;
   // Specifies the currency type promised but does not
   // imply issuing authority for the currency.
   // That will depend on mint (group) keys.
@@ -46,6 +51,7 @@ message Amount {
 
 enum Version {
   V0 = 0;
+  V1 = 1; // BLS12-381 based ECDAA (128-bit security)
 }
 
 message Descriptor {
@@ -71,15 +77,16 @@ message Transfer {
 
 message History {
   Transfer transfer = 1;
-  // 0th signature must be signed by a mint credential and uses recoverable ecdsa NistP256.
-  // All other signatures must be signed by a TTC credential.
-  // For all non-base signatures, the first bytes are the serialized credential.
+  // Base (0th) signature: ECDSA P-256 recoverable signature from a mint key.
+  //   Format: 64 bytes (r || s) + 1 byte recovery ID = 65 bytes total.
+  //   The recovery ID allows public key recovery to match against trusted mints.
   //
-  // Trimming "reissues" the History and adds the trimmed_from tag.  Trim servers use a
-  // different keypair than the mint which enables easier discovery of trim key abuse.  The risk
-  // is still high, so other approaches may be appealing -- token swapping or having every trim
-  // server act as the "first" minted credential such that they can double spend but never
-  // change the value or original token tags.
+  // Subsequent signatures: ECDAA (BN254/BLS12-381) group signature from a TTC
+  //   credential. Variable length. The credential bytes are prepended to the
+  //   signature (inflated form) or omitted (deflated form, ~260 bytes smaller).
+  //
+  // Trimming "reissues" the History and adds the trimmed_from tag. Trim servers
+  // use a different keypair than the mint for easier abuse discovery.
   bytes signature = 2;
 }
 

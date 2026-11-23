@@ -109,6 +109,14 @@ fn read_or_generate_key(
         // Attempt to update the supplied path with the new keys.
         if !secret_key_file.as_os_str().is_empty() {
             std::fs::write(secret_key_file, secret_key_out).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(
+                    secret_key_file,
+                    std::fs::Permissions::from_mode(0o600),
+                );
+            }
         }
         if !public_key_file.as_os_str().is_empty() {
             std::fs::write(public_key_file, pk.clone()).unwrap();

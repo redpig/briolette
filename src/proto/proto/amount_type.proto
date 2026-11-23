@@ -186,6 +186,9 @@ enum AmountType {
   YER = 886;
   ZAR = 710;
   ZMW = 967;
+  // Ethereum L2 bridge asset types (non-ISO range)
+  ETH = 8888;    // Native Ether
+  WETH = 8889;   // Wrapped Ether (ERC-20)
 }
 
 

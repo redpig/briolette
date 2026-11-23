@@ -1,0 +1,162 @@
+// Copyright 2023 The Briolette Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package briolette.recovery;
+import "common.proto";
+import "token.proto";
+import "tokenmap.proto";
+
+service Recovery {
+    // Pre-loss: wallet registers a recovery binding.
+    rpc RegisterBinding (RegisterBindingRequest) returns (RegisterBindingReply);
+
+    // Pre-loss: wallet refreshes an existing binding's expiration.
+    rpc RefreshBinding (RefreshBindingRequest) returns (RefreshBindingReply);
+
+    // Pre-loss: wallet revokes its own binding (e.g., changing delegate).
+    rpc RevokeBinding (RevokeBindingRequest) returns (RevokeBindingReply);
+
+    // Post-loss: delegate initiates recovery of tokens from a lost wallet.
+    rpc RecoverTokens (RecoverTokensRequest) returns (RecoverTokensReply);
+
+    // Query: check if a binding exists and its current status.
+    rpc GetBindingStatus (GetBindingStatusRequest) returns (GetBindingStatusReply);
+}
+
+// ---- Delegate types ----
+
+enum DelegateType {
+    // Standard ECDSA P-256 keypair. Can be backed up offline (QR code,
+    // safety deposit box, institutional custody).
+    ECDSA_P256 = 0;
+    // Another briolette wallet's TTC ECDAA public key (peer recovery).
+    // Enables peer-to-peer recovery via a trusted delegate wallet.
+    TTC_ECDAA = 1;
+}
+
+// ---- Binding messages ----
+
+// A pre-established cryptographic binding between a wallet and its
+// recovery delegate. Created before wallet loss occurs.
+message RecoveryBinding {
+    // The wallet's TTC ECDAA public key (Q point). This is the persistent
+    // identity that appears (randomized) in every token transfer.
+    bytes ttc_public_key = 1;
+    // Type of delegate key used for recovery authorization.
+    DelegateType delegate_type = 2;
+    // Recovery delegate's public key.
+    // For ECDSA_P256: a P-256 verifying key (65 bytes uncompressed).
+    // For TTC_ECDAA: another wallet's TTC public key (Q point).
+    bytes delegate_key = 3;
+    // Binding expiration as epoch timestamp. Must be refreshed periodically.
+    uint64 valid_until = 4;
+}
+
+message RegisterBindingRequest {
+    briolette.Version version = 1;
+    RecoveryBinding binding = 2;
+    // NAC signature over serialized RecoveryBinding (basename = current epoch).
+    // Proves the wallet holds a valid network access credential.
+    .briolette.tokenmap.LinkableSignature nac_signature = 3;
+}
+
+message RegisterBindingReply {
+    // Opaque binding ID for future reference/refresh/revoke.
+    bytes binding_id = 1;
+    briolette.Error error = 2;
+}
+
+message RefreshBindingRequest {
+    briolette.Version version = 1;
+    // Binding to refresh.
+    bytes binding_id = 2;
+    // New expiration epoch.
+    uint64 new_valid_until = 3;
+    // Fresh NAC signature (basename = current epoch) proving continued
+    // good standing.
+    .briolette.tokenmap.LinkableSignature nac_signature = 4;
+}
+
+message RefreshBindingReply {
+    briolette.Error error = 1;
+}
+
+message RevokeBindingRequest {
+    briolette.Version version = 1;
+    // Binding to revoke.
+    bytes binding_id = 2;
+    // NAC signature proving the caller is the binding owner.
+    .briolette.tokenmap.LinkableSignature nac_signature = 3;
+}
+
+message RevokeBindingReply {
+    briolette.Error error = 1;
+}
+
+// ---- Recovery claim messages ----
+
+message RecoverTokensRequest {
+    briolette.Version version = 1;
+    // TTC public key of the lost wallet.
+    bytes old_ttc_public_key = 2;
+    // Proof that the caller controls the delegate key.
+    // For ECDSA_P256: ECDSA signature over SHA-256(old_ttc_public_key || timestamp).
+    // For TTC_ECDAA: ECDAA signature with basename = SHA-256(old_ttc_public_key || timestamp).
+    bytes delegate_proof = 3;
+    // Timestamp for replay prevention (must be within the last epoch).
+    uint64 timestamp = 4;
+    // Ticket from the replacement wallet to receive recovered tokens.
+    .briolette.token.SignedTicket new_wallet_ticket = 5;
+}
+
+// A single recovered token: the expired original and its fresh replacement.
+message RecoveredToken {
+    // The original expired token (retained for audit trail).
+    .briolette.token.Token original_token = 1;
+    // The newly minted replacement token issued to the new wallet.
+    .briolette.token.Token recovered_token = 2;
+}
+
+message RecoverTokensReply {
+    // Successfully recovered tokens.
+    repeated RecoveredToken tokens = 1;
+    // Number of tokens that matched the holder but are not yet recoverable
+    // (still within cooling-off period or not yet fully expired).
+    uint32 pending_count = 2;
+    briolette.Error error = 3;
+}
+
+// ---- Status query messages ----
+
+message GetBindingStatusRequest {
+    briolette.Version version = 1;
+    // TTC public key to look up.
+    bytes ttc_public_key = 2;
+}
+
+enum BindingState {
+    BINDING_UNKNOWN = 0;
+    BINDING_ACTIVE = 1;
+    BINDING_EXPIRED = 2;
+    BINDING_REVOKED = 3;
+    BINDING_CONSUMED = 4;  // Recovery has been completed.
+}
+
+message GetBindingStatusReply {
+    BindingState state = 1;
+    // Binding expiration epoch (0 if not found).
+    uint64 valid_until = 2;
+    briolette.Error error = 3;
+}

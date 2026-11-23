@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tonic = "0.12"
+tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13.5"
 rusqlite = { version = "0.28.0", features = ["chrono", "blob", "bundled"] }
 bytes = { version = "1.4.0", features = ["std", "serde"] }
@@ -28,4 +28,4 @@ hyper-util = { version = "0.1.4" }
 
 
 [build-dependencies]
-tonic-build = "0.8"
+tonic-build = "0.12"

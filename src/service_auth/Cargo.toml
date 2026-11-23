@@ -1,0 +1,16 @@
+[package]
+name = "briolette-service-auth"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+briolette-crypto = { path = "../crypto", version = "*" }
+briolette-proto = { path = "../proto", version = "*" }
+tonic = { version = "0.12" }
+prost = "0.13.5"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+log = { version = "0.4.17", features = ["max_level_trace", "release_max_level_info"] }
+sha2 = "0.10.6"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

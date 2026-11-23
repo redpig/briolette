@@ -41,4 +41,4 @@ stderrlog = "0.5.4"
 clap = { version = "4.3.2", features = ["derive"] }
 
 [build-dependencies]
-tonic-build = "0.8"
+tonic-build = "0.12"

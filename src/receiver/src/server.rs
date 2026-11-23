@@ -67,7 +67,6 @@ impl From<TransactionState> for Transaction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transaction {
-    total: f32,
     amount: token::Amount,
     peer: Option<SocketAddr>,
 }
@@ -107,10 +106,10 @@ impl BrioletteReceiver {
 
     // A very simple interfaxce for UI or PoS to prepare for the next payer.
     // TODO: Replace with next_transaction() and setup all tx details.
-    pub fn next_amount(&mut self, whole: u64, fractional: f32) {
+    pub fn next_amount(&mut self, whole: u64, fractional_micros: i32) {
         self.next_tx_amount = Arc::new(RwLock::new(token::Amount {
             whole: whole as i32,
-            fractional,
+            fractional: fractional_micros,
             code: token::AmountType::TestToken.into(),
         }));
     }
@@ -136,7 +135,6 @@ impl BrioletteReceiver {
         // 2. Setup Transaction data
         let amount = self.next_tx_amount.read().unwrap().clone();
         let tx_data = Transaction {
-            total: amount.whole as f32 + amount.fractional,
             amount: amount,
             peer: peer,
         };
@@ -315,30 +313,26 @@ impl BrioletteReceiver {
         let mut reply = TransactReply::default();
         let mut total_amount = token::Amount::default();
         for method in request.methods.iter() {
-            if self.wallet.read().unwrap().verify_tokens(&method.tokens) == false {
+            if self.wallet.write().unwrap().verify_tokens(&method.tokens) == false {
                 error!("proposal had invalid tokens!");
                 reply.accept = false;
                 return Ok(reply);
             }
             for token in method.tokens.iter() {
-                let Some(effective) = token.effective_amount() else {
-                    error!("proposal had token with invalid effective amount!");
-                    reply.accept = false;
-                    return Ok(reply);
+                total_amount = match total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap() {
+                    Ok(a) => a,
+                    Err(_) => {
+                        error!("currency mismatch in token amounts");
+                        reply.accept = false;
+                        return Ok(reply);
+                    }
                 };
-                if !effective.is_positive() {
-                    error!("proposal had non-positive token amount: {:?}", effective);
-                    reply.accept = false;
-                    return Ok(reply);
-                }
-                total_amount = total_amount + effective;
             }
         }
-        let total = total_amount.whole as f32 + total_amount.fractional;
-        if total != tx_data.total || total_amount != tx_data.amount {
+        if total_amount != tx_data.amount {
             error!(
-                "proposed transfer did not add up: {} != {}",
-                total, tx_data.total
+                "proposed transfer did not add up: {:?} != {:?}",
+                total_amount, tx_data.amount
             );
             reply.accept = false;
             return Ok(reply);
@@ -386,7 +380,7 @@ impl BrioletteReceiver {
         let mut reply = TransferReply::default();
         let mut total_amount = token::Amount::default();
         // TODO: we forcibly validate, but that is not expected.
-        if self.wallet.read().unwrap().verify_tokens(&request.tokens) == false {
+        if self.wallet.write().unwrap().verify_tokens(&request.tokens) == false {
             error!("proposal had invalid tokens!");
             reply.accepted = false;
             return Ok(reply);
@@ -401,17 +395,14 @@ impl BrioletteReceiver {
             .clone()
             .into();
         for token in request.tokens.iter() {
-            let Some(effective) = token.effective_amount() else {
-                error!("transfer had token with invalid effective amount!");
-                reply.accepted = false;
-                return Ok(reply);
+            total_amount = match total_amount + token.descriptor.as_ref().unwrap().value.clone().unwrap() {
+                Ok(a) => a,
+                Err(_) => {
+                    error!("currency mismatch in token amounts");
+                    reply.accepted = false;
+                    return Ok(reply);
+                }
             };
-            if !effective.is_positive() {
-                error!("transfer had non-positive token amount: {:?}", effective);
-                reply.accepted = false;
-                return Ok(reply);
-            }
-            total_amount = total_amount + effective;
             // Check that the last transaction is to our ticket.
             let tx_to = token
                 .history
@@ -432,11 +423,10 @@ impl BrioletteReceiver {
                 return Ok(reply);
             }
         }
-        let total = total_amount.whole as f32 + total_amount.fractional;
-        if total != tx_data.total || total_amount != tx_data.amount {
+        if total_amount != tx_data.amount {
             error!(
-                "proposed transfer did not add up: {} != {}",
-                total, tx_data.total
+                "proposed transfer did not add up: {:?} != {:?}",
+                total_amount, tx_data.amount
             );
             reply.accepted = false;
             return Ok(reply);
@@ -446,9 +436,10 @@ impl BrioletteReceiver {
 
         // Add the tokens to the wallet
         info!(
-            "adding {} ({} {:?}) tokens to wallet",
+            "adding {} ({}.{:06} {:?}) tokens to wallet",
             request.tokens.len(),
-            total,
+            total_amount.whole,
+            total_amount.fractional,
             total_amount.code
         );
         for token in &mut request.tokens.clone() {

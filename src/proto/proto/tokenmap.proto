@@ -26,6 +26,9 @@ service TokenMap {
     rpc RevocationData (RevocationDataRequest) returns (RevocationDataReply);
     // Removes a token's revocation from being returned with Fetch.
     rpc Archive (ArchiveRequest) returns (ArchiveReply);
+    // Find all tokens whose last transfer recipient matches a given credential.
+    // Used by the recovery server to locate a lost wallet's holdings.
+    rpc FindByHolder (FindByHolderRequest) returns (FindByHolderReply);
 }
 
 message StoreTicketsRequest {
@@ -135,4 +138,16 @@ message Entry {
   repeated .briolette.token.Token tokens = 2;
   repeated Abuse abuses = 3;
   uint64 last_update = 4;
+}
+
+// Find tokens by last-holder credential for recovery.
+message FindByHolderRequest {
+  // TTC public key (credential bytes) of the holder to search for.
+  bytes ttc_public_key = 1;
+  // If true, only return tokens whose valid_until timestamp has passed.
+  bool expired_only = 2;
+}
+
+message FindByHolderReply {
+  repeated Entry entries = 1;
 }

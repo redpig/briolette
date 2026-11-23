@@ -16,6 +16,7 @@ use crate::server::BrioletteClerk;
 use briolette_proto::briolette::clerk::clerk_server::Clerk;
 use briolette_proto::briolette::clerk::{
     AddEpochReply, EpochReply, EpochRequest, EpochUpdate, GetTicketsReply, GetTicketsRequest,
+    RefreshTicketsReply, RefreshTicketsRequest,
 };
 use tonic::{Request, Response, Status};
 
@@ -53,6 +54,18 @@ impl Clerk for BrioletteClerk {
     ) -> Result<Response<GetTicketsReply>, Status> {
         let message = request.into_inner();
         let maybe_reply = self.get_tickets_impl(&message).await;
+        match maybe_reply {
+            Ok(reply) => Ok(Response::new(reply)),
+            Err(status) => Err(status.into()),
+        }
+    }
+
+    async fn refresh_tickets(
+        &self,
+        request: Request<RefreshTicketsRequest>,
+    ) -> Result<Response<RefreshTicketsReply>, Status> {
+        let message = request.into_inner();
+        let maybe_reply = self.refresh_tickets_impl(&message).await;
         match maybe_reply {
             Ok(reply) => Ok(Response::new(reply)),
             Err(status) => Err(status.into()),

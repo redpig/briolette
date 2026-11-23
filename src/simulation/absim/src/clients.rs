@@ -34,7 +34,7 @@ impl<S: Simulation + 'static> SimulationClient<S> for LocalSimulationClient<S> {
            if self.handles.len() > 0 {
                while self.handles.len() > 0 {
                  let h = self.handles.remove(0);
-                 h.join();
+                 let _ = h.join();
                }
            }
             self.queue.write().unwrap().clear();
@@ -61,7 +61,7 @@ impl<S: Simulation + 'static> SimulationClient<S> for LocalSimulationClient<S> {
                // println!("Collect called after {} threads", self.handles.len());
                while self.handles.len() > 0 {
                  let h = self.handles.remove(0);
-                 h.join();
+                 let _ = h.join();
                }
            }
       queue.append(&mut self.queue.write().unwrap());

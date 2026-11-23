@@ -1,0 +1,214 @@
+namespace briolette {
+    /// Create a new wallet, register with the network, and return the
+    /// serialized wallet state as JSON. This is a blocking network call.
+    [Throws=WalletError]
+    string create_wallet(
+        string name,
+        string registrar_uri,
+        string clerk_uri,
+        string mint_uri,
+        string validate_uri
+    );
+
+    /// Phase 1: Initialize wallet keys and return the attestation challenge
+    /// preimage. The preimage is `hw_id || nac_pk || ttc_pk` (base64).
+    /// The mobile app must SHA-256 hash this and use the hash as the
+    /// attestation challenge. This cryptographically binds the hardware
+    /// attestation to the ECDAA credential keys.
+    [Throws=WalletError]
+    KeyInitResult init_wallet_keys(
+        string name,
+        string registrar_uri,
+        string clerk_uri,
+        string mint_uri,
+        string validate_uri
+    );
+
+    /// Phase 2: Complete registration with cryptographically-bound attestation.
+    /// Takes wallet JSON from init_wallet_keys and attestation generated
+    /// using the challenge preimage.
+    /// card_attestation_b64: optional base64-encoded MFR_ATTEST response from
+    /// a personalized NFC card. When present, the registrar verifies the card
+    /// is genuine hardware from a trusted manufacturer (HIGH+ tier).
+    [Throws=WalletError]
+    string register_wallet_with_attestation(
+        string wallet_json,
+        AttestationData attestation,
+        string nac_card_public_key_b64,
+        string ttc_card_public_key_b64,
+        string card_attestation_b64
+    );
+
+    /// Create a new wallet with hardware attestation (legacy one-shot API).
+    /// For proper cryptographic binding, prefer init_wallet_keys +
+    /// register_wallet_with_attestation.
+    [Throws=WalletError]
+    string create_wallet_with_attestation(
+        string name,
+        string registrar_uri,
+        string clerk_uri,
+        string mint_uri,
+        string validate_uri,
+        AttestationData attestation
+    );
+
+    /// Load wallet state from a JSON string previously returned by
+    /// create_wallet or save_wallet.
+    [Throws=WalletError]
+    WalletState load_wallet(string json);
+
+    /// Serialize wallet state back to JSON for persistence.
+    [Throws=WalletError]
+    string save_wallet(WalletState state);
+
+    /// Synchronize epoch data from the clerk.
+    [Throws=WalletError]
+    WalletState synchronize(WalletState state, string clerk_uri);
+
+    /// Request receiving tickets from the clerk.
+    [Throws=WalletError]
+    WalletState request_tickets(WalletState state, string clerk_uri, u32 count);
+
+    /// Withdraw (top up) tokens from the mint.
+    [Throws=WalletError]
+    WalletState withdraw(WalletState state, string mint_uri, u32 amount);
+
+    /// Transfer tokens to a recipient identified by their ticket (base64).
+    [Throws=WalletError]
+    TransferResult transfer_tokens(
+        WalletState state,
+        string recipient_ticket_b64,
+        u32 amount
+    );
+
+    /// Import received tokens (base64-encoded) into the wallet.
+    [Throws=WalletError]
+    WalletState receive_tokens(WalletState state, sequence<string> tokens_b64);
+
+    /// Validate all held tokens with the network.
+    [Throws=WalletError]
+    ValidationResult validate_tokens(WalletState state, string validate_uri);
+
+    /// Get a receiving ticket as base64 for display in a QR code.
+    [Throws=WalletError]
+    string get_receiving_ticket_b64(WalletState state);
+
+    // ---- Split-key + attestation protocol (NFC card) ----
+
+    /// Split-key Step 1: compute TTC base point for NFC card.
+    [Throws=WalletError]
+    SplitKeyStep1Result split_key_start(
+        string name, string registrar_uri, string clerk_uri,
+        string mint_uri, string validate_uri
+    );
+
+    /// Split-key Step 2a: after TTC card responds, compute TTC challenge + NAC base.
+    [Throws=WalletError]
+    SplitKeyStep2aResult split_key_after_ttc_commit(
+        string state_json, string q_card_ttc_b64, string u_card_ttc_b64
+    );
+
+    /// Split-key Step 2b: after NAC card responds, compute NAC challenge.
+    [Throws=WalletError]
+    SplitKeyStep2bResult split_key_after_nac_commit(
+        string state_json, string q_card_nac_b64, string u_card_nac_b64
+    );
+
+    /// Split-key Step 3: finalize keys, get attestation challenge preimage
+    /// bound to card-derived combined public keys.
+    [Throws=WalletError]
+    KeyInitResult split_key_complete(
+        string state_json, string s_card_ttc_b64, string s_card_nac_b64
+    );
+
+    /// Compute the wallet balance.
+    Balance get_balance(WalletState state);
+
+    /// Get the number of available tickets.
+    u32 get_ticket_count(WalletState state);
+};
+
+[Error]
+enum WalletError {
+    "NotInitialized",
+    "NetworkError",
+    "InsufficientFunds",
+    "NoTicketsAvailable",
+    "InvalidData",
+    "SerializationError",
+    "ValidationFailed",
+};
+
+dictionary WalletState {
+    /// Opaque JSON blob of the full wallet data. Callers should persist
+    /// this and pass it back on subsequent calls.
+    string json;
+
+    /// Cached summary for quick UI display without parsing.
+    Balance balance;
+    u32 ticket_count;
+    string wallet_name;
+};
+
+dictionary Balance {
+    i32 whole;
+    i32 fractional;
+    string currency;
+    u32 token_count;
+};
+
+dictionary TransferResult {
+    /// Updated wallet state after transfer.
+    WalletState state;
+    /// Base64-encoded tokens to deliver to the recipient.
+    sequence<string> tokens_b64;
+};
+
+dictionary SplitKeyStep1Result {
+    string state_json;
+    string b_ttc_b64;
+};
+
+dictionary SplitKeyStep2aResult {
+    string state_json;
+    string c_ttc_b64;
+    string b_nac_b64;
+};
+
+dictionary SplitKeyStep2bResult {
+    string state_json;
+    string c_nac_b64;
+};
+
+dictionary KeyInitResult {
+    /// Serialized wallet JSON with initialized keys (not yet registered).
+    string wallet_json;
+    /// Base64-encoded attestation challenge preimage: hw_id || nac_pk || ttc_pk.
+    /// SHA-256 hash this to get the attestation challenge.
+    string challenge_preimage_b64;
+    /// Base64-encoded card public key share for NAC (split-key only).
+    /// Empty string when not using split keys.
+    string nac_card_public_key_b64;
+    /// Base64-encoded card public key share for TTC (split-key only).
+    /// Empty string when not using split keys.
+    string ttc_card_public_key_b64;
+};
+
+dictionary AttestationData {
+    /// Algorithm: 0 = NONE, 1 = ANDROID_KM_ATTESTATION, 2 = IOS_APP_ATTEST,
+    ///           3 = CARD_P256_ATTESTATION
+    i32 algorithm;
+    /// Cert chain (Android), CBOR attestation object (iOS), or card
+    /// MFR_ATTEST response (card P-256), base64-encoded.
+    string signature_b64;
+    /// Attested public key (Android) or key identifier (iOS), base64-encoded.
+    /// Empty for card attestation (pubkey is in the MFR_ATTEST response).
+    string public_key_b64;
+};
+
+dictionary ValidationResult {
+    WalletState state;
+    boolean all_valid;
+    u32 valid_count;
+    u32 invalid_count;
+};

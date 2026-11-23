@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use briolette_crypto::v1::split;
 use briolette_proto::briolette::swapper::{
-    GetDestinationReply, GetDestinationRequest, SwapTokensReply, SwapTokensRequest,
+    AuthorizeSwapReply, AuthorizeSwapRequest, GetDestinationReply, GetDestinationRequest,
+    SwapTokensReply, SwapTokensRequest,
 };
 use briolette_proto::briolette::token::{SignedTicket, Token};
 use briolette_proto::briolette::Version;
@@ -27,6 +29,10 @@ use std::sync::{Arc, RwLock};
 pub struct BrioletteSwapper {
     ticket: SignedTicket,
     wallet: Arc<RwLock<WalletData>>,
+    /// Swap server's secret key for signing swap authorizations (Fr scalar, 32 bytes).
+    swap_sk: Vec<u8>,
+    /// Swap server's public key (G1 point, 65 bytes = G1 * swap_sk).
+    swap_pk: Vec<u8>,
 }
 impl BrioletteSwapper {
     pub async fn new(
@@ -47,9 +53,13 @@ impl BrioletteSwapper {
         assert!(wd.withdraw(25).await);
 
         assert!(wd.tickets.len() > 0);
+        let (swap_sk, swap_pk) = split::generate_swap_keypair();
+        trace!("swap server public key: {} bytes", swap_pk.len());
         Ok(Self {
             ticket: wd.tickets[0].clone().into(),
             wallet: Arc::new(RwLock::new(wd)),
+            swap_sk,
+            swap_pk,
         })
     }
 
@@ -61,6 +71,40 @@ impl BrioletteSwapper {
         let mut reply = GetDestinationReply::default();
         reply.swap_ticket = Some(self.ticket.clone());
         return Ok(reply);
+    }
+
+    /// Returns the swap server's public key (for card personalization / epoch data).
+    pub fn swap_public_key(&self) -> &[u8] {
+        &self.swap_pk
+    }
+
+    pub async fn authorize_swap_impl(
+        &self,
+        request: &AuthorizeSwapRequest,
+    ) -> Result<AuthorizeSwapReply, BrioletteError> {
+        trace!("authorize_swap: request = {:?}", &request);
+        if request.version != Version::Current as i32 {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidVersion.into(),
+            });
+        }
+        if request.basename.is_empty() {
+            return Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidMissingFields.into(),
+            });
+        }
+        // Create a Schnorr signature over the basename using the swap server's key.
+        // The card verifies this to allow bloom-filter-bypassing swap signing.
+        match split::swap_auth_create(&self.swap_sk, &self.swap_pk, &request.basename) {
+            Some(auth) => Ok(AuthorizeSwapReply {
+                challenge: auth.c,
+                response: auth.s,
+                error: None,
+            }),
+            None => Err(BrioletteError {
+                code: BrioletteErrorCode::InvalidSignature.into(),
+            }),
+        }
     }
 
     pub async fn swap_tokens_impl(
@@ -88,17 +132,13 @@ impl BrioletteSwapper {
         let wallet_shell = self.wallet.read().unwrap().clone();
         if wallet_shell.validate_tokens(&request.tokens.clone()).await {
             for token in request.tokens.iter() {
-                if token.history.is_empty() {
-                    return Err(BrioletteError {
-                        code: BrioletteErrorCode::InvalidMissingFields.into(),
-                    });
-                }
                 let sender;
                 let destination;
                 if token.history.len() > 1 {
                     sender = token
                         .history
-                        .get(token.history.len() - 2)
+                        .iter()
+                        .last()
                         .unwrap()
                         .transfer
                         .as_ref()
@@ -133,36 +173,23 @@ impl BrioletteSwapper {
                 if destination.ticket.as_ref().unwrap().credential
                     == self.ticket.ticket.as_ref().unwrap().credential
                 {
-                    // Determine the effective value of the received token. The
-                    // descriptor carries the original mint value, while SplitValue
-                    // tags in the transfer history reduce the value carried along
-                    // that branch. Paying out the descriptor value for a split
-                    // token allows a sender to be reimbursed multiple times for a
-                    // single minted token.
-                    let effective = token.effective_amount().unwrap_or_default();
-                    if effective.whole <= 0 || effective.fractional != 0.0 {
-                        warn!(
-                            "rejecting swap of token with non-positive or fractional effective value: {:?}",
-                            effective
-                        );
-                        return Err(BrioletteError {
-                            code: BrioletteErrorCode::InvalidMissingFields.into(),
-                        });
-                    }
                     // TODO: Handle being out of tokens and different values, whole and fractional
-                    if self
-                        .wallet
-                        .write()
-                        .unwrap()
-                        .transfer(effective.whole as u32, sender.clone().encode_to_vec())
-                        == true
+                    if self.wallet.write().unwrap().transfer(
+                        token
+                            .descriptor
+                            .as_ref()
+                            .unwrap()
+                            .value
+                            .clone()
+                            .unwrap()
+                            .whole as u32,
+                        sender.clone().encode_to_vec(),
+                    ) == true
                     {
-                        let mut wallet = self.wallet.write().unwrap();
-                        while let Some(pending) = wallet.pending_tokens.pop() {
-                            reply
-                                .tokens
-                                .push(Token::decode(pending.as_slice()).unwrap());
-                        }
+                        let pending = self.wallet.write().unwrap().pending_tokens.pop().unwrap();
+                        reply
+                            .tokens
+                            .push(Token::decode(pending.as_slice()).unwrap());
                     }
                 }
             }

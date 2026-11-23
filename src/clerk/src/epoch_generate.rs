@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use briolette_proto::briolette::clerk::clerk_client::ClerkClient;
-use briolette_proto::briolette::clerk::{EpochData, EpochRequest, EpochUpdate, ExtendedEpochData};
+use briolette_proto::briolette::clerk::{
+    EpochData, EpochRequest, EpochUpdate, ExtendedEpochData, GroupPolicy,
+};
 use briolette_proto::briolette::tokenmap::revocation_data_request::Select;
 use briolette_proto::briolette::tokenmap::token_map_client::TokenMapClient;
 use briolette_proto::briolette::tokenmap::{RevocationDataRequest, SelectGroup};
@@ -72,6 +74,23 @@ async fn get_revoked_groups(
     )));
 }
 
+/// Key rotation procedure:
+///
+/// 1. Generate the new key pair (e.g. `openssl genpkey -algorithm EC ...`).
+/// 2. Run `epoch_generate` with the *new* primary key flags **and** pass the
+///    old key via the corresponding `--additional-*` flag.  Both keys will be
+///    published in the epoch so that tokens/tickets signed under either key
+///    remain valid during the transition window.
+/// 3. After at least one full epoch has elapsed (all clients refreshed),
+///    re-run `epoch_generate` *without* the `--additional-*` flag to drop
+///    the old key from the trusted set.
+///
+/// Example (rotating the mint key):
+/// ```sh
+/// epoch_generate --mint-public-key data/mint/mint_new.pk \
+///                --additional-mint-key data/mint/mint_old.pk
+/// ```
+
 // TODO(redpig): Move this into a helper to make it easier for testing to use.
 async fn make_epoch_update(args: &Args) -> EpochUpdate {
     let mut epoch_update = EpochUpdate::default();
@@ -86,6 +105,14 @@ async fn make_epoch_update(args: &Args) -> EpochUpdate {
     let pk_der = sk.public_key().to_public_key_der().unwrap().into_vec();
     let epoch_signer: SigningKey = sk.into();
     eed.epoch_signing_keys.push(pk_der.clone());
+    for path in &args.additional_epoch_signing_key {
+        let extra_sk = std::fs::read(path)
+            .unwrap_or_else(|_| panic!("could not read additional epoch key: {:?}", path));
+        let extra = SecretKey::from_pkcs8_der(extra_sk.as_slice())
+            .unwrap_or_else(|_| panic!("invalid PKCS8 in additional epoch key: {:?}", path));
+        eed.epoch_signing_keys
+            .push(extra.public_key().to_public_key_der().unwrap().into_vec());
+    }
     epoch_update.signing_key = pk_der;
 
     // Read ticket server public key
@@ -93,17 +120,47 @@ async fn make_epoch_update(args: &Args) -> EpochUpdate {
         .expect("Please generate Clerk keys before running!");
     // We'll need this to verify the response.
     eed.ticket_signing_keys.push(ticket_pk_in);
+    for path in &args.additional_ticket_signing_key {
+        let extra = std::fs::read(path)
+            .unwrap_or_else(|_| panic!("could not read additional ticket key: {:?}", path));
+        eed.ticket_signing_keys.push(extra);
+    }
     // We need to establish trust
     let mint_pk_in =
         std::fs::read(&args.mint_public_key).expect("Please generate Mint keys before running!");
     eed.mint_signing_keys.push(mint_pk_in);
+    for path in &args.additional_mint_key {
+        let extra = std::fs::read(path)
+            .unwrap_or_else(|_| panic!("could not read additional mint key: {:?}", path));
+        eed.mint_signing_keys.push(extra);
+    }
 
-    // Now load in a TTC gpk
+    // Now load in the default TTC gpk
     let ttc_gpk = std::fs::read(&args.ttc_group_public_key)
         .expect("Please generate wallet group keys before running!");
     eed.ttc_group_public_keys.push(ttc_gpk);
-    // TODO: Provide an out of bands mean for the servers to track acceptable NAC GPKs
-    // let nac_gpk = std::fs::read(&Path::new("../registar/data/wallet.nac.gpk")).unwrap();
+
+    // Load per-NAC-group policies mapping NAC GPKs to ticket lifetimes.
+    // All wallets share the same TTC group — differentiation is on NAC side.
+    for entry in &args.nac_group_policy {
+        let parts: Vec<&str> = entry.rsplitn(2, ':').collect();
+        if parts.len() != 2 {
+            panic!(
+                "invalid --nac-group-policy format '{}': expected FILE:LIFETIME",
+                entry
+            );
+        }
+        let lifetime: u32 = parts[0]
+            .parse()
+            .unwrap_or_else(|_| panic!("invalid lifetime in '{}'", entry));
+        let gpk_path = parts[1];
+        let gpk = std::fs::read(gpk_path)
+            .unwrap_or_else(|_| panic!("could not read NAC GPK: {}", gpk_path));
+        eed.group_policies.push(GroupPolicy {
+            nac_group_public_key: gpk,
+            ticket_lifetime: lifetime,
+        });
+    }
 
     // Add the service URIs
     // TODO(redpig): Populate via config server message or commandline args
@@ -179,6 +236,13 @@ struct Args {
         default_value = "data/clerk/epoch.sk"
     )]
     epoch_signing_secret_key: PathBuf,
+    // Additional epoch signing secret keys for key rotation transitions.
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Extra epoch signing secret key (PKCS8 DER) to include during rotation"
+    )]
+    additional_epoch_signing_key: Vec<PathBuf>,
     // Path to public Ticket Signing Key
     #[arg(
         short = 'T',
@@ -187,16 +251,28 @@ struct Args {
         default_value = "data/clerk/ticket.pk"
     )]
     ticket_signing_public_key: PathBuf,
+    // Additional ticket signing public keys for key rotation transitions.
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Extra ticket signing public key to include during rotation"
+    )]
+    additional_ticket_signing_key: Vec<PathBuf>,
     // Path to public mint key
-    // TODO(redpig) add list support
     #[arg(
         long,
         value_name = "FILE",
         default_value = "data/mint/mint.pk"
     )]
     mint_public_key: PathBuf,
+    // Additional mint public keys for key rotation transitions.
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Extra mint public key to include during rotation"
+    )]
+    additional_mint_key: Vec<PathBuf>,
     // Path to wallet token transfer ticket credential group public key (TTC-GPK)
-    // TODO(redpig) add list support
     // TODO(redpig) cross-check ttc_issuer.gpk matches wallet fetched gpk
     #[arg(
         short = 'W',
@@ -205,6 +281,16 @@ struct Args {
         default_value = "data/registrar/ttc_issuer.gpk"
     )]
     ttc_group_public_key: PathBuf,
+    // Per-NAC-group policies mapping NAC GPKs to ticket lifetimes.
+    // Format: "FILE:LIFETIME" e.g. "data/registrar/nac_low.gpk:3"
+    // These are published in the epoch's group_policies so the clerk
+    // can enforce differentiated ticket lifetimes per NAC group.
+    #[arg(
+        long,
+        value_name = "FILE:LIFETIME",
+        help = "NAC GPK with ticket lifetime (e.g. data/nac_low.gpk:3)"
+    )]
+    nac_group_policy: Vec<String>,
     // TokenMap server URI
     #[arg(
         long,

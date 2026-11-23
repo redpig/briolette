@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await
     .unwrap();
-    receiver.next_amount(2, 0.0);
+    receiver.next_amount(2, 0);
     tonic::transport::Server::builder()
         .add_service(ReceiverServer::new(receiver))
         .serve(addr)
