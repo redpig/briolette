@@ -13,7 +13,7 @@
 * create a revocation manager that handles the epochs and managing the revocation data life cycle
 * cross-server URIs as commandline flags
 * add epoch pk recovery from signature
-* recovery server and proof-of-binding
+* recovery server and proof-of-binding (DONE: see docs/design/recovery.md, src/recovery/, formal/RecoveryProtocol.tla)
 * implement max transfer limits
 * implement ticket max-transaction size tag
 * extensive unittesting and integration tests

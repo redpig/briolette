@@ -156,6 +156,15 @@ were the owner of the lost wallet, e.g., via a pre-established cryptographic bin
 then the briolette operator can treat those lost tokens as "swapped" and issue
 new tokens to the new wallet.
 
+The recovery protocol is fully specified in [recovery.md](recovery.md). It defines
+a proof-of-binding mechanism where wallets pre-register a recovery delegate (either
+an ECDSA P-256 backup key or another wallet's TTC credential) with a recovery
+server. After loss, the delegate proves authorization and receives replacement
+tokens drawn from the mint. The old wallet's credential group is revoked to prevent
+double-spending of recovered tokens. The `FindByHolder` RPC on the TokenMap
+enables the recovery server to locate all tokens last held by a given credential.
+See also `formal/RecoveryProtocol.tla` for the formal specification.
+
 
 ## Wallet view
 

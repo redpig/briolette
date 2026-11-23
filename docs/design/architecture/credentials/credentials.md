@@ -61,6 +61,27 @@ known and accepted by briolette system operators for the credential to be used.
 The issuer may require the wallet to have a proprietary key or perform some
 other service to be accepted for credential issuance.
 
+### Tiered NAC issuers and attestation
+
+The registrar maintains per-security-level NAC issuer keypairs (Low, Medium,
+High).  During registration, the registrar verifies hardware attestation
+(Android Key Attestation or Apple App Attest) and maps the result to a
+security level:
+
+- **Software / no attestation** → Low
+- **TEE or StrongBox / App Attest** → Medium
+- **Medium + valid split-key proof** (smartcard contribution) → High
+
+Each level has its own NAC group public key.  This means the clerk can apply
+different ticket policies per NAC group without knowing the attestation details.
+The `GroupPolicy` entries in `ExtendedEpochData` map each NAC group public key
+to a ticket lifetime (in epochs).  Lower-assurance groups receive shorter
+lifetimes; the lowest tier may be restricted to online-only (lifetime 0 or 1).
+
+All wallets share the same TTC group so they can transact with each other.  The
+differentiation is purely on the NAC (policy) side — merchants only see tickets
+with varying expiry, never the underlying security rationale.
+
 ## Network Access Credential (NAC)
 
 The NAC is used by a wallet to connect to briolette operator services and is
@@ -103,5 +124,57 @@ with its signature and assigns the first recipient of a token.
 This key is held by the ticket clerk service and is used to sign transfer tickets
 which are built from randomized TTCs and specific policy attributes, such as
 expiration times.
+
+## Trust bootstrap: app → registrar → system
+
+The wallet's trust root is its network registrar.  The app is configured with
+the registrar's address (currently via user input; in production this would be
+baked in by the wallet vendor or discovered via a well-known URI).  During
+registration (`RegisterCall`), the registrar returns `CredentialReply` messages
+for both the NAC and TTC.  Each reply includes the issuer's `group_public_key`,
+giving the wallet everything it needs to participate in the system:
+
+1. The **NAC group public key** — proves to operator services that the wallet
+   is legitimate and at what assurance tier.
+2. The **TTC group public key** — used to verify that transfer credentials and
+   tickets belong to the correct system.
+
+The wallet then connects to the clerk (whose address is provided by the
+registrar or discovered via the `ServiceMap` in `ExtendedEpochData`) and
+fetches its first `EpochUpdate`.  This update, signed by the epoch signing key,
+delivers the complete trust bundle: all TTC group public keys, epoch signing
+keys, ticket signing keys, mint signing keys, and service URIs.  On first
+contact the wallet trusts the epoch signing keys it receives, which is
+acceptable because it is bootstrapping from a registrar it already trusts.
+
+## Key rotation
+
+All key types in the system are rotatable via the `ExtendedEpochData` message
+distributed through signed `EpochUpdate`s.  Each key field is `repeated`,
+allowing the operator to publish overlapping key sets during a transition:
+
+- `ttc_group_public_keys` — token transfer credential group keys
+- `epoch_signing_keys` — keys that sign epoch updates themselves
+- `ticket_signing_keys` — keys the clerk uses to sign tickets
+- `mint_signing_keys` — keys the mint uses to sign token bases
+
+The rotation procedure is:
+
+1. **Overlap**: Add the new key alongside the old key in one epoch.
+2. **Migrate**: Start signing with the new key.  Wallets accept signatures
+   from any key in the list, so both old and new are valid.
+3. **Retire**: Drop the old key in a subsequent epoch once all wallets have
+   updated.
+
+The wallet validates signatures by checking the signing key against its
+current key list.  If the key is not recognized, the operation is rejected.
+This means key rotation propagates naturally through the epoch update
+mechanism with no special protocol messages required.
+
+NAC issuer key rotation follows a similar pattern but is managed at the
+registrar level.  The registrar can begin issuing credentials under a new NAC
+group key while the clerk continues to accept tickets from wallets holding
+credentials from the old key.  The old NAC group key remains in the clerk's
+`GroupPolicy` list until all wallets have re-registered.
 
 
